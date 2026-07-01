@@ -3034,6 +3034,68 @@ window.onload = function() {
         } catch(e) {}
     }
 };
+     
+// ============================================
+// ENREGISTREMENT DU SERVICE WORKER (PWA)
+// ============================================
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./service-worker.js')
+            .then((registration) => {
+                console.log('✅ Service Worker enregistré avec succès:', registration.scope);
+                
+                // Vérifier les mises à jour toutes les heures
+                setInterval(() => {
+                    registration.update();
+                }, 3600000);
+                
+                // Détecter une nouvelle version
+                registration.addEventListener('updatefound', () => {
+                    const newWorker = registration.installing;
+                    newWorker.addEventListener('statechange', () => {
+                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                            console.log('🔄 Nouvelle version disponible');
+                            if (confirm('Une nouvelle version est disponible. Recharger maintenant ?')) {
+                                newWorker.postMessage({ type: 'SKIP_WAITING' });
+                                window.location.reload();
+                            }
+                        }
+                    });
+                });
+            })
+            .catch((error) => {
+                console.error('❌ Erreur enregistrement Service Worker:', error);
+            });
+    });
+    
+    // Recharger la page quand un nouveau service worker prend le contrôle
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (refreshing) return;
+        refreshing = true;
+        window.location.reload();
+    });
+}
+
+// ============================================
+// DÉTECTION INSTALLATION PWA
+// ============================================
+let deferredPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    console.log('💡 L\'application peut être installée');
+    
+    // Afficher une notification à l'utilisateur
+    showNotification('💡 Cette application peut être installée sur votre appareil !', 'success');
+});
+
+window.addEventListener('appinstalled', () => {
+    console.log('🎉 Application installée avec succès !');
+    showNotification('🎉 Application installée avec succès !', 'success');
+    deferredPrompt = null;
+});
 </script>
 
 </body>

@@ -1,10 +1,3038 @@
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
-    <title>Mon site</title>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#1f3864" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1a1a2e" media="(prefers-color-scheme: dark)">
+<meta name="description" content="Système de gestion des Ordres de Travail de maintenance préventive">
+<meta name="application-name" content="OT PREVENTIF">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="OT PREVENTIF">
+<title>OT PREVENTIF - Système de Gestion de Maintenance</title>
+
+<!-- ============================================
+     PWA - Icônes de l'application
+     ============================================ -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔧</text></svg>">
+<link rel="apple-touch-icon" href="https://api.iconify.design/mdi/tools.svg?color=%231f3864&width=180&height=180">
+<meta name="msapplication-TileColor" content="#1f3864">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
+
+<style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    body { 
+        font-family: 'Segoe UI', Arial, sans-serif; 
+        background: #f0f2f5; 
+        padding: 20px;
+        -webkit-tap-highlight-color: transparent;
+    }
+    
+    .toolbar {
+        background: white; padding: 15px; border-radius: 8px;
+        margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1); align-items: center;
+        position: relative;
+    }
+    
+    .menu-toggle {
+        display: none;
+        background: #1f3864; color: white; border: none;
+        width: 44px; height: 44px; border-radius: 8px;
+        font-size: 22px; cursor: pointer; font-weight: bold;
+    }
+    
+    .btn {
+        padding: 10px 18px; border: none; border-radius: 5px;
+        cursor: pointer; font-weight: bold; font-size: 13px;
+        transition: all 0.2s; display: inline-flex; align-items: center; gap: 5px;
+        min-height: 40px;
+    }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-primary { background: #1f3864; color: white; }
+    .btn-primary:hover:not(:disabled) { background: #2e5c9e; }
+    .btn-success { background: #4caf50; color: white; }
+    .btn-warning { background: #ff9800; color: white; }
+    .btn-danger { background: #f44336; color: white; }
+    .btn-info { background: #2196f3; color: white; }
+    .btn-secondary { background: #757575; color: white; }
+    .btn-dashboard { background: linear-gradient(135deg, #667eea, #764ba2); color: white; }
+    .btn-dashboard:hover:not(:disabled) { background: linear-gradient(135deg, #5568d3, #6a3f93); }
+    
+    .file-status {
+        display: flex; gap: 15px; padding: 10px 15px;
+        background: #f8f9fa; border-radius: 5px; font-size: 12px;
+        border-left: 4px solid #ccc; flex-wrap: wrap;
+    }
+    .file-status.loaded { border-left-color: #4caf50; }
+    .status-item { display: flex; align-items: center; gap: 6px; }
+    .status-loaded { color: #4caf50; font-weight: bold; }
+    .status-empty { color: #999; }
+    
+    .file-input { display: none; }
+    
+    .welcome-screen {
+        background: white; padding: 60px 40px; border-radius: 10px;
+        text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        margin-top: 20px;
+    }
+    .welcome-icon { font-size: 80px; margin-bottom: 20px; }
+    .welcome-screen h1 { color: #1f3864; font-size: 28px; margin-bottom: 10px; }
+    .welcome-screen .subtitle { color: #666; font-size: 16px; margin-bottom: 40px; }
+    
+    .steps-container {
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 20px; max-width: 900px; margin: 0 auto;
+    }
+    .step-card {
+        background: #f8f9fa; padding: 25px; border-radius: 8px;
+        border-top: 4px solid #1f3864; text-align: left;
+    }
+    .step-card.done { border-top-color: #4caf50; background: #f1f8f4; }
+    .step-number {
+        display: inline-block; width: 32px; height: 32px;
+        background: #1f3864; color: white; border-radius: 50%;
+        text-align: center; line-height: 32px; font-weight: bold;
+        margin-bottom: 12px;
+    }
+    .step-card.done .step-number { background: #4caf50; }
+    .step-card h3 { color: #1f3864; margin-bottom: 10px; font-size: 16px; }
+    .step-card.done h3 { color: #2e7d32; }
+    .step-card p { color: #555; font-size: 13px; line-height: 1.5; margin-bottom: 15px; }
+    
+    .header {
+        background: linear-gradient(135deg, #1f3864, #2e5c9e);
+        color: white; padding: 15px; text-align: center;
+        border-radius: 8px 8px 0 0; font-weight: bold; font-size: 18px;
+    }
+    .legend {
+        background: #d9e2f3; padding: 8px; text-align: center;
+        font-style: italic; font-size: 12px; color: #1f3864;
+    }
+    
+    .table-container { 
+        overflow-x: auto; 
+        background: white; 
+        border-radius: 0 0 8px 8px; 
+        max-height: 600px;
+        -webkit-overflow-scrolling: touch;
+    }
+    table { width: 100%; border-collapse: collapse; background: white; font-size: 12px; }
+    th { background: #1f3864; color: white; padding: 8px; border: 1px solid #ccc; text-align: center; position: sticky; top: 0; z-index: 10; }
+    td { padding: 6px; border: 1px solid #ddd; text-align: center; }
+    
+    .row-header { background: #d9e2f3; font-weight: bold; color: #1f3864; }
+    .row-equipment:hover { background: #f5f9ff; }
+    .libelle { text-align: left; padding-left: 10px; }
+    
+    .total-date-cell { text-align: center !important; vertical-align: middle !important; font-weight: bold; }
+    
+    .ot-link {
+        background: #fff200; color: #0000EE; text-decoration: underline;
+        font-weight: bold; cursor: pointer; padding: 5px 10px;
+        border-radius: 3px; display: inline-block; min-width: 50px;
+        min-height: 32px;
+    }
+    .ot-link:hover { background: #ffeb3b; transform: scale(1.05); }
+    .ot-link.done { background: #4caf50; color: white; text-decoration: none; }
+    .ot-link.partial { background: #ff9800; color: white; text-decoration: none; }
+    .ot-link.notdone { background: #f44336; color: white; text-decoration: none; }
+    
+    .ot-nc {
+        background: #9e9e9e; color: white; font-weight: bold; padding: 3px 8px;
+        border-radius: 3px; display: inline-block; min-width: 50px;
+        cursor: not-allowed; opacity: 0.85;
+    }
+    
+    .etat-fait { background: #4caf50; color: white; font-weight: bold; padding: 3px 6px; border-radius: 3px; }
+    .etat-nonfait { background: #f44336; color: white; font-weight: bold; padding: 3px 6px; border-radius: 3px; }
+    .etat-partiel { background: #ff9800; color: white; font-weight: bold; padding: 3px 6px; border-radius: 3px; }
+    
+    .total-prevu { background: #fde9d9; font-weight: bold; }
+    .nombre-fait { background: #e2efda; font-weight: bold; }
+    
+    .mobile-cards-view {
+        display: none;
+        background: white;
+        border-radius: 0 0 8px 8px;
+        padding: 10px;
+    }
+    
+    .mobile-equipment-group { margin-bottom: 20px; }
+    
+    .mobile-group-header {
+        background: linear-gradient(135deg, #1f3864, #2e5c9e);
+        color: white; padding: 12px 15px; border-radius: 8px;
+        margin-bottom: 10px; font-weight: bold; font-size: 13px;
+    }
+    .mobile-group-header .group-type {
+        font-size: 11px; opacity: 0.9; margin-top: 3px; font-weight: normal;
+    }
+    
+    .mobile-ot-card {
+        background: white; border: 1px solid #e0e0e0; border-radius: 8px;
+        padding: 12px; margin-bottom: 10px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        display: grid; grid-template-columns: 1fr auto; gap: 10px;
+        align-items: center; transition: all 0.2s;
+    }
+    .mobile-ot-card:active { transform: scale(0.98); box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+    .mobile-ot-card.status-done { border-left: 4px solid #4caf50; }
+    .mobile-ot-card.status-partial { border-left: 4px solid #ff9800; }
+    .mobile-ot-card.status-notdone { border-left: 4px solid #f44336; }
+    .mobile-ot-card.status-nc { border-left: 4px solid #9e9e9e; }
+    .mobile-ot-card.status-pending { border-left: 4px solid #2196f3; }
+    
+    .mobile-ot-info { display: flex; flex-direction: column; gap: 4px; }
+    .mobile-ot-number { font-size: 16px; font-weight: bold; color: #1f3864; }
+    .mobile-ot-equip { font-size: 12px; color: #555; }
+    .mobile-ot-date { font-size: 11px; color: #777; display: flex; align-items: center; gap: 5px; }
+    .mobile-ot-status { text-align: center; }
+    
+    .mobile-status-badge {
+        display: inline-block; padding: 6px 12px; border-radius: 20px;
+        font-size: 11px; font-weight: bold; margin-bottom: 5px; min-width: 80px;
+    }
+    .mobile-status-badge.fait { background: #c8e6c9; color: #2e7d32; }
+    .mobile-status-badge.nonfait { background: #ffcdd2; color: #c62828; }
+    .mobile-status-badge.partiel { background: #ffe0b2; color: #e65100; }
+    .mobile-status-badge.nc { background: #e0e0e0; color: #424242; }
+    .mobile-status-badge.pending { background: #bbdefb; color: #1565c0; }
+    
+    .mobile-action-btn {
+        background: #1f3864; color: white; border: none;
+        padding: 8px 14px; border-radius: 5px; font-size: 11px;
+        font-weight: bold; cursor: pointer; margin-top: 4px; min-height: 36px;
+    }
+    .mobile-action-btn.done { background: #4caf50; }
+    .mobile-action-btn.partial { background: #ff9800; }
+    .mobile-action-btn.notdone { background: #f44336; }
+    
+    .mobile-filter-bar {
+        display: none; background: white; padding: 12px;
+        margin-bottom: 10px; border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08); gap: 8px; flex-wrap: wrap;
+    }
+    .mobile-search-input {
+        flex: 1; padding: 10px 12px; border: 1px solid #ddd;
+        border-radius: 6px; font-size: 14px; min-width: 150px;
+    }
+    .mobile-filter-select {
+        padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px;
+        font-size: 14px; background: white;
+    }
+    
+    .modal-overlay {
+        display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.6); z-index: 1000; justify-content: center; align-items: center;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+        background: white; width: 95%; max-width: 1200px; max-height: 95vh;
+        border-radius: 10px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        display: flex; flex-direction: column;
+    }
+    .modal-header {
+        background: linear-gradient(135deg, #7030a0, #9b59b6);
+        color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center;
+    }
+    .modal-header h2 { font-size: 16px; }
+    .modal-header .info { font-size: 12px; margin-top: 5px; opacity: 0.9; }
+    .close-btn {
+        background: white; color: #7030a0; border: none; width: 35px; height: 35px;
+        border-radius: 50%; font-size: 20px; cursor: pointer; font-weight: bold; flex-shrink: 0;
+    }
+    .modal-body { padding: 20px; overflow-y: auto; flex: 1; -webkit-overflow-scrolling: touch; }
+    
+    .tech-info {
+        background: #f8f9fa; padding: 15px; border-radius: 8px;
+        margin-bottom: 15px; border-left: 4px solid #7030a0;
+    }
+    .tech-info-row {
+        display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px;
+    }
+    .tech-info-row.dates { grid-template-columns: 1fr 1fr 1fr; }
+    .tech-info-row:last-child { margin-bottom: 0; }
+    .tech-info label { display: block; font-size: 11px; color: #555; font-weight: bold; margin-bottom: 3px; }
+    .tech-info input { 
+        width: 100%; padding: 10px; border: 1px solid #ccc; 
+        border-radius: 4px; font-size: 14px; min-height: 40px;
+    }
+    .tech-info input[readonly] { background: #e8f5e9; color: #2e7d32; font-weight: bold; cursor: not-allowed; }
+    .ecart-display {
+        background: #fff3e0; padding: 8px; border-radius: 4px;
+        font-size: 13px; font-weight: bold; color: #e65100;
+        border: 1px solid #ffb74d; text-align: center;
+        min-height: 40px; display: flex; align-items: center; justify-content: center;
+    }
+    .ecart-display.negative { background: #ffebee; color: #c62828; border-color: #ef5350; }
+    .ecart-display.zero { background: #e8f5e9; color: #2e7d32; border-color: #66bb6a; }
+    
+    .checklist-table { width: 100%; border-collapse: collapse; }
+    .checklist-table th { background: #7030a0; color: white; padding: 10px; font-size: 12px; }
+    .checklist-table td { padding: 10px; border: 1px solid #e0e0e0; font-size: 12px; vertical-align: top; }
+    
+    .action-row { transition: all 0.3s; }
+    .action-row.checked { background: #c8e6c9 !important; }
+    .action-row.unchecked { background: #ffcdd2 !important; }
+    
+    .check-cell { text-align: center; width: 50px; }
+    .check-cell input[type="checkbox"] { width: 24px; height: 24px; cursor: pointer; accent-color: #4caf50; }
+    .status-cell { text-align: center; width: 90px; font-weight: bold; }
+    .comment-input {
+        width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;
+        font-size: 13px; resize: vertical; min-height: 40px; font-family: inherit;
+    }
+    
+    .checklist-mobile-cards { display: none; }
+    
+    .checklist-mobile-card {
+        background: white; border: 1px solid #e0e0e0; border-radius: 8px;
+        padding: 15px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .checklist-mobile-card.checked { background: #c8e6c9; border-color: #4caf50; }
+    .checklist-mobile-card.unchecked { background: #ffcdd2; border-color: #f44336; }
+    
+    .checklist-card-header {
+        display: flex; justify-content: space-between; align-items: flex-start;
+        margin-bottom: 10px; gap: 10px;
+    }
+    .checklist-card-code {
+        background: #f5f5f5; padding: 4px 8px; border-radius: 4px;
+        font-family: monospace; font-size: 11px; color: #555;
+        font-weight: bold; flex-shrink: 0;
+    }
+    .checklist-card-check {
+        display: flex; align-items: center; gap: 8px;
+        background: white; padding: 8px 12px; border-radius: 20px;
+        font-size: 12px; font-weight: bold; cursor: pointer;
+        border: 2px solid #ddd; min-height: 40px;
+    }
+    .checklist-card-check input[type="checkbox"] {
+        width: 20px; height: 20px; cursor: pointer;
+    }
+    .checklist-card-description {
+        font-size: 14px; line-height: 1.5; color: #333; margin-bottom: 10px;
+    }
+    .checklist-card-comment {
+        width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;
+        font-size: 13px; resize: vertical; min-height: 50px;
+        font-family: inherit; background: white;
+    }
+    .checklist-card-status {
+        display: inline-block; padding: 4px 10px; border-radius: 12px;
+        font-size: 11px; font-weight: bold; margin-top: 8px;
+    }
+    .checklist-card-status.fait { background: #4caf50; color: white; }
+    .checklist-card-status.nonfait { background: #f44336; color: white; }
+    
+    .attachments-zone {
+        background: #e3f2fd; padding: 15px; border-radius: 8px;
+        margin-top: 15px; border-left: 4px solid #2196f3;
+    }
+    .attachments-zone label { font-weight: bold; color: #1565c0; }
+    .attachments-info { font-size: 11px; color: #555; margin: 5px 0 10px; }
+    .attachments-list { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+    .attachment-item {
+        background: white; padding: 10px; border-radius: 5px;
+        border: 1px solid #90caf9; display: flex; align-items: center;
+        gap: 12px; font-size: 12px;
+    }
+    .attachment-item .file-preview {
+        width: 60px; height: 60px; display: flex; align-items: center; justify-content: center;
+        border-radius: 5px; background: #f5f5f5; flex-shrink: 0; overflow: hidden;
+    }
+    .attachment-item .file-preview img { width: 100%; height: 100%; object-fit: cover; cursor: pointer; }
+    .attachment-item .file-preview .file-icon { font-size: 14px; font-weight: bold; color: #555; }
+    .attachment-item .file-info { flex: 1; overflow: hidden; }
+    .attachment-item .file-name { 
+        font-weight: bold; color: #1565c0; 
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 3px;
+    }
+    .attachment-item .file-size { font-size: 10px; color: #777; }
+    .attachment-item .file-actions { display: flex; gap: 5px; flex-shrink: 0; flex-wrap: wrap; }
+    .attachment-item .btn-action {
+        padding: 8px 12px; border: none; border-radius: 4px;
+        cursor: pointer; font-size: 11px; font-weight: bold;
+        display: inline-flex; align-items: center; gap: 4px; transition: all 0.2s;
+        min-height: 36px;
+    }
+    .btn-view { background: #2196f3; color: white; }
+    .btn-view:hover { background: #1976d2; }
+    .btn-download { background: #4caf50; color: white; }
+    .btn-download:hover { background: #388e3c; }
+    .btn-delete { background: #f44336; color: white; }
+    .btn-delete:hover { background: #c62828; }
+    
+    .upload-btn {
+        background: #2196f3; color: white; padding: 12px 20px;
+        border-radius: 5px; cursor: pointer; display: inline-block;
+        font-size: 13px; font-weight: bold; margin-top: 5px; min-height: 44px;
+    }
+    .upload-btn:hover { background: #1976d2; }
+    
+    .photo-capture-btn {
+        background: #4caf50; color: white; padding: 12px 20px;
+        border-radius: 5px; cursor: pointer; display: none;
+        font-size: 13px; font-weight: bold; margin-top: 5px; margin-left: 5px;
+        min-height: 44px;
+    }
+    
+    .signature-zone {
+        background: #fff3e0; padding: 15px; border-radius: 8px;
+        margin-top: 15px; border-left: 4px solid #ff9800;
+    }
+    .signature-pad { 
+        border: 2px dashed #999; background: white; cursor: crosshair; 
+        display: block; margin-top: 10px;
+        max-width: 100%; height: auto; touch-action: none;
+    }
+    
+    .modal-footer {
+        background: #f5f5f5; padding: 15px 20px; display: flex;
+        justify-content: space-between; align-items: center; border-top: 1px solid #ddd; flex-wrap: wrap; gap: 10px;
+    }
+    .progress-info { font-size: 13px; color: #555; }
+    .progress-info strong { color: #1f3864; font-size: 15px; }
+    
+    .summary-bar {
+        background: white; padding: 15px; margin-top: 15px;
+        border-radius: 8px; display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;
+    }
+    .stat-box { 
+        padding: 12px 20px; border-radius: 5px; text-align: center; 
+        min-width: 110px; flex: 1; max-width: 180px;
+    }
+    .stat-box.total { background: #d9e2f3; color: #1f3864; }
+    .stat-box.fait { background: #c8e6c9; color: #2e7d32; }
+    .stat-box.nonfait { background: #ffcdd2; color: #c62828; }
+    .stat-box.partiel { background: #ffe0b2; color: #e65100; }
+    .stat-box.encours { background: #f0f0f0; color: #555; }
+    .stat-box.nc-box { background: #e0e0e0; color: #424242; }
+    .stat-box .number { font-size: 26px; font-weight: bold; display: block; }
+    .stat-box .label { font-size: 11px; text-transform: uppercase; }
+    
+    .notification {
+        position: fixed; top: 20px; right: 20px; padding: 15px 25px;
+        background: #4caf50; color: white; border-radius: 5px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 2000;
+        opacity: 0; transition: opacity 0.3s; font-weight: bold; max-width: 400px;
+    }
+    .notification.show { opacity: 1; }
+    .notification.error { background: #f44336; }
+    .notification.warning { background: #ff9800; }
+    
+    .hidden { display: none !important; }
+    
+    .preview-modal {
+        display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.9); z-index: 3000; justify-content: center; align-items: center;
+    }
+    .preview-modal.active { display: flex; }
+    .preview-modal img { max-width: 90%; max-height: 90%; }
+    .preview-modal iframe { width: 90%; height: 90%; background: white; border: none; }
+    .preview-modal .close-preview {
+        position: absolute; top: 20px; right: 30px; color: white;
+        font-size: 40px; cursor: pointer; z-index: 3001;
+        width: 50px; height: 50px; display: flex; align-items: center; justify-content: center;
+        background: none; border: none;
+    }
+    
+    .dashboard-modal {
+        display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.7); z-index: 1500; justify-content: center; align-items: center;
+        padding: 20px;
+    }
+    .dashboard-modal.active { display: flex; }
+    
+    .dashboard-container {
+        background: #f5f7fa; width: 100%; max-width: 1400px; max-height: 95vh;
+        border-radius: 12px; overflow: hidden; display: flex; flex-direction: column;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    
+    .dashboard-header {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white; padding: 20px 30px;
+        display: flex; justify-content: space-between; align-items: center;
+        flex-wrap: wrap; gap: 10px;
+    }
+    .dashboard-header h1 {
+        font-size: 22px; font-weight: bold; display: flex; align-items: center; gap: 10px;
+    }
+    .dashboard-header .subtitle { font-size: 12px; opacity: 0.9; margin-top: 4px; }
+    .dashboard-header .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .dashboard-header .btn-header {
+        padding: 10px 15px; border: 2px solid white; background: transparent;
+        color: white; border-radius: 5px; cursor: pointer; font-weight: bold;
+        font-size: 12px; transition: all 0.2s; min-height: 40px;
+    }
+    .dashboard-header .btn-header:hover { background: white; color: #667eea; }
+    .dashboard-header .btn-close-dash {
+        background: white; color: #667eea; width: 40px; height: 40px;
+        border: none; border-radius: 50%; font-size: 22px; cursor: pointer; font-weight: bold;
+    }
+    
+    .dashboard-body {
+        padding: 25px; overflow-y: auto; flex: 1; background: #f5f7fa;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    .kpi-grid {
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 20px; margin-bottom: 25px;
+    }
+    .kpi-card {
+        background: white; padding: 20px; border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        border-left: 4px solid #667eea; transition: transform 0.2s;
+        position: relative; overflow: hidden;
+    }
+    .kpi-card:hover { transform: translateY(-3px); box-shadow: 0 5px 20px rgba(0,0,0,0.12); }
+    .kpi-card.success { border-left-color: #4caf50; }
+    .kpi-card.warning { border-left-color: #ff9800; }
+    .kpi-card.danger { border-left-color: #f44336; }
+    .kpi-card.info { border-left-color: #2196f3; }
+    
+    .kpi-card .kpi-label {
+        font-size: 11px; color: #777; text-transform: uppercase;
+        font-weight: bold; letter-spacing: 0.5px;
+    }
+    .kpi-card .kpi-value {
+        font-size: 32px; font-weight: bold; color: #333;
+        margin: 8px 0; display: flex; align-items: baseline; gap: 5px;
+    }
+    .kpi-card .kpi-value .unit { font-size: 14px; color: #999; font-weight: normal; }
+    .kpi-card .kpi-target { font-size: 10px; color: #999; margin-top: 8px; }
+    .kpi-card .kpi-icon {
+        position: absolute; top: 15px; right: 15px;
+        font-size: 30px; opacity: 0.15;
+    }
+    
+    .kpi-progress {
+        margin-top: 8px; background: #f0f0f0; height: 6px;
+        border-radius: 3px; overflow: hidden;
+    }
+    .kpi-progress-fill {
+        height: 100%; transition: width 0.5s ease; border-radius: 3px;
+    }
+    .kpi-progress-fill.success { background: linear-gradient(90deg, #66bb6a, #4caf50); }
+    .kpi-progress-fill.warning { background: linear-gradient(90deg, #ffa726, #ff9800); }
+    .kpi-progress-fill.danger { background: linear-gradient(90deg, #ef5350, #f44336); }
+    
+    .charts-row { display: grid; gap: 20px; margin-bottom: 25px; }
+    .charts-row.row-2 { grid-template-columns: 1fr 1fr; }
+    .charts-row.row-3 { grid-template-columns: repeat(3, 1fr); }
+    .charts-row.row-full { grid-template-columns: 1fr; }
+    
+    .chart-card {
+        background: white; padding: 20px; border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+    }
+    .chart-card h3 {
+        font-size: 14px; color: #333; margin-bottom: 5px;
+        display: flex; align-items: center; gap: 8px;
+    }
+    .chart-card .chart-subtitle { font-size: 11px; color: #999; margin-bottom: 15px; }
+    .chart-container { position: relative; height: 280px; }
+    .chart-container.tall { height: 350px; }
+    
+    .dashboard-table-card {
+        background: white; padding: 20px; border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.08); margin-bottom: 25px;
+        overflow-x: auto;
+    }
+    .dashboard-table-card h3 {
+        font-size: 14px; color: #333; margin-bottom: 15px;
+        display: flex; align-items: center; gap: 8px;
+    }
+    .dashboard-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .dashboard-table thead th {
+        background: #f8f9fa; color: #555; padding: 10px;
+        text-align: left; border-bottom: 2px solid #e0e0e0;
+        font-weight: bold; font-size: 11px; text-transform: uppercase; position: static;
+    }
+    .dashboard-table tbody td { padding: 10px; border-bottom: 1px solid #f0f0f0; text-align: left; }
+    .dashboard-table tbody tr:hover { background: #f8f9fa; }
+    .dashboard-table .badge {
+        display: inline-block; padding: 3px 8px; border-radius: 12px;
+        font-size: 10px; font-weight: bold;
+    }
+    .badge-success { background: #e8f5e9; color: #2e7d32; }
+    .badge-warning { background: #fff3e0; color: #e65100; }
+    .badge-danger { background: #ffebee; color: #c62828; }
+    .badge-info { background: #e3f2fd; color: #1565c0; }
+    
+    .dashboard-empty { text-align: center; padding: 60px 20px; color: #999; }
+    .dashboard-empty .icon { font-size: 60px; margin-bottom: 15px; opacity: 0.3; }
+    
+    .dashboard-section-title {
+        font-size: 16px; color: #333; font-weight: bold;
+        margin: 20px 0 15px 0; padding-bottom: 8px;
+        border-bottom: 2px solid #e0e0e0;
+        display: flex; align-items: center; gap: 8px;
+    }
+    
+    .mini-progress {
+        display: inline-block; width: 80px; height: 8px;
+        background: #f0f0f0; border-radius: 4px; overflow: hidden;
+        vertical-align: middle; margin-right: 5px;
+    }
+    .mini-progress-fill { height: 100%; transition: width 0.3s; }
+    
+    .offline-indicator {
+        position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+        background: #f44336; color: white; padding: 8px 20px;
+        border-radius: 20px; font-size: 12px; font-weight: bold;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 2500; display: none;
+    }
+    .offline-indicator.show { display: block; }
+    
+    .mobile-fab {
+        display: none; position: fixed; bottom: 20px; right: 20px;
+        width: 56px; height: 56px;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white; border: none; border-radius: 50%;
+        font-size: 24px; cursor: pointer;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        z-index: 999; align-items: center; justify-content: center;
+    }
+    
+    @media (max-width: 1024px) {
+        .charts-row.row-2, .charts-row.row-3 { grid-template-columns: 1fr; }
+        .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+        .modal { width: 98%; max-width: 98%; max-height: 98vh; }
+        .tech-info-row.dates { grid-template-columns: 1fr 1fr; }
+        .welcome-screen { padding: 40px 20px; }
+        .welcome-screen h1 { font-size: 24px; }
+    }
+    
+    @media (max-width: 768px) {
+        body { padding: 10px; }
+        
+        .toolbar { padding: 10px; gap: 8px; position: relative; }
+        .menu-toggle { display: flex; align-items: center; justify-content: center; }
+        
+        .toolbar-buttons {
+            display: none; width: 100%; flex-direction: column; gap: 8px;
+            margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee;
+        }
+        .toolbar-buttons.active { display: flex; }
+        .toolbar-buttons .btn, .toolbar-buttons label {
+            width: 100%; justify-content: center; font-size: 14px;
+            padding: 12px 15px; min-height: 48px;
+        }
+        .toolbar-title {
+            flex: 1; font-weight: bold; color: #1f3864;
+            font-size: 15px; margin-left: 10px;
+        }
+        
+        .file-status { flex-direction: column; gap: 8px; font-size: 13px; }
+        
+        .welcome-screen { padding: 30px 15px; }
+        .welcome-icon { font-size: 60px; }
+        .welcome-screen h1 { font-size: 22px; }
+        .welcome-screen .subtitle { font-size: 14px; }
+        .steps-container { grid-template-columns: 1fr; gap: 12px; }
+        .step-card { padding: 18px; }
+        
+        .header { font-size: 15px; padding: 12px 10px; }
+        .legend { font-size: 10px; padding: 6px; }
+        
+        .table-container { display: none; }
+        .mobile-cards-view { display: block; }
+        .mobile-filter-bar { display: flex; }
+        
+        .summary-bar { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; }
+        .stat-box { min-width: auto; padding: 10px 8px; }
+        .stat-box .number { font-size: 22px; }
+        .stat-box .label { font-size: 10px; }
+        
+        .modal-overlay { padding: 0; }
+        .modal { width: 100%; height: 100%; max-width: 100%; max-height: 100%; border-radius: 0; }
+        .modal-header { padding: 12px 15px; }
+        .modal-header h2 { font-size: 15px; }
+        .modal-header .info { font-size: 11px; }
+        .modal-body { padding: 12px; }
+        .tech-info { padding: 12px; }
+        .tech-info-row, .tech-info-row.dates { grid-template-columns: 1fr; }
+        
+        .checklist-table { display: none; }
+        .checklist-mobile-cards { display: block; }
+        
+        .modal-footer { padding: 12px; flex-direction: column; gap: 10px; }
+        .modal-footer > div { width: 100%; display: flex; flex-direction: column; gap: 8px; }
+        .modal-footer .btn { width: 100%; justify-content: center; min-height: 48px; }
+        
+        .attachment-item { flex-wrap: wrap; }
+        .attachment-item .file-info { min-width: 100%; order: -1; }
+        .attachment-item .file-actions { width: 100%; justify-content: space-around; }
+        .attachment-item .btn-action { flex: 1; justify-content: center; }
+        
+        .photo-capture-btn { display: inline-block; }
+        .signature-pad { width: 100%; height: 150px; }
+        
+        .dashboard-modal { padding: 0; }
+        .dashboard-container { width: 100%; height: 100%; max-width: 100%; max-height: 100%; border-radius: 0; }
+        .dashboard-header { padding: 12px 15px; flex-direction: column; align-items: stretch; }
+        .dashboard-header h1 { font-size: 16px; }
+        .dashboard-header .subtitle { font-size: 10px; }
+        .dashboard-header .actions { justify-content: space-between; margin-top: 10px; }
+        .dashboard-body { padding: 12px; }
+        .kpi-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+        .kpi-card { padding: 15px 10px; }
+        .kpi-card .kpi-value { font-size: 24px; }
+        .kpi-card .kpi-icon { font-size: 22px; top: 10px; right: 10px; }
+        .kpi-card .kpi-label { font-size: 9px; }
+        .kpi-card .kpi-target { font-size: 9px; }
+        .chart-container { height: 220px; }
+        .chart-container.tall { height: 280px; }
+        .chart-card { padding: 15px; }
+        .chart-card h3 { font-size: 13px; }
+        .dashboard-section-title { font-size: 14px; }
+        .dashboard-table { font-size: 10px; }
+        .dashboard-table thead th { padding: 6px 4px; font-size: 9px; }
+        .dashboard-table tbody td { padding: 6px 4px; }
+        
+        .mobile-fab { display: flex; }
+        
+        .notification { top: 10px; right: 10px; left: 10px; max-width: none; font-size: 13px; padding: 12px 18px; }
+        
+        .preview-modal img, .preview-modal iframe { max-width: 100%; max-height: 100%; width: 100%; height: 100%; }
+    }
+    
+    @media (max-width: 480px) {
+        .welcome-screen h1 { font-size: 20px; }
+        .welcome-icon { font-size: 50px; }
+        .kpi-grid { grid-template-columns: 1fr; }
+        .summary-bar { grid-template-columns: 1fr 1fr; }
+        .stat-box .number { font-size: 20px; }
+        .mobile-ot-card { grid-template-columns: 1fr; gap: 8px; }
+        .mobile-ot-status { text-align: left; display: flex; justify-content: space-between; align-items: center; }
+        .mobile-status-badge { margin-bottom: 0; }
+    }
+    
+    @media (max-height: 500px) and (orientation: landscape) {
+        .modal { max-height: 100vh; }
+        .signature-pad { height: 100px; }
+    }
+    
+    @media print {
+        .toolbar, .menu-toggle, .file-status, .mobile-fab,
+        .modal-overlay, .dashboard-modal, .notification {
+            display: none !important;
+        }
+    }
+</style>
 </head>
 <body>
-    <h1>Bienvenue sur mon site</h1>
-    <p>Site hébergé avec GitHub Pages.</p>
+
+<div class="toolbar">
+    <button class="menu-toggle" onclick="toggleMobileMenu()" 
+            aria-label="Ouvrir le menu" aria-expanded="false" id="menuToggleBtn">☰</button>
+    
+    <div class="toolbar-title" id="toolbarTitle" style="display:none;">🔧 OT PREVENTIF</div>
+    
+    <div class="toolbar-buttons" id="toolbarButtons">
+        <label for="planningFile" class="btn btn-primary">📋 Charger Planning OT</label>
+        <input type="file" id="planningFile" name="planningFile" class="file-input" 
+               accept=".xlsx,.xls" onchange="loadPlanningFile(event)" 
+               aria-label="Charger le fichier Excel du planning">
+        
+        <label for="checklistFile" class="btn btn-primary">✅ Charger Check-lists</label>
+        <input type="file" id="checklistFile" name="checklistFile" class="file-input" 
+               accept=".xlsx,.xls" onchange="loadChecklistFile(event)" 
+               aria-label="Charger le fichier Excel des check-lists">
+        
+        <button class="btn btn-dashboard" id="btnDashboard" onclick="openDashboard()" disabled>📊 Tableau de Bord KPI</button>
+        <button class="btn btn-success" id="btnExportExcel" onclick="exportExcel()" disabled>📥 Exporter Excel</button>
+        <button class="btn btn-info" id="btnExportPDF" onclick="exportAllPDF()" disabled>📄 Export PDF Global</button>
+        <button class="btn btn-warning" id="btnSave" onclick="saveToLocalStorage()" disabled>💾 Sauvegarder</button>
+        <button class="btn btn-secondary" onclick="loadFromLocalStorage()">🔄 Recharger</button>
+        <button class="btn btn-danger" onclick="resetAll()">🗑️ Réinitialiser</button>
+    </div>
+</div>
+
+<div class="file-status" id="fileStatus">
+    <div class="status-item">
+        <span>📋 Planning OT :</span>
+        <span class="status-empty" id="planningStatus">Non chargé</span>
+    </div>
+    <div class="status-item">
+        <span>✅ Check-lists :</span>
+        <span class="status-empty" id="checklistStatus">Non chargé</span>
+    </div>
+</div>
+
+<div class="welcome-screen" id="welcomeScreen">
+    <div class="welcome-icon" aria-hidden="true">📊</div>
+    <h1>Système de Gestion OT Préventif</h1>
+    <p class="subtitle">Pour commencer, veuillez charger vos deux fichiers Excel</p>
+    
+    <div class="steps-container">
+        <div class="step-card" id="step1">
+            <div class="step-number">1</div>
+            <h3>Charger le Planning OT</h3>
+            <p>Fichier Excel contenant le planning mensuel des OT.</p>
+            <p><strong>Status :</strong> <span id="step1Status">En attente...</span></p>
+        </div>
+        <div class="step-card" id="step2">
+            <div class="step-number">2</div>
+            <h3>Charger les Check-lists</h3>
+            <p>Fichier Excel contenant les actions détaillées.</p>
+            <p><strong>Status :</strong> <span id="step2Status">En attente...</span></p>
+        </div>
+        <div class="step-card" id="step3">
+            <div class="step-number">3</div>
+            <h3>Utiliser le système</h3>
+            <p>Cliquez sur un numéro d'OT pour accéder à sa check-list.</p>
+            <p><strong>Status :</strong> <span id="step3Status">En attente...</span></p>
+        </div>
+    </div>
+</div>
+
+<div id="workspace" class="hidden">
+    <div class="header" id="mainHeader">OT PREVENTIF</div>
+    <div class="legend">
+        Légende : A=annuel | M=mensuel | S=semestriel | H=hebdo | T=trimestriel | NC=non communiqué | Etat: F=Fait / NF=Non Fait / P=Partiel
+    </div>
+
+    <div class="mobile-filter-bar" id="mobileFilterBar">
+        <input type="search" class="mobile-search-input" id="mobileSearch" name="mobileSearch"
+               placeholder="🔍 Rechercher OT, équipement..." onkeyup="filterMobileCards()" 
+               aria-label="Rechercher un OT ou un équipement">
+        <select class="mobile-filter-select" id="mobileStatusFilter" name="mobileStatusFilter" 
+                onchange="filterMobileCards()" aria-label="Filtrer par statut">
+            <option value="">Tous statuts</option>
+            <option value="pending">⏳ En attente</option>
+            <option value="done">✅ Faits</option>
+            <option value="partial">⚠️ Partiels</option>
+            <option value="notdone">❌ Non faits</option>
+            <option value="nc">📭 NC</option>
+        </select>
+    </div>
+
+    <div class="table-container">
+        <table id="planningTable">
+            <thead id="planningHead"></thead>
+            <tbody id="planningBody"></tbody>
+        </table>
+    </div>
+    
+    <div class="mobile-cards-view" id="mobileCardsView"></div>
+
+    <div class="summary-bar">
+        <div class="stat-box total"><span class="number" id="statTotal">0</span><span class="label">Total OT</span></div>
+        <div class="stat-box fait"><span class="number" id="statFait">0</span><span class="label">Faits</span></div>
+        <div class="stat-box partiel"><span class="number" id="statPartiel">0</span><span class="label">Partiels</span></div>
+        <div class="stat-box nonfait"><span class="number" id="statNonFait">0</span><span class="label">Non Faits</span></div>
+        <div class="stat-box encours"><span class="number" id="statEncours">0</span><span class="label">En attente</span></div>
+        <div class="stat-box nc-box"><span class="number" id="statNC">0</span><span class="label">NC (non comm.)</span></div>
+    </div>
+</div>
+
+<button class="mobile-fab" onclick="openDashboard()" title="Dashboard KPI" 
+        aria-label="Ouvrir le tableau de bord">📊</button>
+
+<div class="offline-indicator" id="offlineIndicator" role="status" aria-live="polite">
+    📡 Mode hors ligne
+</div>
+
+<div class="modal-overlay" id="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal">
+        <div class="modal-header">
+            <div>
+                <h2 id="modalTitle">Check-list OT</h2>
+                <div class="info" id="modalInfo"></div>
+            </div>
+            <button class="close-btn" onclick="closeModal()" 
+                    aria-label="Fermer la fenêtre" title="Fermer">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="tech-info">
+                <div class="tech-info-row">
+                    <div>
+                        <label for="techName">👷 Nom du Technicien *</label>
+                        <input type="text" id="techName" name="techName" placeholder="Ex: AHMED BENALI" 
+                               aria-label="Nom du technicien" autocomplete="name">
+                    </div>
+                    <div>
+                        <label for="site">🏢 Site</label>
+                        <input type="text" id="site" name="site" placeholder="Ex: AG Type B LARACHE" 
+                               aria-label="Nom du site">
+                    </div>
+                </div>
+                <div class="tech-info-row dates">
+                    <div>
+                        <label for="dateDebut">📅 Date Début (Planning)</label>
+                        <input type="datetime-local" id="dateDebut" name="dateDebut" readonly 
+                               aria-label="Date de début planifiée">
+                    </div>
+                    <div>
+                        <label for="dateFin">📅 Date Fin (Réalisation)</label>
+                        <input type="datetime-local" id="dateFin" name="dateFin" onchange="calculateEcart()" 
+                               aria-label="Date de fin de réalisation">
+                    </div>
+                    <div>
+                        <label for="ecartDisplay">⏱️ Écart</label>
+                        <div class="ecart-display" id="ecartDisplay" role="status" aria-live="polite">En attente...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <table class="checklist-table">
+                <thead>
+                    <tr>
+                        <th style="width:50px;">Fait</th>
+                        <th>Description de l'intervention / Action</th>
+                        <th style="width:110px;">Code</th>
+                        <th style="width:250px;">Commentaire</th>
+                        <th style="width:90px;">Statut</th>
+                    </tr>
+                </thead>
+                <tbody id="checklistBody"></tbody>
+            </table>
+            
+            <div class="checklist-mobile-cards" id="checklistMobileCards"></div>
+            
+            <div class="attachments-zone">
+                <label for="fileUpload">📎 Pièces Jointes (Devis, Photos, Documents)</label>
+                <p class="attachments-info">Joindre les justificatifs pour les actions non réalisées. Formats : JPG, PNG, PDF, DOC, XLS (max 5MB par fichier)</p>
+                <label for="fileUpload" class="upload-btn">+ Ajouter un fichier</label>
+                <input type="file" id="fileUpload" name="fileUpload" class="file-input" multiple 
+                       accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" 
+                       onchange="handleFileUpload(event)" 
+                       aria-label="Ajouter des pièces jointes">
+                
+                <label for="cameraUpload" class="photo-capture-btn">📷 Prendre photo</label>
+                <input type="file" id="cameraUpload" name="cameraUpload" class="file-input" 
+                       accept="image/*" capture="environment"
+                       onchange="handleFileUpload(event)" 
+                       aria-label="Prendre une photo">
+                       
+                <div class="attachments-list" id="attachmentsList"></div>
+            </div>
+            
+            <div class="signature-zone">
+                <label for="signaturePad" style="font-weight:bold; color:#e65100;">✍️ Signature du Technicien :</label>
+                <canvas class="signature-pad" id="signaturePad" width="500" height="120" 
+                        role="img" aria-label="Zone de signature du technicien">
+                    Zone de signature - Utilisez un appareil tactile ou la souris pour signer
+                </canvas>
+                <button class="btn btn-secondary" style="margin-top:8px; padding:8px 14px; font-size:12px;" 
+                        onclick="clearSignature()" aria-label="Effacer la signature">Effacer signature</button>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <div class="progress-info">
+                Progression : <strong id="progressText">0 / 0</strong> actions
+            </div>
+            <div>
+                <button class="btn btn-info" onclick="exportChecklistPDF()" aria-label="Exporter en PDF">📄 Export PDF</button>
+                <button class="btn btn-secondary" onclick="closeModal()" aria-label="Annuler les modifications">Annuler</button>
+                <button class="btn btn-success" onclick="saveChecklist()" aria-label="Enregistrer la check-list">💾 Enregistrer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="dashboard-modal" id="dashboardModal" role="dialog" aria-modal="true" aria-labelledby="dashboardTitle">
+    <div class="dashboard-container">
+        <div class="dashboard-header">
+            <div>
+                <h1 id="dashboardTitle">📊 Tableau de Bord - Maintenance</h1>
+                <div class="subtitle" id="dashboardSubtitle">Vue d'ensemble des indicateurs</div>
+            </div>
+            <div class="actions">
+                <button class="btn-header" onclick="exportDashboardPDF()" aria-label="Exporter le dashboard en PDF">📄 PDF</button>
+                <button class="btn-header" onclick="refreshDashboard()" aria-label="Actualiser le dashboard">🔄</button>
+                <button class="btn-close-dash" onclick="closeDashboard()" 
+                        aria-label="Fermer le tableau de bord" title="Fermer">×</button>
+            </div>
+        </div>
+        <div class="dashboard-body" id="dashboardBody"></div>
+    </div>
+</div>
+
+<div class="preview-modal" id="previewModal" role="dialog" aria-modal="true" aria-label="Aperçu de la pièce jointe">
+    <button class="close-preview" onclick="closePreview()" 
+            aria-label="Fermer l'aperçu" title="Fermer">×</button>
+    <div id="previewContent"></div>
+</div>
+
+<div class="notification" id="notification" role="alert" aria-live="polite"></div>
+
+<script>
+let planningData = [];
+let checklistData = {};
+let planningHeaders = [];
+let otStates = {};
+let currentOT = null;
+let currentKey = null;
+let currentOTDate = null;
+let currentSiteName = '';
+let planningLoaded = false;
+let checklistLoaded = false;
+let mainHeaderText = '';
+let annexesData = [];
+let annexePageMap = {};
+let chartsInstances = {};
+
+function toggleMobileMenu() {
+    const btn = document.getElementById('menuToggleBtn');
+    const menu = document.getElementById('toolbarButtons');
+    menu.classList.toggle('active');
+    const isOpen = menu.classList.contains('active');
+    btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    btn.setAttribute('aria-label', isOpen ? 'Fermer le menu' : 'Ouvrir le menu');
+}
+
+function isMobile() { return window.innerWidth <= 768; }
+
+function updateMobileToolbarTitle() {
+    const title = document.getElementById('toolbarTitle');
+    if (isMobile()) title.style.display = 'block';
+    else title.style.display = 'none';
+}
+
+function renderMobileCardsView() {
+    const container = document.getElementById('mobileCardsView');
+    container.innerHTML = '';
+    let groupDiv = null;
+    
+    planningData.forEach(row => {
+        if (row.type === 'header') {
+            groupDiv = document.createElement('div');
+            groupDiv.className = 'mobile-equipment-group';
+            const headerDiv = document.createElement('div');
+            headerDiv.className = 'mobile-group-header';
+            headerDiv.innerHTML = `<div>${row.materiel}</div><div class="group-type">${row.libelle || ''}</div>`;
+            groupDiv.appendChild(headerDiv);
+            container.appendChild(groupDiv);
+        } else if (row.type === 'row' && groupDiv) {
+            row.ots.forEach((ot, otIdx) => {
+                const otStr = String(ot || '').trim();
+                if (!otStr) return;
+                const datePlanning = (window.dateColumns && window.dateColumns[otIdx]) || '';
+                const card = document.createElement('div');
+                card.dataset.search = (otStr + ' ' + row.materiel + ' ' + (row.libelle || '')).toLowerCase();
+                
+                if (isNC(otStr)) {
+                    card.className = 'mobile-ot-card status-nc';
+                    card.dataset.status = 'nc';
+                    card.innerHTML = `
+                        <div class="mobile-ot-info">
+                            <div class="mobile-ot-number">📭 ${otStr}</div>
+                            <div class="mobile-ot-equip">${row.materiel}</div>
+                            <div class="mobile-ot-equip">${row.libelle || ''}</div>
+                            <div class="mobile-ot-date">📅 ${datePlanning}</div>
+                        </div>
+                        <div class="mobile-ot-status">
+                            <div class="mobile-status-badge nc">Non communiqué</div>
+                        </div>`;
+                } else {
+                    const state = otStates[otStr];
+                    let statusClass = 'pending', statusLabel = '⏳ En attente', cardClass = 'status-pending', btnClass = '';
+                    if (state && state.status === 'F') { statusClass = 'fait'; statusLabel = '✅ FAIT'; cardClass = 'status-done'; btnClass = 'done'; }
+                    else if (state && state.status === 'NF') { statusClass = 'nonfait'; statusLabel = '❌ NON FAIT'; cardClass = 'status-notdone'; btnClass = 'notdone'; }
+                    else if (state && state.status === 'P') { statusClass = 'partiel'; statusLabel = '⚠️ PARTIEL'; cardClass = 'status-partial'; btnClass = 'partial'; }
+                    
+                    card.className = 'mobile-ot-card ' + cardClass;
+                    card.dataset.status = statusClass === 'pending' ? 'pending' : (statusClass === 'fait' ? 'done' : (statusClass === 'partiel' ? 'partial' : 'notdone'));
+                    const libelleEscaped = (row.libelle || '').replace(/'/g, "\\'");
+                    card.innerHTML = `
+                        <div class="mobile-ot-info">
+                            <div class="mobile-ot-number">🔧 ${otStr}</div>
+                            <div class="mobile-ot-equip">${row.materiel}</div>
+                            <div class="mobile-ot-equip">${row.libelle || ''}</div>
+                            <div class="mobile-ot-date">📅 ${datePlanning}</div>
+                            ${state && state.technicien ? '<div class="mobile-ot-date">👷 ' + state.technicien + '</div>' : ''}
+                        </div>
+                        <div class="mobile-ot-status">
+                            <div class="mobile-status-badge ${statusClass}">${statusLabel}</div>
+                            <button class="mobile-action-btn ${btnClass}" 
+                                    onclick="openChecklist('${otStr}','${row.materiel}','${row.interventionType}','${libelleEscaped}','${datePlanning}')"
+                                    aria-label="${state && state.technicien ? 'Modifier' : 'Commencer'} l'OT ${otStr}">
+                                ${state && state.technicien ? '✏️ Modifier' : '▶️ Commencer'}
+                            </button>
+                        </div>`;
+                }
+                groupDiv.appendChild(card);
+            });
+        }
+    });
+}
+
+function filterMobileCards() {
+    const search = document.getElementById('mobileSearch').value.toLowerCase();
+    const statusFilter = document.getElementById('mobileStatusFilter').value;
+    document.querySelectorAll('.mobile-ot-card').forEach(card => {
+        const matchSearch = !search || card.dataset.search.includes(search);
+        const matchStatus = !statusFilter || card.dataset.status === statusFilter;
+        card.style.display = (matchSearch && matchStatus) ? '' : 'none';
+    });
+    document.querySelectorAll('.mobile-equipment-group').forEach(group => {
+        const visibleCards = group.querySelectorAll('.mobile-ot-card:not([style*="display: none"])');
+        group.style.display = visibleCards.length > 0 ? '' : 'none';
+    });
+}
+
+function renderChecklistMobileCards() {
+    const container = document.getElementById('checklistMobileCards');
+    container.innerHTML = '';
+    const data = checklistData[currentKey];
+    if (!data) return;
+    
+    data.actions.forEach((action, idx) => {
+        const isChecked = otStates[currentOT].actions[action.code] || false;
+        const comment = otStates[currentOT].commentaires[action.code] || '';
+        const card = document.createElement('div');
+        card.className = 'checklist-mobile-card ' + (isChecked ? 'checked' : 'unchecked');
+        card.id = 'mcard-' + idx;
+        card.innerHTML = `
+            <div class="checklist-card-header">
+                <span class="checklist-card-code">${action.code}</span>
+                <label class="checklist-card-check" for="mcheck-${idx}">
+                    <input type="checkbox" id="mcheck-${idx}" name="mcheck-${idx}" ${isChecked ? 'checked' : ''} 
+                           onchange="toggleActionMobile(${idx}, '${action.code}')" 
+                           aria-label="Marquer cette action comme faite">
+                    <span>${isChecked ? '✅ Fait' : '⬜ À faire'}</span>
+                </label>
+            </div>
+            <div class="checklist-card-description">${action.desc}</div>
+            <label for="mcomment-${idx}" style="display:none;">Commentaire</label>
+            <textarea class="checklist-card-comment" id="mcomment-${idx}" name="mcomment-${idx}"
+                      placeholder="💬 Commentaire (anomalie, observation...)" 
+                      onchange="saveComment('${action.code}', this.value)" 
+                      aria-label="Commentaire pour cette action">${comment}</textarea>
+            <div>
+                <span class="checklist-card-status ${isChecked ? 'fait' : 'nonfait'}" id="mstatus-${idx}">
+                    ${isChecked ? 'FAIT' : 'NON FAIT'}
+                </span>
+            </div>`;
+        container.appendChild(card);
+    });
+}
+
+function toggleActionMobile(idx, actionCode) {
+    const card = document.getElementById('mcard-' + idx);
+    const checkbox = card.querySelector('input[type="checkbox"]');
+    const status = document.getElementById('mstatus-' + idx);
+    const label = card.querySelector('.checklist-card-check span');
+    
+    if (checkbox.checked) {
+        card.classList.remove('unchecked'); card.classList.add('checked');
+        status.className = 'checklist-card-status fait';
+        status.textContent = 'FAIT';
+        label.textContent = '✅ Fait';
+        otStates[currentOT].actions[actionCode] = true;
+        const desktopRow = document.getElementById('action-' + idx);
+        if (desktopRow) {
+            desktopRow.classList.remove('unchecked'); desktopRow.classList.add('checked');
+            const desktopCheckbox = desktopRow.querySelector('input[type="checkbox"]');
+            if (desktopCheckbox) desktopCheckbox.checked = true;
+            const desktopStatus = document.getElementById('status-' + idx);
+            if (desktopStatus) desktopStatus.innerHTML = '<span style="color:#2e7d32;">FAIT</span>';
+        }
+    } else {
+        card.classList.remove('checked'); card.classList.add('unchecked');
+        status.className = 'checklist-card-status nonfait';
+        status.textContent = 'NON FAIT';
+        label.textContent = '⬜ À faire';
+        otStates[currentOT].actions[actionCode] = false;
+        const desktopRow = document.getElementById('action-' + idx);
+        if (desktopRow) {
+            desktopRow.classList.remove('checked'); desktopRow.classList.add('unchecked');
+            const desktopCheckbox = desktopRow.querySelector('input[type="checkbox"]');
+            if (desktopCheckbox) desktopCheckbox.checked = false;
+            const desktopStatus = document.getElementById('status-' + idx);
+            if (desktopStatus) desktopStatus.innerHTML = '<span style="color:#c62828;">NON FAIT</span>';
+        }
+    }
+    updateProgress();
+}
+
+function updateOnlineStatus() {
+    const indicator = document.getElementById('offlineIndicator');
+    if (navigator.onLine) indicator.classList.remove('show');
+    else indicator.classList.add('show');
+}
+
+window.addEventListener('online', updateOnlineStatus);
+window.addEventListener('offline', updateOnlineStatus);
+
+function resizeSignaturePad() {
+    const canvas = document.getElementById('signaturePad');
+    if (!canvas) return;
+    const container = canvas.parentElement;
+    const containerWidth = container.clientWidth - 30;
+    if (isMobile()) { canvas.width = containerWidth; canvas.height = 150; }
+    else { canvas.width = 500; canvas.height = 120; }
+}
+
+window.addEventListener('resize', function() {
+    updateMobileToolbarTitle();
+    if (planningLoaded && isMobile()) renderMobileCardsView();
+});
+
+function isNC(value) {
+    if (!value) return false;
+    const v = String(value).trim().toUpperCase();
+    return v === 'NC' || v === 'N.C' || v === 'N.C.';
+}
+
+function isValidOT(value) {
+    if (!value) return false;
+    const v = String(value).trim();
+    if (v === '') return false;
+    if (isNC(v)) return false;
+    return true;
+}
+
+function getCleanTitle(headerText) {
+    let name = String(headerText || '').trim();
+    name = name.replace(/\.(xlsx|xls|csv)$/i, '');
+    name = name.replace(/[_\s]*converti/gi, '');
+    name = name.replace(/\bPMP\s+/gi, '');
+    name = name.replace(/_/g, ' ');
+    name = name.replace(/(OT\s+PREVENTIF)\s*[-–]\s*OT\s+/gi, '$1 - ');
+    name = name.replace(/^OT\s+(?!PREVENTIF)/i, '');
+    name = name.replace(/\s+/g, ' ').trim();
+    return name;
+}
+
+function extractSiteName(headerText) {
+    let name = String(headerText || '').trim();
+    name = name.replace(/\.(xlsx|xls|csv)$/i, '');
+    name = name.replace(/_converti/gi, '');
+    name = name.replace(/_/g, ' ');
+    const moisPattern = '(?:janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)';
+    let match = name.match(new RegExp('OT\\s+PREVENTIF\\s*[-–]\\s*OT\\s+(.+?)\\s+' + moisPattern + '\\s+\\d{4}', 'i'));
+    if (match) return match[1].trim();
+    match = name.match(new RegExp('OT\\s+PREVENTIF\\s*[-–]\\s*(.+?)\\s+' + moisPattern + '\\s+\\d{4}', 'i'));
+    if (match) return match[1].trim();
+    match = name.match(/OT\s+PREVENTIF\s*[-–]\s*OT\s+(.+?)\s+\d{4}/i);
+    if (match) return match[1].trim();
+    match = name.match(/\/\s*(.+)$/);
+    if (match) return match[1].trim();
+    name = name.replace(/OT\s+PREVENTIF\s*[-–]?\s*/i, '');
+    name = name.replace(/\s+\d{4}\s*$/, '');
+    name = name.replace(new RegExp('\\s+' + moisPattern + '\\s*$', 'i'), '');
+    name = name.replace(/^OT\s+/i, '');
+    return name.trim() || 'SITE';
+}
+
+function analyserOT(otNum) {
+ const state = otStates[otNum];
+    if (!state || !state.technicien) {
+        return { status: 'pending', anomalies: [], remarques: [], total: 0, done: 0, state: state || {} };
+    }
+    
+    let checklistInfo = null;
+    planningData.forEach(row => {
+        if (row.type === 'row') {
+            // ✅ CORRECTION : Comparer après trim() des deux côtés
+            const otsTrimmed = row.ots.map(o => String(o || '').trim());
+            if (otsTrimmed.includes(otNum)) {
+                const k = row.materiel + '|' + row.interventionType;
+                if (checklistData[k]) checklistInfo = checklistData[k];
+            }
+        }
+    });
+    
+    const anomalies = [];
+    const remarques = [];
+    let total = 0, done = 0;
+    
+    if (checklistInfo) {
+        total = checklistInfo.actions.length;
+        checklistInfo.actions.forEach(action => {
+            const comment = (state.commentaires[action.code] || '').trim();
+            const isDone = state.actions[action.code];
+            if (isDone) done++;
+            if (comment !== '') {
+                if (!isDone) anomalies.push({
+                    code: action.code, 
+                    description: action.desc, 
+                    commentaire: comment
+                });
+                else remarques.push({
+                    code: action.code, 
+                    description: action.desc, 
+                    commentaire: comment
+                });
+            }
+        });
+    }
+    return { status: state.status, anomalies, remarques, total, done, checklistInfo, state };
+}
+
+function getObservationCourte(otNum, annexeNum) {
+    const analyse = analyserOT(otNum);
+    if (analyse.status === 'pending' || !analyse.state.technicien) return '-';
+    
+    const nbAnomalies = analyse.anomalies.length;
+    const aUneAnnexe = annexeNum > 0;
+    
+    // Filtrer les remarques "RAS"
+    const remarquesFiltrees = analyse.remarques.filter(r => {
+        const comment = (r.commentaire || '').trim().toUpperCase().replace(/\./g, '');
+        return comment !== '' && comment !== 'RAS';
+    });
+    const nbRemarques = remarquesFiltrees.length;
+    
+    // Cas 1 : Tout fait, rien à signaler
+    if (analyse.status === 'F' && nbAnomalies === 0 && nbRemarques === 0) {
+        return 'RAS';
+    }
+    
+    // Cas 2 : Fait avec remarques uniquement
+    if (analyse.status === 'F' && nbAnomalies === 0 && nbRemarques > 0) {
+        if (aUneAnnexe) {
+            return nbRemarques + ' remarque' + (nbRemarques > 1 ? 's' : '') + 
+                   ' (voir Annexe ' + annexeNum + ')';
+        }
+        if (nbRemarques === 1) {
+            return 'Note : ' + tronquerTexte(remarquesFiltrees[0].commentaire, 80);
+        }
+        let texte = nbRemarques + ' remarque' + (nbRemarques > 1 ? 's' : '') + ' :\n';
+        texte += remarquesFiltrees.map(r => 
+            '• ' + tronquerTexte(r.commentaire, 90)
+        ).join('\n');
+        return texte;
+    }
+    
+    // Cas 3 : Non fait sans commentaire
+    if (analyse.status === 'NF' && nbAnomalies === 0) {
+        return 'Intervention non réalisée';
+    }
+    
+    // Cas 4 : Partiel sans détails
+    if (analyse.status === 'P' && nbAnomalies === 0 && nbRemarques === 0) {
+        return 'Partiel : ' + analyse.done + '/' + analyse.total + ' actions';
+    }
+    
+    // Cas 5 : Présence d'anomalies
+    let entete = '';
+    if (analyse.status === 'P') {
+        entete = 'Partiel ' + analyse.done + '/' + analyse.total + ' | ';
+    }
+    
+    // ✅ NOUVEAU : Si annexe existe (4+ anomalies OU textes trop longs)
+    if (aUneAnnexe) {
+        if (nbAnomalies <= 10) {
+            let texte = entete + nbAnomalies + ' anomalie' + (nbAnomalies > 1 ? 's' : '') + ' relevée' + (nbAnomalies > 1 ? 's' : '') + '\n';
+            texte += 'Principales :\n';
+            // Afficher 1 ou 2 anomalies en aperçu (courtes)
+            const nbApercu = Math.min(2, nbAnomalies);
+            for (let i = 0; i < nbApercu; i++) {
+                texte += '• ' + tronquerTexte(analyse.anomalies[i].commentaire, 55) + '\n';
+            }
+            texte += '→ Détails complets Annexe ' + annexeNum;
+            return texte;
+        }
+        return entete + nbAnomalies + ' anomalies relevées\n→ Voir détails Annexe ' + annexeNum;
+    }
+    
+    // ✅ Cas 1-3 anomalies avec textes courts : Affichage adaptatif intelligent
+    if (nbAnomalies <= 3) {
+        // Calculer la longueur totale pour adapter la troncature
+        const longueurTotale = analyse.anomalies.reduce((total, a) => 
+            total + (a.commentaire || '').length, 0);
+        
+        // Déterminer la limite par anomalie selon le volume total
+        let limiteParAnomalie;
+        if (longueurTotale < 200) {
+            limiteParAnomalie = 150; // Textes courts : afficher (presque) tout
+        } else {
+            limiteParAnomalie = 100; // Textes moyens : troncature modérée
+        }
+        
+        let texte = entete + nbAnomalies + ' anomalie' + (nbAnomalies > 1 ? 's' : '') + ' :\n';
+        texte += analyse.anomalies.map(a => 
+            '• ' + tronquerTexte(a.commentaire, limiteParAnomalie)
+        ).join('\n');
+        return texte;
+    }
+    
+    // Sécurité (ne devrait jamais arriver)
+    return entete + nbAnomalies + ' anomalies';
+}
+function tronquerTexte(texte, maxLen) {
+    if (!texte) return '';
+    if (texte.length <= maxLen) return texte;
+    let cut = texte.substring(0, maxLen);
+    const lastSpace = cut.lastIndexOf(' ');
+    if (lastSpace > maxLen - 15) cut = cut.substring(0, lastSpace);
+    return cut + '...';
+}
+
+function necessiteAnnexe(otNum) {
+      const analyse = analyserOT(otNum);
+    
+    // Filtrer les remarques "RAS"
+    const remarquesSignificatives = analyse.remarques.filter(r => {
+        const comment = (r.commentaire || '').trim().toUpperCase().replace(/\./g, '');
+        return comment !== '' && comment !== 'RAS';
+    });
+    
+    // ✅ Règle 1 : 4 anomalies ou plus → annexe obligatoire
+    if (analyse.anomalies.length >= 4 || remarquesSignificatives.length >= 4) {
+        return true;
+    }
+    
+    // ✅ Règle 2 : Anomalies avec textes longs → annexe recommandée
+    if (analyse.anomalies.length > 0) {
+        const longueurTotaleAnomalies = analyse.anomalies.reduce((total, a) => 
+            total + (a.commentaire || '').length, 0);
+        if (longueurTotaleAnomalies > 400) return true;
+    }
+    
+    // ✅ Règle 3 : Remarques avec textes longs → annexe recommandée
+    if (remarquesSignificatives.length > 0) {
+        const longueurTotaleRemarques = remarquesSignificatives.reduce((total, r) => 
+            total + (r.commentaire || '').length, 0);
+        if (longueurTotaleRemarques > 400) return true;
+    }
+    
+    return false;
+}
+
+function calculateEcart() {
+    const debut = document.getElementById('dateDebut').value;
+    const fin = document.getElementById('dateFin').value;
+    const display = document.getElementById('ecartDisplay');
+    if (!debut || !fin) { display.textContent = 'En attente...'; display.className = 'ecart-display'; return; }
+    const d1 = new Date(debut);
+    const d2 = new Date(fin);
+    const diffMs = d2 - d1;
+    if (isNaN(diffMs)) { display.textContent = 'Dates invalides'; display.className = 'ecart-display negative'; return; }
+    const absDiff = Math.abs(diffMs);
+    const days = Math.floor(absDiff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((absDiff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((absDiff % (1000 * 60 * 60)) / (1000 * 60));
+    let text = '';
+    if (days > 0) text += days + 'j ';
+    if (hours > 0) text += hours + 'h ';
+    text += minutes + 'min';
+    if (diffMs < 0) { display.textContent = '-' + text + ' (avant prévu)'; display.className = 'ecart-display negative'; }
+    else if (diffMs === 0) { display.textContent = 'À l\'heure'; display.className = 'ecart-display zero'; }
+    else {
+        if (days > 7) { display.textContent = '+' + text + ' (retard important)'; display.className = 'ecart-display negative'; }
+        else if (days === 0 && hours < 24) { display.textContent = '+' + text; display.className = 'ecart-display zero'; }
+        else { display.textContent = '+' + text + ' (retard)'; display.className = 'ecart-display'; }
+    }
+}
+
+function planningDateToDatetime(dateStr) {
+    const match = String(dateStr).match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    if (!match) return '';
+    return match[3] + '-' + match[2] + '-' + match[1] + 'T08:00';
+}
+
+function loadPlanningFile(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, {type: 'array'});
+            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+            const jsonData = XLSX.utils.sheet_to_json(firstSheet, {header: 1, defval: ''});
+            parsePlanningData(jsonData);
+            const nbLignes = planningData.filter(r => r.type === 'row').length;
+            const nbOT = planningData.filter(r => r.type === 'row').reduce((acc, r) => acc + r.ots.filter(o => isValidOT(o)).length, 0);
+            const nbNC = planningData.filter(r => r.type === 'row').reduce((acc, r) => acc + r.ots.filter(o => isNC(o)).length, 0);
+            if (nbLignes === 0) { showNotification('Aucune ligne valide trouvée.', 'error'); return; }
+            planningLoaded = true;
+            updateFileStatus();
+            mainHeaderText = file.name.replace(/\.(xlsx|xls)$/i, '');
+            const titreNettoye = getCleanTitle(mainHeaderText).replace(/^OT\s+PREVENTIF\s*-?\s*/i, '');
+            document.getElementById('mainHeader').textContent = 'OT PREVENTIF - ' + titreNettoye;
+            checkWorkspaceReady();
+            document.getElementById('toolbarButtons').classList.remove('active');
+            showNotification('✅ Planning chargé : ' + nbLignes + ' équipements / ' + nbOT + ' OT / ' + nbNC + ' NC');
+        } catch (err) { showNotification('Erreur lecture fichier : ' + err.message, 'error'); }
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+function parsePlanningData(jsonData) {
+    let headerRow = -1;
+    for (let i = 0; i < Math.min(15, jsonData.length); i++) {
+        const row = jsonData[i].map(c => String(c).toLowerCase());
+        if (row.some(c => c.includes('matériel') || c.includes('materiel'))) { headerRow = i; break; }
+    }
+    if (headerRow === -1) throw new Error('En-tête "Matériel" introuvable');
+    planningHeaders = jsonData[headerRow].map(h => String(h));
+    planningData = [];
+    const dateCols = [];
+    planningHeaders.forEach((h, idx) => { if (/\d{2}\/\d{2}\/\d{4}/.test(String(h))) dateCols.push(idx); });
+    window.dateColumns = dateCols.map(idx => planningHeaders[idx]);
+    let currentInterventionType = '';
+    for (let i = headerRow + 1; i < jsonData.length; i++) {
+        const row = jsonData[i];
+        if (!row || row.length === 0) continue;
+        const materiel = String(row[0] || '').trim();
+        const libelle = String(row[1] || '').trim();
+        if (!materiel) continue;
+        if (/^PS-/i.test(materiel)) {
+            currentInterventionType = materiel;
+            const totals = dateCols.map(c => row[c] || '');
+            planningData.push({type: 'header', materiel, libelle, totals, totalPrevu: row[row.length - 1] || ''});
+        } else if (/^BAM-/i.test(materiel)) {
+            const ots = dateCols.map(c => String(row[c] || '').trim());
+            planningData.push({type: 'row', materiel, interventionType: currentInterventionType, libelle, ots, totalPrevu: row[row.length - 1] || ''});
+        }
+    }
+}
+
+function loadChecklistFile(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, {type: 'array'});
+            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+            const jsonData = XLSX.utils.sheet_to_json(firstSheet, {header: 1, defval: ''});
+            parseChecklistData(jsonData);
+            const nbGroupes = Object.keys(checklistData).length;
+            const nbActions = Object.values(checklistData).reduce((acc, g) => acc + g.actions.length, 0);
+            if (nbGroupes === 0) { showNotification('Aucune check-list trouvée.', 'error'); return; }
+            checklistLoaded = true;
+            updateFileStatus();
+            checkWorkspaceReady();
+            document.getElementById('toolbarButtons').classList.remove('active');
+            showNotification('✅ Check-lists chargées : ' + nbGroupes + ' interventions / ' + nbActions + ' actions');
+            if (planningLoaded) renderPlanning();
+        } catch (err) { showNotification('Erreur lecture fichier : ' + err.message, 'error'); }
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+function parseChecklistData(jsonData) {
+    checklistData = {};
+    let headerRow = -1;
+    for (let i = 0; i < Math.min(15, jsonData.length); i++) {
+        const row = jsonData[i].map(c => String(c).toLowerCase());
+        if (row.some(c => c.includes('équipement') || c.includes('equipement'))) { headerRow = i; break; }
+    }
+    if (headerRow === -1) throw new Error('En-tête "Équipement" introuvable');
+    let currentKey = null;
+    for (let i = headerRow + 1; i < jsonData.length; i++) {
+        const row = jsonData[i];
+        if (!row || row.length === 0) continue;
+        const equipement = String(row[0] || '').trim();
+        const description = String(row[1] || '').trim();
+        const codeIntervention = String(row[2] || '').trim();
+        const descEquipement = String(row[3] || '').trim();
+        if (!equipement) continue;
+        if (/^PS-/i.test(codeIntervention)) {
+            currentKey = equipement + '|' + codeIntervention;
+            checklistData[currentKey] = {equipement: descEquipement || equipement, intervention: description, actions: []};
+        } else if (currentKey && codeIntervention && /ACT/i.test(codeIntervention)) {
+            checklistData[currentKey].actions.push({code: codeIntervention, desc: description});
+        }
+    }
+}
+
+function updateFileStatus() {
+    if (planningLoaded) {
+        document.getElementById('planningStatus').textContent = 'Chargé';
+        document.getElementById('planningStatus').className = 'status-loaded';
+        document.getElementById('step1Status').innerHTML = '<span style="color:#4caf50;">Chargé</span>';
+        document.getElementById('step1').classList.add('done');
+    }
+    if (checklistLoaded) {
+        document.getElementById('checklistStatus').textContent = 'Chargé';
+        document.getElementById('checklistStatus').className = 'status-loaded';
+        document.getElementById('step2Status').innerHTML = '<span style="color:#4caf50;">Chargé</span>';
+        document.getElementById('step2').classList.add('done');
+    }
+    if (planningLoaded && checklistLoaded) {
+        document.getElementById('fileStatus').classList.add('loaded');
+        document.getElementById('step3Status').innerHTML = '<span style="color:#4caf50;">Prêt à utiliser</span>';
+        document.getElementById('step3').classList.add('done');
+    }
+    document.getElementById('btnExportExcel').disabled = !planningLoaded;
+    document.getElementById('btnExportPDF').disabled = !planningLoaded;
+    document.getElementById('btnSave').disabled = !planningLoaded;
+    document.getElementById('btnDashboard').disabled = !planningLoaded;
+}
+
+function checkWorkspaceReady() {
+    if (planningLoaded) {
+        document.getElementById('welcomeScreen').classList.add('hidden');
+        document.getElementById('workspace').classList.remove('hidden');
+        renderPlanning();
+    }
+}
+
+function renderPlanning() {
+    const thead = document.getElementById('planningHead');
+    thead.innerHTML = '<tr>' + planningHeaders.map(h => '<th>' + h + '</th>').join('') + '</tr>';
+    const tbody = document.getElementById('planningBody');
+    tbody.innerHTML = '';
+    planningData.forEach(row => {
+        const tr = document.createElement('tr');
+        if (row.type === 'header') {
+            tr.className = 'row-header';
+            let cells = '<td><strong>' + row.materiel + '</strong></td><td class="libelle"><strong>' + row.libelle + '</strong></td>';
+            row.totals.forEach(t => { cells += '<td colspan="2" class="total-date-cell"><strong>' + (t || '') + '</strong></td>'; });
+            cells += '<td></td><td class="total-prevu"><strong>' + row.totalPrevu + '</strong></td>';
+            tr.innerHTML = cells;
+        } else {
+            tr.className = 'row-equipment';
+            let cells = '<td>' + row.materiel + '</td><td class="libelle">' + row.libelle + '</td>';
+            let nbFait = 0;
+            row.ots.forEach((ot, otIdx) => {
+                const otStr = String(ot || '').trim();
+                if (!otStr || otStr === '') cells += '<td></td><td></td>';
+                else if (isNC(otStr)) { cells += '<td><span class="ot-nc" title="OT Non Communiqué" onclick="showNCMessage()">NC</span></td><td></td>'; }
+                else {
+                    const state = otStates[otStr] && otStates[otStr].status ? otStates[otStr].status : '';
+                    let etatBadge = '...', linkClass = '';
+                    if (state === 'F') { etatBadge = '<span class="etat-fait">F</span>'; nbFait++; linkClass = 'done'; }
+                    else if (state === 'NF') { etatBadge = '<span class="etat-nonfait">NF</span>'; linkClass = 'notdone'; }
+                    else if (state === 'P') { etatBadge = '<span class="etat-partiel">P</span>'; linkClass = 'partial'; }
+                    const libelleEscaped = (row.libelle || '').replace(/'/g, "\\'");
+                    const dateOT = (window.dateColumns && window.dateColumns[otIdx]) || '';
+                    cells += '<td><span class="ot-link ' + linkClass + '" onclick="openChecklist(\'' + otStr + '\',\'' + row.materiel + '\',\'' + row.interventionType + '\',\'' + libelleEscaped + '\',\'' + dateOT + '\')">' + otStr + '</span></td>';
+                    cells += '<td>' + etatBadge + '</td>';
+                }
+            });
+            cells += '<td class="nombre-fait">' + (nbFait || '') + '</td><td class="total-prevu">' + row.totalPrevu + '</td>';
+            tr.innerHTML = cells;
+        }
+        tbody.appendChild(tr);
+    });
+    renderMobileCardsView();
+    updateStats();
+}
+
+function showNCMessage() { showNotification('Cet OT est marqué "NC" (Non Communiqué)', 'warning'); }
+
+function openChecklist(otNum, materiel, interventionType, libelle, dateOT) {
+    const otStr = String(otNum || '').trim();
+    if (!otStr || isNC(otStr)) { showNCMessage(); return; }
+    if (!checklistLoaded) { showNotification('Veuillez d\'abord charger le fichier des check-lists', 'warning'); return; }
+    const key = materiel + '|' + interventionType;
+    const data = checklistData[key];
+    if (!data) { showNotification('Aucune check-list trouvée pour : ' + key, 'warning'); return; }
+    currentOT = otStr;
+    currentKey = key;
+    currentOTDate = dateOT;
+    currentSiteName = extractSiteName(mainHeaderText);
+    document.getElementById('modalTitle').textContent = 'Check-list OT N° ' + otStr;
+    document.getElementById('modalInfo').innerHTML = '<strong>Équipement :</strong> ' + data.equipement + '<br><strong>Intervention :</strong> ' + data.intervention;
+    if (!otStates[otStr]) {
+        otStates[otStr] = {actions: {}, commentaires: {}, status: '', technicien: '', dateDebut: '', dateFin: '', signature: '', site: currentSiteName, attachments: []};
+    }
+    document.getElementById('site').value = otStates[otStr].site || currentSiteName;
+    document.getElementById('techName').value = otStates[otStr].technicien || '';
+    const dateDebutAuto = planningDateToDatetime(dateOT);
+    document.getElementById('dateDebut').value = otStates[otStr].dateDebut || dateDebutAuto;
+    document.getElementById('dateFin').value = otStates[otStr].dateFin || '';
+    calculateEcart();
+    
+    const tbody = document.getElementById('checklistBody');
+    tbody.innerHTML = '';
+    data.actions.forEach((action, idx) => {
+        const isChecked = otStates[otStr].actions[action.code] || false;
+        const comment = otStates[otStr].commentaires[action.code] || '';
+        const tr = document.createElement('tr');
+        tr.className = 'action-row ' + (isChecked ? 'checked' : 'unchecked');
+        tr.id = 'action-' + idx;
+        const descEscaped = action.desc.replace(/"/g, '&quot;');
+        tr.innerHTML = '<td class="check-cell"><input type="checkbox" id="check-' + idx + '" name="check-' + idx + '" ' + (isChecked ? 'checked' : '') + ' onchange="toggleAction(' + idx + ', \'' + action.code + '\')" aria-label="Marquer comme fait : ' + descEscaped + '"></td><td><label for="check-' + idx + '">' + action.desc + '</label></td><td style="text-align:center;"><code>' + action.code + '</code></td><td><label for="comment-' + idx + '" style="display:none;">Commentaire</label><textarea class="comment-input" id="comment-' + idx + '" name="comment-' + idx + '" placeholder="Commentaire..." onchange="saveComment(\'' + action.code + '\', this.value)" aria-label="Commentaire pour : ' + descEscaped + '">' + comment + '</textarea></td><td class="status-cell" id="status-' + idx + '">' + (isChecked ? '<span style="color:#2e7d32;">FAIT</span>' : '<span style="color:#c62828;">NON FAIT</span>') + '</td>';
+        tbody.appendChild(tr);
+    });
+    
+    renderChecklistMobileCards();
+    renderAttachments();
+    updateProgress();
+    
+    setTimeout(() => {
+        resizeSignaturePad();
+        initSignaturePad();
+        if (otStates[otStr].signature) {
+            const img = new Image();
+            img.onload = function() { document.getElementById('signaturePad').getContext('2d').drawImage(img, 0, 0); };
+            img.src = otStates[otStr].signature;
+        }
+    }, 100);
+    
+    document.getElementById('modalOverlay').classList.add('active');
+}
+
+function handleFileUpload(event) {
+    const files = event.target.files;
+    if (!files.length) return;
+    Array.from(files).forEach(file => {
+        if (file.size > 5 * 1024 * 1024) { showNotification(file.name + ' trop volumineux (max 5MB)', 'warning'); return; }
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            otStates[currentOT].attachments.push({name: file.name, type: file.type, size: file.size, data: e.target.result, addedAt: new Date().toISOString()});
+            renderAttachments();
+            showNotification('✅ ' + file.name + ' ajouté');
+        };
+        reader.readAsDataURL(file);
+    });
+    event.target.value = '';
+}
+
+function renderAttachments() {
+    const list = document.getElementById('attachmentsList');
+    list.innerHTML = '';
+    const attachments = (otStates[currentOT] && otStates[currentOT].attachments) || [];
+    if (attachments.length === 0) { list.innerHTML = '<p style="color:#999; font-size:11px; font-style:italic;">Aucune pièce jointe</p>'; return; }
+    attachments.forEach((att, idx) => {
+        const item = document.createElement('div');
+        item.className = 'attachment-item';
+        const sizeKB = (att.size / 1024).toFixed(1);
+        const sizeMB = (att.size / (1024 * 1024)).toFixed(2);
+        const sizeText = att.size > 1024 * 1024 ? sizeMB + ' MB' : sizeKB + ' KB';
+        let preview = '';
+        if (att.type.startsWith('image/')) preview = '<img src="' + att.data + '" onclick="viewAttachment(' + idx + ')" alt="' + att.name + '">';
+        else if (att.type === 'application/pdf') preview = '<div class="file-icon">PDF</div>';
+        else if (att.type.includes('word')) preview = '<div class="file-icon">DOC</div>';
+        else if (att.type.includes('excel') || att.type.includes('sheet')) preview = '<div class="file-icon">XLS</div>';
+        else preview = '<div class="file-icon">FILE</div>';
+        item.innerHTML = '<div class="file-preview">' + preview + '</div><div class="file-info"><div class="file-name" title="' + att.name + '">' + att.name + '</div><div class="file-size">' + sizeText + ' - ' + att.type + '</div></div><div class="file-actions"><button class="btn-action btn-view" onclick="viewAttachment(' + idx + ')" aria-label="Voir la pièce jointe">👁️ Voir</button><button class="btn-action btn-download" onclick="downloadAttachment(' + idx + ')" aria-label="Télécharger">⬇️ DL</button><button class="btn-action btn-delete" onclick="removeAttachment(' + idx + ')" aria-label="Supprimer">🗑️</button></div>';
+        list.appendChild(item);
+    });
+}
+
+function viewAttachment(idx) {
+    const att = otStates[currentOT].attachments[idx];
+    if (!att) return;
+    const content = document.getElementById('previewContent');
+    content.innerHTML = '';
+    if (att.type.startsWith('image/')) {
+        const img = document.createElement('img');
+        img.src = att.data;
+        img.alt = att.name;
+        content.appendChild(img);
+    } else if (att.type === 'application/pdf') {
+        const iframe = document.createElement('iframe');
+        iframe.src = att.data;
+        iframe.title = att.name;
+        content.appendChild(iframe);
+    } else {
+        if (confirm('Ce type de fichier ne peut pas être prévisualisé.\n\nTélécharger ?')) downloadAttachment(idx);
+        return;
+    }
+    document.getElementById('previewModal').classList.add('active');
+}
+
+function downloadAttachment(idx) {
+    const att = otStates[currentOT].attachments[idx];
+    if (!att) return;
+    const link = document.createElement('a');
+    link.href = att.data;
+    link.download = att.name;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showNotification('Téléchargement : ' + att.name);
+}
+
+function removeAttachment(idx) {
+    if (!confirm('Supprimer cette pièce jointe ?')) return;
+    otStates[currentOT].attachments.splice(idx, 1);
+    renderAttachments();
+    showNotification('Pièce jointe supprimée');
+}
+
+function closePreview() {
+    document.getElementById('previewModal').classList.remove('active');
+    document.getElementById('previewContent').innerHTML = '';
+}
+
+function toggleAction(idx, actionCode) {
+    const checkbox = document.querySelector('#action-' + idx + ' input[type="checkbox"]');
+    const row = document.getElementById('action-' + idx);
+    const status = document.getElementById('status-' + idx);
+    if (checkbox.checked) {
+        row.classList.remove('unchecked'); row.classList.add('checked');
+        status.innerHTML = '<span style="color:#2e7d32;">FAIT</span>';
+        otStates[currentOT].actions[actionCode] = true;
+        const mcard = document.getElementById('mcard-' + idx);
+        if (mcard) {
+            mcard.classList.remove('unchecked'); mcard.classList.add('checked');
+            const mcheckbox = mcard.querySelector('input[type="checkbox"]');
+            if (mcheckbox) mcheckbox.checked = true;
+            const mstatus = document.getElementById('mstatus-' + idx);
+            if (mstatus) { mstatus.className = 'checklist-card-status fait'; mstatus.textContent = 'FAIT'; }
+            const mlabel = mcard.querySelector('.checklist-card-check span');
+            if (mlabel) mlabel.textContent = '✅ Fait';
+        }
+    } else {
+        row.classList.remove('checked'); row.classList.add('unchecked');
+        status.innerHTML = '<span style="color:#c62828;">NON FAIT</span>';
+        otStates[currentOT].actions[actionCode] = false;
+        const mcard = document.getElementById('mcard-' + idx);
+        if (mcard) {
+            mcard.classList.remove('checked'); mcard.classList.add('unchecked');
+            const mcheckbox = mcard.querySelector('input[type="checkbox"]');
+            if (mcheckbox) mcheckbox.checked = false;
+            const mstatus = document.getElementById('mstatus-' + idx);
+            if (mstatus) { mstatus.className = 'checklist-card-status nonfait'; mstatus.textContent = 'NON FAIT'; }
+            const mlabel = mcard.querySelector('.checklist-card-check span');
+            if (mlabel) mlabel.textContent = '⬜ À faire';
+        }
+    }
+    updateProgress();
+}
+
+function saveComment(code, value) { otStates[currentOT].commentaires[code] = value; }
+
+function updateProgress() {
+    const data = checklistData[currentKey];
+    const total = data.actions.length;
+    const done = data.actions.filter(a => otStates[currentOT].actions[a.code]).length;
+    document.getElementById('progressText').textContent = done + ' / ' + total;
+}
+
+function initSignaturePad() {
+    const canvas = document.getElementById('signaturePad');
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    let drawing = false;
+    canvas.onmousedown = (e) => { drawing = true; const r = canvas.getBoundingClientRect(); ctx.beginPath(); ctx.moveTo(e.clientX - r.left, e.clientY - r.top); };
+    canvas.onmousemove = (e) => { if (!drawing) return; const r = canvas.getBoundingClientRect(); ctx.lineTo(e.clientX - r.left, e.clientY - r.top); ctx.stroke(); };
+    canvas.onmouseup = () => drawing = false;
+    canvas.onmouseleave = () => drawing = false;
+    canvas.ontouchstart = (e) => { e.preventDefault(); drawing = true; const r = canvas.getBoundingClientRect(); const t = e.touches[0]; ctx.beginPath(); ctx.moveTo(t.clientX - r.left, t.clientY - r.top); };
+    canvas.ontouchmove = (e) => { e.preventDefault(); if (!drawing) return; const r = canvas.getBoundingClientRect(); const t = e.touches[0]; ctx.lineTo(t.clientX - r.left, t.clientY - r.top); ctx.stroke(); };
+    canvas.ontouchend = () => drawing = false;
+}
+
+function clearSignature() {
+    const canvas = document.getElementById('signaturePad');
+    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function saveChecklist() {
+    const techName = document.getElementById('techName').value.trim();
+    if (!techName) { showNotification('⚠️ Veuillez renseigner le nom du technicien', 'warning'); return; }
+    const data = checklistData[currentKey];
+    const total = data.actions.length;
+    const done = data.actions.filter(a => otStates[currentOT].actions[a.code]).length;
+    otStates[currentOT].technicien = techName;
+    otStates[currentOT].site = document.getElementById('site').value;
+    otStates[currentOT].dateDebut = document.getElementById('dateDebut').value;
+    otStates[currentOT].dateFin = document.getElementById('dateFin').value;
+    otStates[currentOT].signature = document.getElementById('signaturePad').toDataURL();
+    if (done === total) otStates[currentOT].status = 'F';
+    else if (done === 0) otStates[currentOT].status = 'NF';
+    else otStates[currentOT].status = 'P';
+    saveToLocalStorage(true);
+    showNotification('✅ OT ' + currentOT + ' enregistré (' + done + '/' + total + ' actions)');
+    closeModal();
+    renderPlanning();
+}
+
+function closeModal() { document.getElementById('modalOverlay').classList.remove('active'); }
+
+function saveToLocalStorage(silent = false) {
+    if (!planningLoaded) { showNotification('Chargez d\'abord vos fichiers', 'warning'); return; }
+    try {
+        const dataToSave = {planningData, checklistData, planningHeaders, otStates, planningLoaded, checklistLoaded, mainHeaderText, dateColumns: window.dateColumns, savedAt: new Date().toISOString()};
+        localStorage.setItem('otPreventifData', JSON.stringify(dataToSave));
+        if (!silent) showNotification('💾 Données sauvegardées localement');
+    } catch (err) {
+        if (err.name === 'QuotaExceededError') showNotification('Espace de stockage saturé.', 'error');
+        else showNotification('Erreur sauvegarde : ' + err.message, 'error');
+    }
+}
+
+function loadFromLocalStorage() {
+    try {
+        const saved = localStorage.getItem('otPreventifData');
+        if (!saved) { showNotification('Aucune sauvegarde trouvée', 'warning'); return; }
+        const data = JSON.parse(saved);
+        planningData = data.planningData || [];
+        checklistData = data.checklistData || {};
+        planningHeaders = data.planningHeaders || [];
+        otStates = data.otStates || {};
+        planningLoaded = data.planningLoaded || false;
+        checklistLoaded = data.checklistLoaded || false;
+        mainHeaderText = data.mainHeaderText || '';
+        window.dateColumns = data.dateColumns || [];
+        if (mainHeaderText) {
+            const titreNettoye = getCleanTitle(mainHeaderText).replace(/^OT\s+PREVENTIF\s*-?\s*/i, '');
+            document.getElementById('mainHeader').textContent = 'OT PREVENTIF - ' + titreNettoye;
+        }
+        updateFileStatus();
+        checkWorkspaceReady();
+        document.getElementById('toolbarButtons').classList.remove('active');
+        showNotification('✅ Données rechargées');
+    } catch (err) { showNotification('Erreur : ' + err.message, 'error'); }
+}
+
+function resetAll() {
+    if (!confirm('Effacer toutes les données ?')) return;
+    localStorage.removeItem('otPreventifData');
+    planningData = []; checklistData = {}; planningHeaders = []; otStates = {};
+    planningLoaded = false; checklistLoaded = false; mainHeaderText = '';
+    document.getElementById('planningStatus').textContent = 'Non chargé';
+    document.getElementById('planningStatus').className = 'status-empty';
+    document.getElementById('checklistStatus').textContent = 'Non chargé';
+    document.getElementById('checklistStatus').className = 'status-empty';
+    document.getElementById('fileStatus').classList.remove('loaded');
+    document.getElementById('step1Status').textContent = 'En attente...';
+    document.getElementById('step2Status').textContent = 'En attente...';
+    document.getElementById('step3Status').textContent = 'En attente...';
+    document.getElementById('step1').classList.remove('done');
+    document.getElementById('step2').classList.remove('done');
+    document.getElementById('step3').classList.remove('done');
+    document.getElementById('welcomeScreen').classList.remove('hidden');
+    document.getElementById('workspace').classList.add('hidden');
+    document.getElementById('btnExportExcel').disabled = true;
+    document.getElementById('btnExportPDF').disabled = true;
+    document.getElementById('btnSave').disabled = true;
+    document.getElementById('btnDashboard').disabled = true;
+    document.getElementById('planningFile').value = '';
+    document.getElementById('checklistFile').value = '';
+    showNotification('Réinitialisation effectuée');
+}
+
+function exportExcel() {
+    const wb = XLSX.utils.book_new();
+    const planningSheet = [planningHeaders];
+    planningData.forEach(row => {
+        if (row.type === 'header') {
+            const r = [row.materiel, row.libelle];
+            row.totals.forEach(t => { r.push(t); r.push(''); });
+            r.push(''); r.push(row.totalPrevu);
+            planningSheet.push(r);
+        } else {
+            const r = [row.materiel, row.libelle];
+            let nbFait = 0;
+            row.ots.forEach(ot => {
+                const otStr = String(ot || '').trim();
+                r.push(otStr || '');
+                if (!otStr) r.push('');
+                else if (isNC(otStr)) r.push('');
+                else if (otStates[otStr]) {
+                    r.push(otStates[otStr].status || '');
+                    if (otStates[otStr].status === 'F') nbFait++;
+                } else r.push('');
+            });
+            r.push(nbFait || '');
+            r.push(row.totalPrevu);
+            planningSheet.push(r);
+        }
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(planningSheet), 'Planning');
+    XLSX.writeFile(wb, 'OT_Preventif_' + new Date().toISOString().slice(0,10) + '.xlsx');
+    showNotification('✅ Excel exporté');
+}
+
+function exportChecklistPDF() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const data = checklistData[currentKey];
+    const state = otStates[currentOT];
+    doc.setFont('helvetica');
+    doc.setFillColor(31, 56, 100);
+    doc.rect(0, 0, 210, 20, 'F');
+    doc.setTextColor(255);
+    doc.setFontSize(14); doc.setFont('helvetica', 'bold');
+    doc.text('OT PREVENTIF - N° ' + currentOT, 105, 13, {align: 'center'});
+    doc.setTextColor(0); doc.setFontSize(10); doc.setFont('helvetica', 'normal');
+    let y = 30;
+    doc.text('Equipement : ' + (data.equipement || 'N/A'), 14, y); y += 6;
+    doc.text('Intervention : ' + (data.intervention || 'N/A'), 14, y); y += 6;
+    doc.text('Site : ' + (state.site || 'N/A'), 14, y); y += 6;
+    doc.text('Technicien : ' + (state.technicien || 'N/A'), 14, y); y += 6;
+    const formatDate = (d) => d ? new Date(d).toLocaleString('fr-FR') : 'N/A';
+    doc.text('Date Debut : ' + formatDate(state.dateDebut), 14, y); y += 6;
+    doc.text('Date Fin : ' + formatDate(state.dateFin), 14, y); y += 6;
+    if (state.dateDebut && state.dateFin) {
+        const diff = new Date(state.dateFin) - new Date(state.dateDebut);
+        if (!isNaN(diff)) {
+            const absDiff = Math.abs(diff);
+            const days = Math.floor(absDiff / (1000 * 60 * 60 * 24));
+            const hours = Math.floor((absDiff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            const minutes = Math.floor((absDiff % (1000 * 60 * 60)) / (1000 * 60));
+            doc.text('Ecart : ' + (diff < 0 ? '-' : '+') + days + 'j ' + hours + 'h ' + minutes + 'min', 14, y); 
+            y += 6;
+        }
+    }
+    const statusText = state.status === 'F' ? 'FAIT' : state.status === 'NF' ? 'NON FAIT' : state.status === 'P' ? 'PARTIEL' : 'N/A';
+    doc.text('Statut : ' + statusText, 14, y); y += 8;
+    const rows = data.actions.map(a => [state.actions[a.code] ? 'OK' : 'NOK', a.code, a.desc, state.commentaires[a.code] || '']);
+    doc.autoTable({
+        startY: y,
+        head: [['Fait', 'Code', 'Description', 'Commentaire']],
+        body: rows,
+        theme: 'grid',
+        headStyles: {fillColor: [112, 48, 160], textColor: 255, font: 'helvetica', fontStyle: 'bold'},
+        bodyStyles: {font: 'helvetica'},
+        styles: {fontSize: 8, font: 'helvetica'},
+        columnStyles: {0: {cellWidth: 15, halign: 'center', fontStyle: 'bold'}, 1: {cellWidth: 25}, 2: {cellWidth: 90}, 3: {cellWidth: 55}},
+        didParseCell: function(d) {
+            if (d.section === 'body' && d.column.index === 0) {
+                if (d.cell.raw === 'OK') { d.cell.styles.fillColor = [200, 230, 201]; d.cell.styles.textColor = [46, 125, 50]; }
+                else { d.cell.styles.fillColor = [255, 205, 210]; d.cell.styles.textColor = [198, 40, 40]; }
+            }
+        }
+    });
+    let finalY = doc.lastAutoTable.finalY + 10;
+    if (state.attachments && state.attachments.length > 0) {
+        if (finalY > 240) { doc.addPage(); finalY = 20; }
+        doc.setFontSize(11); doc.setFont('helvetica', 'bold');
+        doc.text('Pieces Jointes :', 14, finalY); finalY += 6;
+        doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+        state.attachments.forEach((att, i) => {
+            const sizeKB = (att.size / 1024).toFixed(1);
+            doc.text((i+1) + '. ' + att.name + ' (' + sizeKB + ' KB)', 18, finalY);
+            finalY += 5;
+        });
+        finalY += 5;
+        state.attachments.forEach(att => {
+            if (att.type.startsWith('image/')) {
+                if (finalY > 200) { doc.addPage(); finalY = 20; }
+                try {
+                    doc.setFont('helvetica', 'bold');
+                    doc.text('Image : ' + att.name, 14, finalY); 
+                    finalY += 5;
+                    doc.addImage(att.data, 'JPEG', 14, finalY, 80, 60);
+                    finalY += 65;
+                } catch(e) { console.error('Erreur image PDF:', e); }
+            }
+        });
+    }
+    if (finalY > 240) { doc.addPage(); finalY = 20; }
+    doc.setFontSize(10); doc.setFont('helvetica', 'bold');
+    doc.text('Signature du technicien :', 14, finalY);
+    if (state.signature) {
+        try { doc.addImage(state.signature, 'PNG', 14, finalY + 3, 80, 25); } catch(e) {}
+    }
+    doc.save('OT_' + currentOT + '_' + new Date().toISOString().slice(0,10) + '.pdf');
+    showNotification('PDF généré');
+}
+
+function exportAllPDF() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF('l', 'mm', 'a4');
+    doc.setFont('helvetica');
+    const pageWidth = 297;
+    const pageHeight = 210;
+    
+    // ÉTAPE 1 : Identifier les OT nécessitant une annexe
+   annexesData = [];
+annexePageMap = {};
+let annexeCounter = 1;
+
+planningData.forEach(row => {
+    if (row.type === 'row') {
+        row.ots.forEach(ot => {
+            // ✅ CORRECTION 1 : Nettoyage cohérent de l'OT
+            const otStr = String(ot || '').trim();
+            if (!otStr || isNC(otStr)) return;
+            
+            // ✅ CORRECTION 2 : Vérifier que l'OT a bien été traité
+            const state = otStates[otStr];
+            if (!state || !state.technicien) return; // Ignorer les OT non traités
+            
+            if (necessiteAnnexe(otStr)) {
+                annexePageMap[otStr] = annexeCounter;
+                annexesData.push({
+                    otNum: otStr,
+                    annexeNum: annexeCounter,
+                    materiel: row.materiel,
+                    libelle: row.libelle,
+                    interventionType: row.interventionType,
+                    analyse: analyserOT(otStr)
+                });
+                annexeCounter++;
+            }
+        });
+    }
+});
+    
+    // ÉTAPE 2 : Titre principal
+    let titreNettoye = getCleanTitle(mainHeaderText);
+    titreNettoye = titreNettoye.replace(/^OT\s+PREVENTIF\s*-?\s*/i, '');
+    titreNettoye = titreNettoye.replace(/^OT\s+/i, '');
+    const titreAffiche = 'OT PREVENTIF - ' + titreNettoye;
+    
+    doc.setFillColor(31, 56, 100);
+    doc.rect(0, 0, pageWidth, 18, 'F');
+    doc.setTextColor(255); 
+    doc.setFontSize(14); 
+    doc.setFont('helvetica', 'bold');
+    doc.text(titreAffiche, pageWidth/2, 11, {align: 'center'});
+    doc.setTextColor(0); 
+    doc.setFontSize(9); 
+    doc.setFont('helvetica', 'normal');
+    doc.text('Date generation : ' + new Date().toLocaleString('fr-FR'), 14, 25);
+    
+    if (annexesData.length > 0) {
+        doc.setFontSize(8); 
+        doc.setFont('helvetica', 'italic');
+        doc.text(annexesData.length + ' annexe(s) detaillee(s) en fin de document', 
+                 pageWidth - 14, 25, {align: 'right'});
+    }
+    
+    // ÉTAPE 3 : Tableau principal des OT
+    const rows = [];
+    planningData.forEach(row => {
+        if (row.type === 'row') {
+            row.ots.forEach((ot, otIdx) => {
+                const otStr = String(ot || '').trim();
+                if (!otStr) return;
+                const datePlanning = (window.dateColumns && window.dateColumns[otIdx]) || '-';
+                if (isNC(otStr)) {
+                    rows.push(['NC', row.materiel, row.libelle || '', row.interventionType, 
+                              'NC', datePlanning, '-', '-', 'OT non communique - A planifier']);
+                } else {
+                    const s = otStates[otStr] || {};
+                    const annexeNum = annexePageMap[otStr] || 0;
+                    const observations = getObservationCourte(otStr, annexeNum);
+                    rows.push([
+                        otStr, row.materiel, row.libelle || '', row.interventionType, 
+                        s.status || 'En attente', 
+                        s.dateDebut ? new Date(s.dateDebut).toLocaleDateString('fr-FR') : datePlanning, 
+                        s.technicien || '-', 
+                        s.dateFin ? new Date(s.dateFin).toLocaleDateString('fr-FR') : '-', 
+                        observations
+                    ]);
+                }
+            });
+        }
+    });
+    
+    doc.autoTable({
+        startY: 30,
+        head: [['N° OT', 'Equipement', 'Libelle', 'Type', 'Statut', 'Date Prevue', 'Technicien', 'Date Real.', 'Observations']],
+        body: rows,
+        theme: 'grid',
+        headStyles: {fillColor: [31, 56, 100], textColor: 255, font: 'helvetica', 
+                     fontStyle: 'bold', halign: 'center', fontSize: 8},
+        bodyStyles: {font: 'helvetica', valign: 'middle'},
+        styles: {fontSize: 7, font: 'helvetica', cellPadding: 2.5, 
+         overflow: 'linebreak', valign: 'middle', minCellHeight: 10},
+        columnStyles: {
+            0: {cellWidth: 16, halign: 'center'},
+            1: {cellWidth: 30},
+            2: {cellWidth: 50, overflow: 'linebreak'},
+            3: {cellWidth: 24, halign: 'center'},
+            4: {cellWidth: 18, halign: 'center'},
+            5: {cellWidth: 22, halign: 'center'},
+            6: {cellWidth: 22, halign: 'center'},
+            7: {cellWidth: 22, halign: 'center'},
+            8: {cellWidth: 73, overflow: 'linebreak', fontSize: 7, halign: 'left', valign: 'top'}
+        },
+        didParseCell: function(d) {
+            if (d.section === 'body' && d.column.index === 4) {
+                if (d.cell.raw === 'F') { 
+                    d.cell.styles.fillColor = [200, 230, 201]; 
+                    d.cell.styles.textColor = [46, 125, 50]; 
+                    d.cell.styles.fontStyle = 'bold'; 
+                }
+                else if (d.cell.raw === 'NF') { 
+                    d.cell.styles.fillColor = [255, 205, 210]; 
+                    d.cell.styles.textColor = [198, 40, 40]; 
+                    d.cell.styles.fontStyle = 'bold'; 
+                }
+                else if (d.cell.raw === 'P') { 
+                    d.cell.styles.fillColor = [255, 224, 178]; 
+                    d.cell.styles.textColor = [230, 81, 0]; 
+                    d.cell.styles.fontStyle = 'bold'; 
+                }
+                else if (String(d.cell.raw).includes('NC')) { 
+                    d.cell.styles.fillColor = [224, 224, 224]; 
+                    d.cell.styles.textColor = [66, 66, 66]; 
+                    d.cell.styles.fontStyle = 'bold'; 
+                }
+            }
+            if (d.section === 'body' && d.column.index === 8) {
+                const text = String(d.cell.raw || '');
+                if (text === 'RAS' || text.startsWith('RAS\n')) { 
+                    d.cell.styles.textColor = [46, 125, 50]; 
+                    d.cell.styles.fontStyle = 'bold'; 
+                }
+                else if (text.includes('anomalie')) { 
+                    d.cell.styles.textColor = [198, 40, 40]; 
+                }
+                else if (text.includes('non realisee') || text.includes('non reali') || text.includes('non communique')) { 
+                    d.cell.styles.textColor = [198, 40, 40]; 
+                    d.cell.styles.fontStyle = 'italic'; 
+                }
+                else if (text.includes('Partiel')) { 
+                    d.cell.styles.textColor = [230, 81, 0]; 
+                }
+            }
+        }
+    });
+    
+    let finalY = doc.lastAutoTable.finalY + 10;
+    
+    // ÉTAPE 4 : Calcul statistiques
+    let total = 0, fait = 0, nonFait = 0, partiel = 0, encours = 0, nc = 0;
+    planningData.forEach(row => {
+        if (row.type === 'row') {
+            row.ots.forEach(ot => {
+                const otStr = String(ot || '').trim();
+                if (!otStr) return;
+                if (isNC(otStr)) { nc++; total++; return; }
+                total++;
+                const s = otStates[otStr] && otStates[otStr].status;
+                if (s === 'F') fait++; 
+                else if (s === 'NF') nonFait++; 
+                else if (s === 'P') partiel++; 
+                else encours++;
+            });
+        }
+    });
+    
+    if (finalY > pageHeight - 70) { doc.addPage(); finalY = 20; }
+    doc.setFontSize(11); 
+    doc.setFont('helvetica', 'bold'); 
+    doc.setTextColor(0);
+    doc.text('STATISTIQUES GLOBALES', pageWidth/2, finalY, {align: 'center'});
+    finalY += 8;
+    
+    const stats = [
+        { label: 'TOTAL OT', value: total, bg: [217, 226, 243], text: [31, 56, 100] },
+        { label: 'FAITS', value: fait, bg: [200, 230, 201], text: [46, 125, 50] },
+        { label: 'PARTIELS', value: partiel, bg: [255, 224, 178], text: [230, 81, 0] },
+        { label: 'NON FAITS', value: nonFait, bg: [255, 205, 210], text: [198, 40, 40] },
+        { label: 'EN ATTENTE', value: encours, bg: [240, 240, 240], text: [85, 85, 85] },
+        { label: 'NC (NON COMM.)', value: nc, bg: [224, 224, 224], text: [66, 66, 66] }
+    ];
+    
+    const boxWidth = 35; 
+    const boxHeight = 18;
+    const totalWidthStats = stats.length * boxWidth + (stats.length - 1) * 3;
+    const startXStats = (pageWidth - totalWidthStats) / 2;
+    
+    stats.forEach((stat, i) => {
+        const x = startXStats + i * (boxWidth + 3);
+        doc.setFillColor(stat.bg[0], stat.bg[1], stat.bg[2]);
+        doc.roundedRect(x, finalY, boxWidth, boxHeight, 2, 2, 'F');
+        doc.setTextColor(stat.text[0], stat.text[1], stat.text[2]);
+        doc.setFontSize(14); 
+        doc.setFont('helvetica', 'bold');
+        doc.text(String(stat.value), x + boxWidth/2, finalY + 9, {align: 'center'});
+        doc.setFontSize(6); 
+        doc.setFont('helvetica', 'normal');
+        doc.text(stat.label, x + boxWidth/2, finalY + 15, {align: 'center'});
+    });
+    
+    finalY += boxHeight + 12;
+    
+    // ÉTAPE 5 : Tableau de validation par date
+    const dates = window.dateColumns || [];
+    
+    if (dates.length > 0) {
+        const totauxParDate = dates.map((date, dateIdx) => {
+            let count = 0;
+            planningData.forEach(row => {
+                if (row.type === 'row') {
+                    const ot = row.ots[dateIdx];
+                    const otStr = String(ot || '').trim();
+                    if (otStr && (isValidOT(otStr) || isNC(otStr))) count++;
+                }
+            });
+            return count;
+        });
+        
+        const totalGeneral = totauxParDate.reduce((a, b) => a + b, 0);
+        const tauxRealisation = total > 0 ? Math.round((fait / total) * 100) : 0;
+        
+        if (finalY > pageHeight - 70) { doc.addPage(); finalY = 20; }
+        
+        const labelColWidth = 55;
+        const nbDateCols = dates.length;
+        const availableWidth = pageWidth - 20 - labelColWidth;
+        const valueColWidth = availableWidth / (nbDateCols + 1);
+        const tableStartX = 10;
+        
+        // Ligne 1 : En-tête avec dates
+        doc.setFillColor(31, 56, 100);
+        doc.rect(tableStartX, finalY, labelColWidth, 10, 'F');
+        dates.forEach((date, i) => {
+            const x = tableStartX + labelColWidth + i * valueColWidth;
+            doc.setFillColor(31, 56, 100);
+            doc.rect(x, finalY, valueColWidth, 10, 'F');
+            doc.setTextColor(255);
+            doc.setFontSize(7); 
+            doc.setFont('helvetica', 'bold');
+            const dateShort = date.replace(/\/\d{4}/, '');
+            doc.text(dateShort, x + valueColWidth/2, finalY + 6.5, {align: 'center'});
+        });
+        const totalX = tableStartX + labelColWidth + nbDateCols * valueColWidth;
+        doc.setFillColor(31, 56, 100);
+        doc.rect(totalX, finalY, valueColWidth, 10, 'F');
+        doc.setTextColor(255); 
+        doc.setFontSize(8); 
+        doc.setFont('helvetica', 'bold');
+        doc.text('TOTAL', totalX + valueColWidth/2, finalY + 6.5, {align: 'center'});
+        finalY += 10;
+        
+        // Ligne 2 : TOTAL GENERAL
+        doc.setFillColor(31, 56, 100);
+        doc.rect(tableStartX, finalY, labelColWidth, 10, 'F');
+        doc.setTextColor(255); 
+        doc.setFontSize(9); 
+        doc.setFont('helvetica', 'bold');
+        doc.text('TOTAL GENERAL', tableStartX + 3, finalY + 6.5);
+        totauxParDate.forEach((val, i) => {
+            const x = tableStartX + labelColWidth + i * valueColWidth;
+            doc.setFillColor(31, 56, 100);
+            doc.rect(x, finalY, valueColWidth, 10, 'F');
+            doc.setTextColor(255);
+            doc.setFontSize(11); 
+            doc.setFont('helvetica', 'bold');
+            doc.text(String(val), x + valueColWidth/2, finalY + 6.5, {align: 'center'});
+        });
+        doc.setFillColor(31, 56, 100);
+        doc.rect(totalX, finalY, valueColWidth, 10, 'F');
+        doc.setTextColor(255); 
+        doc.setFontSize(11); 
+        doc.setFont('helvetica', 'bold');
+        doc.text(String(totalGeneral), totalX + valueColWidth/2, finalY + 6.5, {align: 'center'});
+        finalY += 10;
+        
+        // Ligne 3 : Taux de réalisation
+        doc.setFillColor(217, 226, 243);
+        doc.rect(tableStartX, finalY, labelColWidth, 8, 'F');
+        doc.setDrawColor(150); 
+        doc.setLineWidth(0.2);
+        doc.rect(tableStartX, finalY, labelColWidth, 8);
+        doc.setTextColor(0); 
+        doc.setFontSize(8); 
+        doc.setFont('helvetica', 'normal');
+        doc.text('Taux de realisation', tableStartX + 3, finalY + 5.5);
+        const fusedWidth = valueColWidth * (nbDateCols + 1);
+        doc.setFillColor(255, 255, 255);
+        doc.rect(tableStartX + labelColWidth, finalY, fusedWidth, 8, 'F');
+        doc.setDrawColor(150);
+        doc.rect(tableStartX + labelColWidth, finalY, fusedWidth, 8);
+        doc.setTextColor(46, 125, 50); 
+        doc.setFontSize(12); 
+        doc.setFont('helvetica', 'bold');
+        doc.text(tauxRealisation + '%', tableStartX + labelColWidth + fusedWidth/2, finalY + 6, {align: 'center'});
+        finalY += 8;
+        
+        // Ligne 4 : Visa prestataire
+        doc.setFillColor(245, 245, 245);
+        doc.rect(tableStartX, finalY, labelColWidth, 18, 'F');
+        doc.setDrawColor(150); 
+        doc.setLineWidth(0.2);
+        doc.rect(tableStartX, finalY, labelColWidth, 18);
+        doc.setTextColor(0); 
+        doc.setFontSize(8); 
+        doc.setFont('helvetica', 'bold');
+        doc.text('Visa prestataire', tableStartX + 3, finalY + 5.5);
+        for (let i = 0; i < nbDateCols + 1; i++) {
+            const x = tableStartX + labelColWidth + i * valueColWidth;
+            doc.setFillColor(255, 255, 255);
+            doc.rect(x, finalY, valueColWidth, 18, 'F');
+            doc.setDrawColor(150); 
+            doc.setLineWidth(0.2);
+            doc.rect(x, finalY, valueColWidth, 18);
+        }
+        finalY += 18;
+        
+        // Ligne 5 : Validation Bank Al-Maghrib
+        doc.setFillColor(245, 245, 245);
+        doc.rect(tableStartX, finalY, labelColWidth, 18, 'F');
+        doc.setDrawColor(150); 
+        doc.setLineWidth(0.2);
+        doc.rect(tableStartX, finalY, labelColWidth, 18);
+        doc.setTextColor(0); 
+        doc.setFontSize(8); 
+        doc.setFont('helvetica', 'bold');
+        doc.text('Validation Bank Al-Maghrib', tableStartX + 3, finalY + 5.5);
+        for (let i = 0; i < nbDateCols + 1; i++) {
+            const x = tableStartX + labelColWidth + i * valueColWidth;
+            doc.setFillColor(255, 255, 255);
+            doc.rect(x, finalY, valueColWidth, 18, 'F');
+            doc.setDrawColor(150); 
+            doc.setLineWidth(0.2);
+            doc.rect(x, finalY, valueColWidth, 18);
+        }
+    }
+    
+    // ÉTAPE 6 : ANNEXES (Page sommaire + Pages détaillées)
+    if (annexesData.length > 0) {
+        
+        // ===== PAGE SOMMAIRE DES ANNEXES =====
+        doc.addPage();
+        
+        doc.setFillColor(31, 56, 100);
+        doc.rect(0, 0, pageWidth, 18, 'F');
+        doc.setTextColor(255); 
+        doc.setFontSize(14); 
+        doc.setFont('helvetica', 'bold');
+        doc.text('ANNEXES - DETAILS DES INTERVENTIONS', pageWidth/2, 11, {align: 'center'});
+        
+        doc.setTextColor(31, 56, 100);
+        doc.setFontSize(13); 
+        doc.setFont('helvetica', 'bold');
+        doc.text('SOMMAIRE DES ANNEXES', pageWidth/2, 32, {align: 'center'});
+        
+        doc.setDrawColor(31, 56, 100);
+        doc.setLineWidth(0.5);
+        doc.line(80, 35, pageWidth - 80, 35);
+        
+        doc.setTextColor(80);
+        doc.setFontSize(9); 
+        doc.setFont('helvetica', 'italic');
+        doc.text('Ce document contient ' + annexesData.length + ' annexe(s) detaillee(s) pour les OT presentant 4 anomalies/remarques ou plus.', 
+                 pageWidth/2, 42, {align: 'center'});
+        
+        const sommaireRows = annexesData.map((annexe) => {
+            const nbAnomalies = annexe.analyse.anomalies.length;
+            const nbRemarques = annexe.analyse.remarques.length;
+            let typeProbleme = '';
+            if (nbAnomalies > 0 && nbRemarques > 0) {
+                typeProbleme = nbAnomalies + ' anomalie(s) + ' + nbRemarques + ' remarque(s)';
+            } else if (nbAnomalies > 0) {
+                typeProbleme = nbAnomalies + ' anomalie' + (nbAnomalies > 1 ? 's' : '');
+            } else {
+                typeProbleme = nbRemarques + ' remarque' + (nbRemarques > 1 ? 's' : '');
+            }
+            const statusLabel = annexe.analyse.status === 'F' ? 'FAIT' : 
+                               annexe.analyse.status === 'NF' ? 'NON FAIT' : 
+                               annexe.analyse.status === 'P' ? 'PARTIEL' : '-';
+            return ['Annexe ' + annexe.annexeNum, annexe.otNum, annexe.materiel, 
+                    annexe.libelle || '-', statusLabel, typeProbleme];
+        });
+        
+        doc.autoTable({
+            startY: 50,
+            head: [['Reference', 'N° OT', 'Equipement', 'Libelle', 'Statut', 'Detail']],
+            body: sommaireRows,
+            theme: 'striped',
+            headStyles: {fillColor: [31, 56, 100], textColor: 255, font: 'helvetica', 
+                        fontStyle: 'bold', fontSize: 10, halign: 'center'},
+            bodyStyles: {font: 'helvetica', fontSize: 9, cellPadding: 4},
+            alternateRowStyles: {fillColor: [240, 245, 250]},
+            columnStyles: {
+                0: {cellWidth: 30, halign: 'center', fontStyle: 'bold', textColor: [31, 56, 100]},
+                1: {cellWidth: 25, halign: 'center', fontStyle: 'bold'},
+                2: {cellWidth: 45},
+                3: {cellWidth: 75},
+                4: {cellWidth: 25, halign: 'center', fontStyle: 'bold'},
+                5: {cellWidth: 77, halign: 'left'}
+            },
+            didParseCell: function(d) {
+                if (d.section === 'body' && d.column.index === 4) {
+                    if (d.cell.raw === 'FAIT') { 
+                        d.cell.styles.fillColor = [200, 230, 201]; 
+                        d.cell.styles.textColor = [46, 125, 50]; 
+                    }
+                    else if (d.cell.raw === 'NON FAIT') { 
+                        d.cell.styles.fillColor = [255, 205, 210]; 
+                        d.cell.styles.textColor = [198, 40, 40]; 
+                    }
+                    else if (d.cell.raw === 'PARTIEL') { 
+                        d.cell.styles.fillColor = [255, 224, 178]; 
+                        d.cell.styles.textColor = [230, 81, 0]; 
+                    }
+                }
+                if (d.section === 'body' && d.column.index === 5) {
+                    const text = String(d.cell.raw || '');
+                    if (text.includes('anomalie')) { 
+                        d.cell.styles.textColor = [198, 40, 40]; 
+                        d.cell.styles.fontStyle = 'bold'; 
+                    }
+                }
+            },
+            margin: {left: 10, right: 10}
+        });
+        
+        let noteY = doc.lastAutoTable.finalY + 10;
+        if (noteY < pageHeight - 30) {
+            doc.setFillColor(255, 243, 224);
+            doc.roundedRect(10, noteY, pageWidth - 20, 20, 2, 2, 'F');
+            doc.setDrawColor(255, 152, 0);
+            doc.setLineWidth(0.3);
+            doc.roundedRect(10, noteY, pageWidth - 20, 20, 2, 2);
+            doc.setTextColor(230, 81, 0);
+            doc.setFontSize(9); 
+            doc.setFont('helvetica', 'bold');
+            doc.text('NOTE :', 14, noteY + 7);
+            doc.setTextColor(80);
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(8);
+            doc.text('Les OT presentant 1 a 3 anomalies sont detailles directement dans le tableau principal (page 1).', 14, noteY + 13);
+            doc.text('Les OT avec 4 anomalies ou plus sont developpes ci-apres, chacun sur une page dediee.', 14, noteY + 17);
+        }
+        
+        doc.setTextColor(120);
+        doc.setFontSize(7); 
+        doc.setFont('helvetica', 'italic');
+        doc.text('Sommaire des annexes', pageWidth/2, pageHeight - 8, {align: 'center'});
+        
+        // ===== PAGES D'ANNEXES INDIVIDUELLES =====
+        annexesData.forEach((annexe) => {
+            doc.addPage();
+            
+            // En-tête annexe
+            doc.setFillColor(112, 48, 160);
+            doc.rect(0, 0, pageWidth, 18, 'F');
+            doc.setTextColor(255); 
+            doc.setFontSize(13); 
+            doc.setFont('helvetica', 'bold');
+            doc.text('ANNEXE ' + annexe.annexeNum + ' - OT N° ' + annexe.otNum, 
+                     pageWidth/2, 11, {align: 'center'});
+            
+            doc.setTextColor(0);
+            let yAnn = 28;
+            
+            // Bloc informations
+            doc.setFillColor(245, 245, 245);
+            doc.rect(10, yAnn, pageWidth - 20, 30, 'F');
+            doc.setDrawColor(200);
+            doc.rect(10, yAnn, pageWidth - 20, 30);
+            
+            doc.setFontSize(9); 
+            doc.setFont('helvetica', 'bold');
+            doc.text('Equipement :', 14, yAnn + 6);
+            doc.setFont('helvetica', 'normal');
+            doc.text(annexe.materiel + ' - ' + (annexe.libelle || ''), 45, yAnn + 6);
+            
+            doc.setFont('helvetica', 'bold');
+            doc.text('Type intervention :', 14, yAnn + 12);
+            doc.setFont('helvetica', 'normal');
+            doc.text(annexe.interventionType, 55, yAnn + 12);
+            
+            doc.setFont('helvetica', 'bold');
+            doc.text('Technicien :', 14, yAnn + 18);
+            doc.setFont('helvetica', 'normal');
+            doc.text(annexe.analyse.state.technicien || '-', 45, yAnn + 18);
+            
+            doc.setFont('helvetica', 'bold');
+            doc.text('Date realisation :', 110, yAnn + 18);
+            doc.setFont('helvetica', 'normal');
+            const dateReal = annexe.analyse.state.dateFin ? 
+                new Date(annexe.analyse.state.dateFin).toLocaleString('fr-FR') : '-';
+            doc.text(dateReal, 150, yAnn + 18);
+            
+            doc.setFont('helvetica', 'bold');
+            doc.text('Statut :', 14, yAnn + 24);
+            const statusLabel = annexe.analyse.status === 'F' ? 'FAIT' : 
+                               annexe.analyse.status === 'NF' ? 'NON FAIT' : 
+                               annexe.analyse.status === 'P' ? 'PARTIEL (' + annexe.analyse.done + '/' + annexe.analyse.total + ')' : '-';
+            doc.setFont('helvetica', 'normal');
+            doc.text(statusLabel, 35, yAnn + 24);
+            
+            yAnn += 38;
+            
+            // Tableau ANOMALIES
+            if (annexe.analyse.anomalies.length > 0) {
+                doc.setFontSize(11); 
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(198, 40, 40);
+                doc.text('ANOMALIES RELEVEES (' + annexe.analyse.anomalies.length + ')', 14, yAnn);
+                doc.setTextColor(0);
+                yAnn += 4;
+                
+                const anomalieRows = annexe.analyse.anomalies.map((a, i) => 
+                    [String(i + 1), a.code, a.description, a.commentaire]);
+                
+                doc.autoTable({
+                    startY: yAnn,
+                    head: [['#', 'Code', 'Action concernee', 'Detail / Observation']],
+                    body: anomalieRows,
+                    theme: 'grid',
+                    headStyles: {fillColor: [198, 40, 40], textColor: 255, 
+                                font: 'helvetica', fontStyle: 'bold', fontSize: 9},
+                    bodyStyles: {font: 'helvetica'},
+                    styles: {fontSize: 8, font: 'helvetica', cellPadding: 3},
+                    columnStyles: {
+                        0: {cellWidth: 10, halign: 'center', fontStyle: 'bold'},
+                        1: {cellWidth: 30, halign: 'center'},
+                        2: {cellWidth: 100},
+                        3: {cellWidth: 137}
+                    },
+                    margin: {left: 10, right: 10}
+                });
+                yAnn = doc.lastAutoTable.finalY + 8;
+            }
+            
+            // Tableau REMARQUES
+            if (annexe.analyse.remarques.length > 0) {
+                if (yAnn > pageHeight - 30) { doc.addPage(); yAnn = 25; }
+                
+                doc.setFontSize(11); 
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(230, 81, 0);
+                doc.text('REMARQUES / NOTES (' + annexe.analyse.remarques.length + ')', 14, yAnn);
+                doc.setTextColor(0);
+                yAnn += 4;
+                
+                const remarqueRows = annexe.analyse.remarques.map((r, i) => 
+                    [String(i + 1), r.code, r.description, r.commentaire]);
+                
+                doc.autoTable({
+                    startY: yAnn,
+                    head: [['#', 'Code', 'Action concernee', 'Detail / Observation']],
+                    body: remarqueRows,
+                    theme: 'grid',
+                    headStyles: {fillColor: [230, 81, 0], textColor: 255, 
+                                font: 'helvetica', fontStyle: 'bold', fontSize: 9},
+                    bodyStyles: {font: 'helvetica'},
+                    styles: {fontSize: 8, font: 'helvetica', cellPadding: 3},
+                    columnStyles: {
+                        0: {cellWidth: 10, halign: 'center', fontStyle: 'bold'},
+                        1: {cellWidth: 30, halign: 'center'},
+                        2: {cellWidth: 100},
+                        3: {cellWidth: 137}
+                    },
+                    margin: {left: 10, right: 10}
+                });
+                yAnn = doc.lastAutoTable.finalY + 8;
+            }
+            
+            // Pied de page de l'annexe
+            doc.setFontSize(7); 
+            doc.setFont('helvetica', 'italic');
+            doc.setTextColor(120);
+            doc.text('Reference : Tableau principal page 1 - OT N° ' + annexe.otNum, 
+                     pageWidth/2, pageHeight - 8, {align: 'center'});
+            doc.setTextColor(0);
+        });
+    }
+    
+    // SAUVEGARDE
+    doc.save('Rapport_OT_' + new Date().toISOString().slice(0,10) + '.pdf');
+    showNotification('✅ Rapport PDF généré' + 
+                    (annexesData.length > 0 ? ' avec ' + annexesData.length + ' annexe(s)' : ''));
+}
+
+function updateStats() {
+    let total = 0, fait = 0, nonFait = 0, partiel = 0, encours = 0, nc = 0;
+    planningData.forEach(row => {
+        if (row.type === 'row') {
+            row.ots.forEach(ot => {
+                const otStr = String(ot || '').trim();
+                if (!otStr) return;
+                if (isNC(otStr)) { nc++; total++; return; }
+                total++;
+                const s = otStates[otStr] && otStates[otStr].status;
+                if (s === 'F') fait++; else if (s === 'NF') nonFait++; else if (s === 'P') partiel++; else encours++;
+            });
+        }
+    });
+    document.getElementById('statTotal').textContent = total;
+    document.getElementById('statFait').textContent = fait;
+    document.getElementById('statNonFait').textContent = nonFait;
+    document.getElementById('statPartiel').textContent = partiel;
+    document.getElementById('statEncours').textContent = encours;
+    document.getElementById('statNC').textContent = nc;
+}
+
+function showNotification(msg, type = 'success') {
+    const n = document.getElementById('notification');
+    n.textContent = msg;
+    n.className = 'notification show ' + (type === 'error' ? 'error' : type === 'warning' ? 'warning' : '');
+    setTimeout(() => n.classList.remove('show'), 4000);
+}
+
+function calculerKPIs() {
+    const kpis = { totalOT: 0, otFaits: 0, otNonFaits: 0, otPartiels: 0, otEnAttente: 0, otNC: 0, totalAnomalies: 0, otAvecAnomalies: 0, otConformes: 0, tauxRealisation: 0, tauxConformite: 0, tauxAvancement: 0, ecartMoyen: 0, otEnRetard: 0, otAlHeure: 0, otEnAvance: 0, techniciens: {}, equipements: {}, types: {}, parDate: {}, topAnomalies: {}, totalActions: 0, actionsRealisees: 0 };
+    let totalEcartJours = 0; let nbOTAvecEcart = 0;
+    planningData.forEach(row => {
+        if (row.type !== 'row') return;
+        row.ots.forEach((ot, otIdx) => {
+            const otStr = String(ot || '').trim();
+            if (!otStr) return;
+            const datePlanning = (window.dateColumns && window.dateColumns[otIdx]) || '';
+            if (datePlanning) {
+                if (!kpis.parDate[datePlanning]) kpis.parDate[datePlanning] = {total: 0, fait: 0, nonFait: 0, partiel: 0, attente: 0, nc: 0};
+                kpis.parDate[datePlanning].total++;
+            }
+            if (isNC(otStr)) {
+                kpis.totalOT++; kpis.otNC++;
+                if (datePlanning) kpis.parDate[datePlanning].nc++;
+                if (!kpis.types[row.interventionType]) kpis.types[row.interventionType] = {total: 0, fait: 0, nc: 0, anomalies: 0};
+                kpis.types[row.interventionType].total++; kpis.types[row.interventionType].nc++;
+                return;
+            }
+            kpis.totalOT++;
+            const state = otStates[otStr];
+            const analyse = analyserOT(otStr);
+            if (!kpis.types[row.interventionType]) kpis.types[row.interventionType] = {total: 0, fait: 0, nc: 0, anomalies: 0};
+            kpis.types[row.interventionType].total++;
+            const equipType = row.materiel.split('_').slice(-1)[0].split('-')[0] || row.materiel;
+            if (!kpis.equipements[equipType]) kpis.equipements[equipType] = {total: 0, fait: 0, anomalies: 0};
+            kpis.equipements[equipType].total++;
+            if (state && state.status) {
+                if (state.status === 'F') {
+                    kpis.otFaits++; kpis.types[row.interventionType].fait++; kpis.equipements[equipType].fait++;
+                    if (datePlanning) kpis.parDate[datePlanning].fait++;
+                    if (analyse.anomalies.length === 0) kpis.otConformes++;
+                } else if (state.status === 'NF') { kpis.otNonFaits++; if (datePlanning) kpis.parDate[datePlanning].nonFait++; }
+                else if (state.status === 'P') { kpis.otPartiels++; if (datePlanning) kpis.parDate[datePlanning].partiel++; }
+                if (state.technicien) {
+                    if (!kpis.techniciens[state.technicien]) kpis.techniciens[state.technicien] = {total: 0, fait: 0, partiel: 0, nonFait: 0, anomalies: 0};
+                    kpis.techniciens[state.technicien].total++;
+                    if (state.status === 'F') kpis.techniciens[state.technicien].fait++;
+                    else if (state.status === 'P') kpis.techniciens[state.technicien].partiel++;
+                    else if (state.status === 'NF') kpis.techniciens[state.technicien].nonFait++;
+                    kpis.techniciens[state.technicien].anomalies += analyse.anomalies.length;
+                }
+                if (analyse.anomalies.length > 0) {
+                    kpis.otAvecAnomalies++; kpis.totalAnomalies += analyse.anomalies.length;
+                    kpis.types[row.interventionType].anomalies += analyse.anomalies.length;
+                    kpis.equipements[equipType].anomalies += analyse.anomalies.length;
+                    analyse.anomalies.forEach(a => {
+                        const key = a.code + ' - ' + tronquerTexte(a.description, 50);
+                        if (!kpis.topAnomalies[key]) kpis.topAnomalies[key] = {count: 0, commentaires: []};
+                        kpis.topAnomalies[key].count++;
+                        kpis.topAnomalies[key].commentaires.push(a.commentaire);
+                    });
+                }
+                kpis.totalActions += analyse.total;
+                kpis.actionsRealisees += analyse.done;
+                if (state.dateDebut && state.dateFin) {
+                    const diff = new Date(state.dateFin) - new Date(state.dateDebut);
+                    if (!isNaN(diff)) {
+                        const diffJours = diff / (1000 * 60 * 60 * 24);
+                        totalEcartJours += diffJours; nbOTAvecEcart++;
+                        if (diffJours > 1) kpis.otEnRetard++;
+                        else if (diffJours < -1) kpis.otEnAvance++;
+                        else kpis.otAlHeure++;
+                    }
+                }
+            } else {
+                kpis.otEnAttente++;
+                if (datePlanning) kpis.parDate[datePlanning].attente++;
+            }
+        });
+    });
+    if (kpis.totalOT > 0) {
+        kpis.tauxRealisation = Math.round((kpis.otFaits / kpis.totalOT) * 100);
+        kpis.tauxAvancement = Math.round(((kpis.otFaits + kpis.otPartiels) / kpis.totalOT) * 100);
+    }
+    const otTraites = kpis.otFaits + kpis.otPartiels + kpis.otNonFaits;
+    if (otTraites > 0) kpis.tauxConformite = Math.round((kpis.otConformes / otTraites) * 100);
+    if (nbOTAvecEcart > 0) kpis.ecartMoyen = (totalEcartJours / nbOTAvecEcart).toFixed(1);
+    return kpis;
+}
+
+function openDashboard() {
+    if (!planningLoaded) { showNotification('Veuillez d\'abord charger les fichiers', 'warning'); return; }
+    document.getElementById('dashboardModal').classList.add('active');
+    const titre = getCleanTitle(mainHeaderText).replace(/^OT\s+PREVENTIF\s*-?\s*/i, '');
+    document.getElementById('dashboardSubtitle').textContent = 'Site : ' + titre + ' | ' + new Date().toLocaleString('fr-FR');
+    document.getElementById('toolbarButtons').classList.remove('active');
+    renderDashboard();
+}
+
+function closeDashboard() {
+    document.getElementById('dashboardModal').classList.remove('active');
+    Object.values(chartsInstances).forEach(chart => { if (chart) chart.destroy(); });
+    chartsInstances = {};
+}
+
+function refreshDashboard() { renderDashboard(); showNotification('Dashboard actualisé'); }
+
+function renderDashboard() {
+    const kpis = calculerKPIs();
+    const body = document.getElementById('dashboardBody');
+    Object.values(chartsInstances).forEach(chart => { if (chart) chart.destroy(); });
+    chartsInstances = {};
+    
+    body.innerHTML = `
+        <div class="dashboard-section-title">📈 Indicateurs Clés de Performance</div>
+        <div class="kpi-grid">
+            <div class="kpi-card ${kpis.tauxRealisation >= 95 ? 'success' : kpis.tauxRealisation >= 70 ? 'warning' : 'danger'}">
+                <div class="kpi-icon" aria-hidden="true">🎯</div>
+                <div class="kpi-label">Taux de réalisation</div>
+                <div class="kpi-value">${kpis.tauxRealisation}<span class="unit">%</span></div>
+                <div class="kpi-progress"><div class="kpi-progress-fill ${kpis.tauxRealisation >= 95 ? 'success' : kpis.tauxRealisation >= 70 ? 'warning' : 'danger'}" style="width: ${kpis.tauxRealisation}%"></div></div>
+                <div class="kpi-target">Objectif : ≥ 95% | ${kpis.otFaits}/${kpis.totalOT} OT</div>
+            </div>
+            <div class="kpi-card ${kpis.tauxConformite >= 90 ? 'success' : kpis.tauxConformite >= 70 ? 'warning' : 'danger'}">
+                <div class="kpi-icon" aria-hidden="true">✅</div>
+                <div class="kpi-label">Taux de conformité</div>
+                <div class="kpi-value">${kpis.tauxConformite}<span class="unit">%</span></div>
+                <div class="kpi-progress"><div class="kpi-progress-fill ${kpis.tauxConformite >= 90 ? 'success' : kpis.tauxConformite >= 70 ? 'warning' : 'danger'}" style="width: ${kpis.tauxConformite}%"></div></div>
+                <div class="kpi-target">Objectif : ≥ 90% | ${kpis.otConformes} OT conformes</div>
+            </div>
+            <div class="kpi-card ${kpis.totalAnomalies === 0 ? 'success' : kpis.totalAnomalies < 10 ? 'warning' : 'danger'}">
+                <div class="kpi-icon" aria-hidden="true">⚠️</div>
+                <div class="kpi-label">Anomalies détectées</div>
+                <div class="kpi-value">${kpis.totalAnomalies}</div>
+                <div class="kpi-target">Sur ${kpis.otAvecAnomalies} OT (${kpis.totalOT > 0 ? Math.round((kpis.otAvecAnomalies/kpis.totalOT)*100) : 0}%)</div>
+            </div>
+            <div class="kpi-card info">
+                <div class="kpi-icon" aria-hidden="true">📋</div>
+                <div class="kpi-label">Actions réalisées</div>
+                <div class="kpi-value">${kpis.actionsRealisees}<span class="unit">/${kpis.totalActions}</span></div>
+                <div class="kpi-progress"><div class="kpi-progress-fill success" style="width: ${kpis.totalActions > 0 ? Math.round((kpis.actionsRealisees/kpis.totalActions)*100) : 0}%"></div></div>
+                <div class="kpi-target">${kpis.totalActions > 0 ? Math.round((kpis.actionsRealisees/kpis.totalActions)*100) : 0}% des actions check-list</div>
+            </div>
+            <div class="kpi-card ${kpis.otEnAttente === 0 ? 'success' : 'warning'}">
+                <div class="kpi-icon" aria-hidden="true">⏳</div>
+                <div class="kpi-label">OT en attente</div>
+                <div class="kpi-value">${kpis.otEnAttente}</div>
+                <div class="kpi-target">À traiter / ${kpis.totalOT} total</div>
+            </div>
+            <div class="kpi-card ${kpis.otNC === 0 ? 'success' : 'warning'}">
+                <div class="kpi-icon" aria-hidden="true">📭</div>
+                <div class="kpi-label">OT non communiqués</div>
+                <div class="kpi-value">${kpis.otNC}</div>
+                <div class="kpi-target">À planifier avec le client</div>
+            </div>
+            <div class="kpi-card info">
+                <div class="kpi-icon" aria-hidden="true">👷</div>
+                <div class="kpi-label">Techniciens mobilisés</div>
+                <div class="kpi-value">${Object.keys(kpis.techniciens).length}</div>
+                <div class="kpi-target">Sur cette période</div>
+            </div>
+            <div class="kpi-card ${parseFloat(kpis.ecartMoyen) <= 1 ? 'success' : parseFloat(kpis.ecartMoyen) <= 3 ? 'warning' : 'danger'}">
+                <div class="kpi-icon" aria-hidden="true">⏱️</div>
+                <div class="kpi-label">Écart moyen (jours)</div>
+                <div class="kpi-value">${kpis.ecartMoyen > 0 ? '+' : ''}${kpis.ecartMoyen}<span class="unit">j</span></div>
+                <div class="kpi-target">Prévu vs Réalisé</div>
+            </div>
+        </div>
+        
+        <div class="dashboard-section-title">📊 Analyses Graphiques</div>
+        <div class="charts-row row-2">
+            <div class="chart-card">
+                <h3>🎯 Répartition des OT par statut</h3>
+                <div class="chart-subtitle">Vue d'ensemble de l'état d'avancement</div>
+                <div class="chart-container"><canvas id="chartStatuts" role="img" aria-label="Graphique de répartition des OT par statut"></canvas></div>
+            </div>
+            <div class="chart-card">
+                <h3>📅 Avancement par date planifiée</h3>
+                <div class="chart-subtitle">Progression journalière des interventions</div>
+                <div class="chart-container"><canvas id="chartParDate" role="img" aria-label="Graphique d'avancement par date"></canvas></div>
+            </div>
+        </div>
+        <div class="charts-row row-2">
+            <div class="chart-card">
+                <h3>🔧 Performance par type d'intervention</h3>
+                <div class="chart-subtitle">Comparaison réalisé / total par type</div>
+                <div class="chart-container"><canvas id="chartTypes" role="img" aria-label="Performance par type d'intervention"></canvas></div>
+            </div>
+            <div class="chart-card">
+                <h3>⏰ Respect des délais</h3>
+                <div class="chart-subtitle">Répartition en avance / à l'heure / en retard</div>
+                <div class="chart-container"><canvas id="chartDelais" role="img" aria-label="Respect des délais"></canvas></div>
+            </div>
+        </div>
+        ${Object.keys(kpis.techniciens).length > 0 ? `
+        <div class="dashboard-section-title">👷 Performance par Technicien</div>
+        <div class="charts-row row-full">
+            <div class="chart-card">
+                <h3>👥 Charge de travail et performance</h3>
+                <div class="chart-subtitle">Nombre d'OT traités par technicien</div>
+                <div class="chart-container tall"><canvas id="chartTechniciens" role="img" aria-label="Performance par technicien"></canvas></div>
+            </div>
+        </div>
+        <div class="dashboard-table-card">
+            <h3>📋 Tableau détaillé des techniciens</h3>
+            <table class="dashboard-table">
+                <thead><tr><th>Technicien</th><th>Total</th><th>Faits</th><th>Partiels</th><th>NF</th><th>Anom.</th><th>Taux</th></tr></thead>
+                <tbody>
+                    ${Object.entries(kpis.techniciens).sort((a,b) => b[1].total - a[1].total).map(([nom, data]) => {
+                        const taux = data.total > 0 ? Math.round((data.fait / data.total) * 100) : 0;
+                        return `<tr><td><strong>${nom}</strong></td><td>${data.total}</td><td><span class="badge badge-success">${data.fait}</span></td><td><span class="badge badge-warning">${data.partiel}</span></td><td><span class="badge badge-danger">${data.nonFait}</span></td><td>${data.anomalies > 0 ? '<span class="badge badge-danger">' + data.anomalies + '</span>' : '<span style="color:#999">0</span>'}</td><td><div class="mini-progress"><div class="mini-progress-fill" style="width:${taux}%; background: ${taux >= 90 ? '#4caf50' : taux >= 70 ? '#ff9800' : '#f44336'}"></div></div><strong>${taux}%</strong></td></tr>`;
+                    }).join('')}
+                </tbody>
+            </table>
+        </div>` : ''}
+        ${Object.keys(kpis.topAnomalies).length > 0 ? `
+        <div class="dashboard-section-title">⚠️ Analyse des Anomalies</div>
+        <div class="charts-row row-2">
+            <div class="chart-card">
+                <h3>🔥 Top 10 des anomalies récurrentes</h3>
+                <div class="chart-subtitle">Identifiez les problèmes les plus fréquents</div>
+                <div class="chart-container tall"><canvas id="chartTopAnomalies" role="img" aria-label="Top 10 des anomalies"></canvas></div>
+            </div>
+            <div class="chart-card">
+                <h3>📊 Anomalies par type d'équipement</h3>
+                <div class="chart-subtitle">Concentration des problèmes</div>
+                <div class="chart-container tall"><canvas id="chartAnomaliesEquip" role="img" aria-label="Anomalies par équipement"></canvas></div>
+            </div>
+        </div>` : ''}
+    `;
+    
+    setTimeout(() => {
+        renderChartStatuts(kpis);
+        renderChartParDate(kpis);
+        renderChartTypes(kpis);
+        renderChartDelais(kpis);
+        if (Object.keys(kpis.techniciens).length > 0) renderChartTechniciens(kpis);
+        if (Object.keys(kpis.topAnomalies).length > 0) {
+            renderChartTopAnomalies(kpis);
+            renderChartAnomaliesEquip(kpis);
+        }
+    }, 100);
+}
+
+function renderChartStatuts(kpis) {
+    const ctx = document.getElementById('chartStatuts');
+    if (!ctx) return;
+    chartsInstances.statuts = new Chart(ctx, {
+        type: 'doughnut',
+        data: { labels: ['Faits ✅', 'Partiels ⚠️', 'Non Faits ❌', 'En Attente ⏳', 'NC 📭'], datasets: [{ data: [kpis.otFaits, kpis.otPartiels, kpis.otNonFaits, kpis.otEnAttente, kpis.otNC], backgroundColor: ['#4caf50', '#ff9800', '#f44336', '#9e9e9e', '#607d8b'], borderWidth: 2, borderColor: '#fff' }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { size: 10 } } } } }
+    });
+}
+
+function renderChartParDate(kpis) {
+    const ctx = document.getElementById('chartParDate');
+    if (!ctx) return;
+    const dates = Object.keys(kpis.parDate).sort();
+    if (dates.length === 0) { ctx.parentElement.innerHTML = '<div class="dashboard-empty"><div class="icon">📅</div><p>Aucune donnée par date</p></div>'; return; }
+    chartsInstances.parDate = new Chart(ctx, {
+        type: 'bar',
+        data: { labels: dates, datasets: [
+            { label: 'Faits', data: dates.map(d => kpis.parDate[d].fait), backgroundColor: '#4caf50' },
+            { label: 'Partiels', data: dates.map(d => kpis.parDate[d].partiel), backgroundColor: '#ff9800' },
+            { label: 'Non Faits', data: dates.map(d => kpis.parDate[d].nonFait), backgroundColor: '#f44336' },
+            { label: 'En attente', data: dates.map(d => kpis.parDate[d].attente), backgroundColor: '#9e9e9e' },
+            { label: 'NC', data: dates.map(d => kpis.parDate[d].nc), backgroundColor: '#607d8b' }
+        ]},
+        options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true, ticks: { font: { size: 9 } } }, y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1 } } }, plugins: { legend: { position: 'bottom', labels: { font: { size: 10 } } } } }
+    });
+}
+
+function renderChartTypes(kpis) {
+    const ctx = document.getElementById('chartTypes');
+    if (!ctx) return;
+    const types = Object.keys(kpis.types);
+    if (types.length === 0) return;
+    chartsInstances.types = new Chart(ctx, {
+        type: 'bar',
+        data: { labels: types, datasets: [{ label: 'Faits', data: types.map(t => kpis.types[t].fait), backgroundColor: '#4caf50' }, { label: 'Total', data: types.map(t => kpis.types[t].total), backgroundColor: 'rgba(31, 56, 100, 0.3)' }] },
+        options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } }, plugins: { legend: { position: 'bottom' } } }
+    });
+}
+
+function renderChartDelais(kpis) {
+    const ctx = document.getElementById('chartDelais');
+    if (!ctx) return;
+    const total = kpis.otEnAvance + kpis.otAlHeure + kpis.otEnRetard;
+    if (total === 0) { ctx.parentElement.innerHTML = '<div class="dashboard-empty"><div class="icon">⏰</div><p>Aucune date de réalisation renseignée</p></div>'; return; }
+    chartsInstances.delais = new Chart(ctx, {
+        type: 'pie',
+        data: { labels: ['En avance', 'À l\'heure (±1j)', 'En retard'], datasets: [{ data: [kpis.otEnAvance, kpis.otAlHeure, kpis.otEnRetard], backgroundColor: ['#2196f3', '#4caf50', '#f44336'], borderWidth: 2, borderColor: '#fff' }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+    });
+}
+
+function renderChartTechniciens(kpis) {
+    const ctx = document.getElementById('chartTechniciens');
+    if (!ctx) return;
+    const techs = Object.entries(kpis.techniciens).sort((a,b) => b[1].total - a[1].total);
+    chartsInstances.techniciens = new Chart(ctx, {
+        type: 'bar',
+        data: { labels: techs.map(t => t[0]), datasets: [
+            { label: 'Faits', data: techs.map(t => t[1].fait), backgroundColor: '#4caf50', stack: 'stack0' },
+            { label: 'Partiels', data: techs.map(t => t[1].partiel), backgroundColor: '#ff9800', stack: 'stack0' },
+            { label: 'Non Faits', data: techs.map(t => t[1].nonFait), backgroundColor: '#f44336', stack: 'stack0' }
+        ]},
+        options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1 } } }, plugins: { legend: { position: 'bottom' } } }
+    });
+}
+
+function renderChartTopAnomalies(kpis) {
+    const ctx = document.getElementById('chartTopAnomalies');
+    if (!ctx) return;
+    const top = Object.entries(kpis.topAnomalies).sort((a,b) => b[1].count - a[1].count).slice(0, 10);
+    chartsInstances.topAnomalies = new Chart(ctx, {
+        type: 'bar',
+        data: { labels: top.map(t => tronquerTexte(t[0], 40)), datasets: [{ label: 'Occurrences', data: top.map(t => t[1].count), backgroundColor: top.map((_, i) => { const colors = ['#d32f2f', '#e53935', '#f44336', '#ef5350', '#e57373', '#ef9a9a', '#ffcdd2', '#ffebee', '#fce4ec', '#f8bbd0']; return colors[i] || '#f8bbd0'; }) }] },
+        options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } }, plugins: { legend: { display: false } } }
+    });
+}
+
+function renderChartAnomaliesEquip(kpis) {
+    const ctx = document.getElementById('chartAnomaliesEquip');
+    if (!ctx) return;
+    const equips = Object.entries(kpis.equipements).filter(e => e[1].anomalies > 0).sort((a,b) => b[1].anomalies - a[1].anomalies);
+    if (equips.length === 0) { ctx.parentElement.innerHTML = '<div class="dashboard-empty"><div class="icon">🎉</div><p>Aucune anomalie détectée</p></div>'; return; }
+    chartsInstances.anomaliesEquip = new Chart(ctx, {
+        type: 'doughnut',
+        data: { labels: equips.map(e => e[0]), datasets: [{ data: equips.map(e => e[1].anomalies), backgroundColor: ['#d32f2f', '#f57c00', '#fbc02d', '#7cb342', '#0288d1', '#5e35b1', '#c2185b', '#00897b'] }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { size: 10 } } } } }
+    });
+}
+
+function exportDashboardPDF() {
+    showNotification('Génération du PDF dashboard...', 'warning');
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF('l', 'mm', 'a4');
+    const pageWidth = 297;
+    const kpis = calculerKPIs();
+    doc.setFillColor(102, 126, 234);
+    doc.rect(0, 0, pageWidth, 20, 'F');
+    doc.setTextColor(255);
+    doc.setFontSize(16); doc.setFont('helvetica', 'bold');
+    doc.text('TABLEAU DE BORD KPI - MAINTENANCE PREVENTIVE', pageWidth/2, 12, {align: 'center'});
+    doc.setTextColor(0); doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+    const titre = getCleanTitle(mainHeaderText).replace(/^OT\s+PREVENTIF\s*-?\s*/i, '');
+    doc.text('Site : ' + titre, 14, 28);
+    doc.text('Date : ' + new Date().toLocaleString('fr-FR'), pageWidth - 14, 28, {align: 'right'});
+    doc.setFontSize(12); doc.setFont('helvetica', 'bold');
+    doc.text('INDICATEURS CLES', 14, 38);
+    const kpiData = [
+        ['Taux de realisation', kpis.tauxRealisation + '%', kpis.otFaits + '/' + kpis.totalOT + ' OT'],
+        ['Taux de conformite', kpis.tauxConformite + '%', kpis.otConformes + ' OT sans anomalie'],
+        ['Anomalies detectees', kpis.totalAnomalies, kpis.otAvecAnomalies + ' OT concernes'],
+        ['Actions realisees', kpis.actionsRealisees + '/' + kpis.totalActions, (kpis.totalActions > 0 ? Math.round((kpis.actionsRealisees/kpis.totalActions)*100) : 0) + '%'],
+        ['OT en attente', kpis.otEnAttente, 'A traiter'],
+        ['OT non communiques', kpis.otNC, 'A planifier'],
+        ['Techniciens mobilises', Object.keys(kpis.techniciens).length, 'Sur la periode'],
+        ['Ecart moyen', kpis.ecartMoyen + ' jours', 'Prevu vs Realise']
+    ];
+    doc.autoTable({
+        startY: 42,
+        head: [['Indicateur', 'Valeur', 'Detail']],
+        body: kpiData,
+        theme: 'grid',
+        headStyles: {fillColor: [102, 126, 234], textColor: 255, fontStyle: 'bold'},
+        styles: {fontSize: 10, cellPadding: 4},
+        columnStyles: {0: {cellWidth: 100, fontStyle: 'bold'}, 1: {cellWidth: 60, halign: 'center', fontStyle: 'bold', fontSize: 12}, 2: {cellWidth: 110}}
+    });
+    doc.save('Dashboard_KPI_' + new Date().toISOString().slice(0,10) + '.pdf');
+    showNotification('✅ Dashboard exporté en PDF');
+}
+
+window.onload = function() {
+    document.getElementById('welcomeScreen').classList.remove('hidden');
+    document.getElementById('workspace').classList.add('hidden');
+    updateMobileToolbarTitle();
+    updateOnlineStatus();
+    const saved = localStorage.getItem('otPreventifData');
+    if (saved) {
+        try {
+            const data = JSON.parse(saved);
+            const date = new Date(data.savedAt).toLocaleString('fr-FR');
+            if (confirm('Une sauvegarde existe (' + date + ').\n\nVoulez-vous la recharger ?')) {
+                loadFromLocalStorage();
+            }
+        } catch(e) {}
+    }
+};
+</script>
+
 </body>
 </html>

@@ -777,28 +777,8 @@
 <div class="welcome-screen" id="welcomeScreen">
     <div class="welcome-icon" aria-hidden="true">📊</div>
     <h1>Système de Gestion OT Préventif</h1>
-    <p class="subtitle">Pour commencer, veuillez charger vos deux fichiers Excel</p>
-    
-    <div class="steps-container">
-        <div class="step-card" id="step1">
-            <div class="step-number">1</div>
-            <h3>Charger le Planning OT</h3>
-            <p>Fichier Excel contenant le planning mensuel des OT.</p>
-            <p><strong>Status :</strong> <span id="step1Status">En attente...</span></p>
-        </div>
-        <div class="step-card" id="step2">
-            <div class="step-number">2</div>
-            <h3>Charger les Check-lists</h3>
-            <p>Fichier Excel contenant les actions détaillées.</p>
-            <p><strong>Status :</strong> <span id="step2Status">En attente...</span></p>
-        </div>
-        <div class="step-card" id="step3">
-            <div class="step-number">3</div>
-            <h3>Utiliser le système</h3>
-            <p>Cliquez sur un numéro d'OT pour accéder à sa check-list.</p>
-            <p><strong>Status :</strong> <span id="step3Status">En attente...</span></p>
-        </div>
-    </div>
+    <p class="subtitle">Pour commencer, veuillez<br>
+    <strong style="color:#1f3864;">Cliquez sur les boutons en haut pour charger vos fichiers</strong></p>
 </div>
 
 <div id="workspace" class="hidden">
@@ -1553,19 +1533,25 @@ function updateFileStatus() {
     if (planningLoaded) {
         document.getElementById('planningStatus').textContent = 'Chargé';
         document.getElementById('planningStatus').className = 'status-loaded';
-        document.getElementById('step1Status').innerHTML = '<span style="color:#4caf50;">Chargé</span>';
-        document.getElementById('step1').classList.add('done');
+        const s1s = document.getElementById('step1Status');
+        const s1 = document.getElementById('step1');
+        if (s1s) s1s.innerHTML = '<span style="color:#4caf50;">Chargé</span>';
+        if (s1) s1.classList.add('done');
     }
     if (checklistLoaded) {
         document.getElementById('checklistStatus').textContent = 'Chargé';
         document.getElementById('checklistStatus').className = 'status-loaded';
-        document.getElementById('step2Status').innerHTML = '<span style="color:#4caf50;">Chargé</span>';
-        document.getElementById('step2').classList.add('done');
+        const s2s = document.getElementById('step2Status');
+        const s2 = document.getElementById('step2');
+        if (s2s) s2s.innerHTML = '<span style="color:#4caf50;">Chargé</span>';
+        if (s2) s2.classList.add('done');
     }
     if (planningLoaded && checklistLoaded) {
         document.getElementById('fileStatus').classList.add('loaded');
-        document.getElementById('step3Status').innerHTML = '<span style="color:#4caf50;">Prêt à utiliser</span>';
-        document.getElementById('step3').classList.add('done');
+        const s3s = document.getElementById('step3Status');
+        const s3 = document.getElementById('step3');
+        if (s3s) s3s.innerHTML = '<span style="color:#4caf50;">Prêt à utiliser</span>';
+        if (s3) s3.classList.add('done');
     }
     document.getElementById('btnExportExcel').disabled = !planningLoaded;
     document.getElementById('btnExportPDF').disabled = !planningLoaded;
@@ -1895,12 +1881,18 @@ function resetAll() {
     document.getElementById('checklistStatus').textContent = 'Non chargé';
     document.getElementById('checklistStatus').className = 'status-empty';
     document.getElementById('fileStatus').classList.remove('loaded');
-    document.getElementById('step1Status').textContent = 'En attente...';
-    document.getElementById('step2Status').textContent = 'En attente...';
-    document.getElementById('step3Status').textContent = 'En attente...';
-    document.getElementById('step1').classList.remove('done');
-    document.getElementById('step2').classList.remove('done');
-    document.getElementById('step3').classList.remove('done');
+    const s1s = document.getElementById('step1Status');
+const s2s = document.getElementById('step2Status');
+const s3s = document.getElementById('step3Status');
+const s1 = document.getElementById('step1');
+const s2 = document.getElementById('step2');
+const s3 = document.getElementById('step3');
+if (s1s) s1s.textContent = 'En attente...';
+if (s2s) s2s.textContent = 'En attente...';
+if (s3s) s3s.textContent = 'En attente...';
+if (s1) s1.classList.remove('done');
+if (s2) s2.classList.remove('done');
+if (s3) s3.classList.remove('done');
     document.getElementById('welcomeScreen').classList.remove('hidden');
     document.getElementById('workspace').classList.add('hidden');
     document.getElementById('btnExportExcel').disabled = true;

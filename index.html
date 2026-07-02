@@ -220,10 +220,81 @@
     50% { opacity: 0.4; }
 }
 
-    .legend {
-        background: #d9e2f3; padding: 8px; text-align: center;
-        font-style: italic; font-size: 12px; color: #1f3864;
-    }
+    /* ===== NOUVELLE LÉGENDE MODERNE ===== */
+.legend {
+    background: white;
+    padding: 14px 20px;
+    border-radius: 10px;
+    margin-bottom: 15px;
+    border: 1px solid #e5e7eb;
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+    align-items: center;
+    font-size: 12px;
+    font-style: normal;
+    color: #4b5563;
+    text-align: left;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.legend-section-title {
+    color: #4b5563;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 11px;
+}
+
+.legend-separator {
+    color: #d1d5db;
+    font-size: 16px;
+    margin: 0 5px;
+}
+
+.freq-tag, .status-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.freq-tag:hover, .status-tag:hover {
+    transform: translateY(-1px);
+}
+
+.freq-tag .dot, .status-tag .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+/* Fréquences */
+.freq-tag.freq-a { background: #eef2ff; color: #4338ca; }
+.freq-tag.freq-a .dot { background: #6366f1; }
+
+.freq-tag.freq-m { background: #dbeafe; color: #1e40af; }
+.freq-tag.freq-m .dot { background: #3b82f6; }
+
+.freq-tag.freq-s { background: #f3e8ff; color: #6b21a8; }
+.freq-tag.freq-s .dot { background: #a855f7; }
+
+.freq-tag.freq-h { background: #d1fae5; color: #065f46; }
+.freq-tag.freq-h .dot { background: #10b981; }
+
+.freq-tag.freq-t { background: #fef3c7; color: #92400e; }
+.freq-tag.freq-t .dot { background: #f59e0b; }
+
+/* Statuts */
+.status-tag.status-f { background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }
+.status-tag.status-nf { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+.status-tag.status-p { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+.status-tag.status-nc { background: #f3f4f6; color: #4b5563; border: 1px solid #d1d5db; }
     
     .table-container { 
         overflow-x: auto; 
@@ -904,8 +975,19 @@
     <div class="header-status-pill">Système actif</div>
 </div>
     <div class="legend">
-        Légende : A=annuel | M=mensuel | S=semestriel | H=hebdo | T=trimestriel | NC=non communiqué | Etat: F=Fait / NF=Non Fait / P=Partiel
-    </div>
+    <span class="legend-section-title">📖 Fréquences :</span>
+    <span class="freq-tag freq-a"><span class="dot"></span>A - Annuel</span>
+    <span class="freq-tag freq-m"><span class="dot"></span>M - Mensuel</span>
+    <span class="freq-tag freq-s"><span class="dot"></span>S - Semestriel</span>
+    <span class="freq-tag freq-h"><span class="dot"></span>H - Hebdomadaire</span>
+    <span class="freq-tag freq-t"><span class="dot"></span>T - Trimestriel</span>
+    <span class="legend-separator">|</span>
+    <span class="legend-section-title">Statuts :</span>
+    <span class="status-tag status-f">✓ F - Fait</span>
+    <span class="status-tag status-nf">✗ NF - Non Fait</span>
+    <span class="status-tag status-p">⚠ P - Partiel</span>
+    <span class="status-tag status-nc">— NC - Non Communiqué</span>
+</div>
 
     <div class="mobile-filter-bar" id="mobileFilterBar">
         <input type="search" class="mobile-search-input" id="mobileSearch" name="mobileSearch"

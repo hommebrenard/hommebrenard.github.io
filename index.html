@@ -134,11 +134,92 @@
     .step-card.done h3 { color: #2e7d32; }
     .step-card p { color: #555; font-size: 13px; line-height: 1.5; margin-bottom: 15px; }
     
-    .header {
-        background: linear-gradient(135deg, #1f3864, #2e5c9e);
-        color: white; padding: 15px; text-align: center;
-        border-radius: 8px 8px 0 0; font-weight: bold; font-size: 18px;
-    }
+   /* ===== NOUVEAU HEADER MODERNE (Style Dashboard Pro) ===== */
+.header {
+    background: white;
+    color: #111827;
+    padding: 20px 25px;
+    border-radius: 12px;
+    margin-bottom: 15px;
+    border: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 15px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    font-weight: normal;
+    font-size: 14px;
+    text-align: left;
+}
+
+.header-title-block {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.header-title-icon {
+    width: 44px;
+    height: 44px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: white;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    flex-shrink: 0;
+}
+
+.header-title-text h1 {
+    font-size: 20px;
+    font-weight: 700;
+    color: #111827;
+    margin-bottom: 3px;
+    line-height: 1.3;
+}
+
+.header-title-text .header-subtitle {
+    font-size: 13px;
+    color: #6b7280;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.header-subtitle .separator {
+    color: #d1d5db;
+}
+
+.header-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    background: #ecfdf5;
+    color: #059669;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid #a7f3d0;
+}
+
+.header-status-pill::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    background: #10b981;
+    border-radius: 50%;
+    animation: pulse-green 2s infinite;
+}
+
+@keyframes pulse-green {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
     .legend {
         background: #d9e2f3; padding: 8px; text-align: center;
         font-style: italic; font-size: 12px; color: #1f3864;
@@ -806,7 +887,22 @@
 </div>
 
 <div id="workspace" class="hidden">
-    <div class="header" id="mainHeader">OT PREVENTIF</div>
+    <div class="header" id="mainHeader">
+    <div class="header-title-block">
+        <div class="header-title-icon">📊</div>
+        <div class="header-title-text">
+            <h1 id="mainHeaderTitle">OT PREVENTIF</h1>
+            <div class="header-subtitle">
+                <span id="headerDate">📅 -</span>
+                <span class="separator">•</span>
+                <span id="headerInterventions">⚙️ 0 interventions</span>
+                <span class="separator">•</span>
+                <span id="headerAnomalies">⚠️ 0 anomalie</span>
+            </div>
+        </div>
+    </div>
+    <div class="header-status-pill">Système actif</div>
+</div>
     <div class="legend">
         Légende : A=annuel | M=mensuel | S=semestriel | H=hebdo | T=trimestriel | NC=non communiqué | Etat: F=Fait / NF=Non Fait / P=Partiel
     </div>
@@ -1463,7 +1559,12 @@ function loadPlanningFile(event) {
             updateFileStatus();
             mainHeaderText = file.name.replace(/\.(xlsx|xls)$/i, '');
             const titreNettoye = getCleanTitle(mainHeaderText).replace(/^OT\s+PREVENTIF\s*-?\s*/i, '');
-            document.getElementById('mainHeader').textContent = 'OT PREVENTIF - ' + titreNettoye;
+           // Nouveau header structuré avec titre, date et infos
+const mainHeaderTitle = document.getElementById('mainHeaderTitle');
+if (mainHeaderTitle) {
+    mainHeaderTitle.textContent = 'OT Préventif - ' + titreNettoye;
+}
+updateHeaderInfos();
             checkWorkspaceReady();
             document.getElementById('toolbarButtons').classList.remove('active');
             showNotification('✅ Planning chargé : ' + nbLignes + ' équipements / ' + nbOT + ' OT / ' + nbNC + ' NC');
@@ -1886,7 +1987,12 @@ function loadFromLocalStorage() {
         window.dateColumns = data.dateColumns || [];
         if (mainHeaderText) {
             const titreNettoye = getCleanTitle(mainHeaderText).replace(/^OT\s+PREVENTIF\s*-?\s*/i, '');
-            document.getElementById('mainHeader').textContent = 'OT PREVENTIF - ' + titreNettoye;
+            // Nouveau header structuré avec titre, date et infos
+const mainHeaderTitle = document.getElementById('mainHeaderTitle');
+if (mainHeaderTitle) {
+    mainHeaderTitle.textContent = 'OT Préventif - ' + titreNettoye;
+}
+updateHeaderInfos();
         }
         updateFileStatus();
         checkWorkspaceReady();
@@ -2638,7 +2744,58 @@ planningData.forEach(row => {
     showNotification('✅ Rapport PDF généré' + 
                     (annexesData.length > 0 ? ' avec ' + annexesData.length + ' annexe(s)' : ''));
 }
-
+// ============================================
+// MISE À JOUR DES INFOS DU HEADER (date, interventions, anomalies)
+// ============================================
+function updateHeaderInfos() {
+    // Extraire le mois et l'année du titre
+    const titre = mainHeaderText || '';
+    const moisMatch = titre.match(/(janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)\s+(\d{4})/i);
+    const dateElement = document.getElementById('headerDate');
+    if (dateElement) {
+        if (moisMatch) {
+            const mois = moisMatch[1].charAt(0).toUpperCase() + moisMatch[1].slice(1).toLowerCase();
+            dateElement.textContent = '📅 ' + mois + ' ' + moisMatch[2];
+        } else {
+            dateElement.textContent = '📅 -';
+        }
+    }
+    
+    // Compter le nombre d'interventions
+    let totalInterventions = 0;
+    planningData.forEach(row => {
+        if (row.type === 'row') {
+            row.ots.forEach(ot => {
+                const otStr = String(ot || '').trim();
+                if (otStr) totalInterventions++;
+            });
+        }
+    });
+    const interventionsElement = document.getElementById('headerInterventions');
+    if (interventionsElement) {
+        interventionsElement.textContent = '⚙️ ' + totalInterventions + ' intervention' + (totalInterventions > 1 ? 's' : '');
+    }
+    
+    // Compter le nombre d'anomalies
+    let totalAnomalies = 0;
+    for (const otNum in otStates) {
+        const analyse = analyserOT(otNum);
+        totalAnomalies += analyse.anomalies.length;
+    }
+    const anomaliesElement = document.getElementById('headerAnomalies');
+    if (anomaliesElement) {
+        let icon = '✅';
+        let color = '#059669';
+        if (totalAnomalies > 0 && totalAnomalies < 5) {
+            icon = '⚠️';
+            color = '#d97706';
+        } else if (totalAnomalies >= 5) {
+            icon = '🚨';
+            color = '#dc2626';
+        }
+        anomaliesElement.innerHTML = '<span style="color:' + color + ';">' + icon + ' ' + totalAnomalies + ' anomalie' + (totalAnomalies > 1 ? 's' : '') + '</span>';
+    }
+}
 function updateStats() {
     let total = 0, fait = 0, nonFait = 0, partiel = 0, encours = 0, nc = 0;
     planningData.forEach(row => {
@@ -2659,6 +2816,7 @@ function updateStats() {
     document.getElementById('statPartiel').textContent = partiel;
     document.getElementById('statEncours').textContent = encours;
     document.getElementById('statNC').textContent = nc;
+    updateHeaderInfos();  // Mettre à jour aussi les infos du header
 }
 
 function showNotification(msg, type = 'success') {

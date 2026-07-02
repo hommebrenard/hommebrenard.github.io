@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-<meta charset="UTF-8">
+<meta charset="UTF-8">F
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#1f3864" media="(prefers-color-scheme: light)">
@@ -1056,6 +1056,196 @@
             display: none !important;
         }
     }
+     /* ============================================
+   NOUVEAU DESIGN TABLEAU - APPLIQUÉ EN DERNIER
+   Cela écrase les styles précédents si conflit
+   ============================================ */
+
+/* En-têtes de colonnes */
+#planningTable th {
+    background: #f9fafb !important; 
+    color: #6b7280 !important; 
+    padding: 12px 10px !important; 
+    border-bottom: 2px solid #e5e7eb !important; 
+    border-right: 1px solid #f3f4f6 !important;
+    border-top: none !important;
+    border-left: none !important;
+    text-align: center; 
+    position: sticky; 
+    top: 0; 
+    z-index: 10; 
+    font-weight: 600 !important;
+    font-size: 11px !important;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+/* Cellules du tableau */
+#planningTable td {
+    padding: 10px 8px !important; 
+    border-bottom: 1px solid #f3f4f6 !important; 
+    border-right: 1px solid #f9fafb !important;
+    border-top: none !important;
+    border-left: none !important;
+    text-align: center; 
+    color: #374151;
+    font-size: 12px;
+}
+
+/* Groupement PS-XX */
+#planningTable .row-header { 
+    background: #f9fafb !important; 
+    font-weight: 600; 
+    color: #4f46e5; 
+}
+
+#planningTable .row-header td {
+    padding: 14px 10px !important;
+    border-top: 2px solid #6366f1 !important;
+}
+
+#planningTable .row-header td strong {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #eef2ff;
+    color: #4f46e5;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 11px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    letter-spacing: 0.3px;
+}
+
+#planningTable .row-header .libelle strong {
+    background: transparent;
+    color: #4f46e5;
+    font-weight: 600;
+    font-size: 12px;
+    padding: 0;
+    font-family: inherit;
+}
+
+#planningTable .row-header .total-date-cell strong {
+    background: #4f46e5;
+    color: white;
+    padding: 3px 12px;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 11px;
+    min-width: 28px;
+    display: inline-block;
+    font-family: inherit;
+}
+
+/* OT liens (les cellules jaunes) */
+#planningTable .ot-link {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    min-width: 65px !important;
+    padding: 6px 12px !important;
+    background: #fffbeb !important;
+    color: #92400e !important;
+    border: 1px solid #fbbf24 !important;
+    text-decoration: none !important;
+    font-weight: 700 !important;
+    font-size: 12px !important;
+    border-radius: 6px !important;
+    cursor: pointer;
+    transition: all 0.15s;
+    min-height: auto !important;
+}
+
+#planningTable .ot-link:hover { 
+    background: #fbbf24 !important; 
+    color: white !important; 
+    transform: scale(1.05); 
+    box-shadow: 0 4px 8px rgba(251, 191, 36, 0.3);
+    text-decoration: none !important;
+}
+
+/* OT NC (Non Communiqué) */
+#planningTable .ot-nc {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 4px !important;
+    padding: 6px 12px !important;
+    background: #f9fafb !important;
+    color: #6b7280 !important;
+    border: 1px solid #e5e7eb !important;
+    border-radius: 6px !important;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    cursor: not-allowed;
+    min-width: auto !important;
+    opacity: 1 !important;
+}
+
+/* États F/NF/P */
+#planningTable .etat-fait { 
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 3px !important;
+    background: #d1fae5 !important; 
+    color: #065f46 !important; 
+    font-weight: 700 !important; 
+    padding: 4px 10px !important; 
+    border-radius: 12px !important; 
+    font-size: 11px !important;
+    border: 1px solid #a7f3d0 !important;
+}
+
+#planningTable .etat-nonfait { 
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 3px !important;
+    background: #fee2e2 !important; 
+    color: #991b1b !important; 
+    font-weight: 700 !important; 
+    padding: 4px 10px !important; 
+    border-radius: 12px !important; 
+    font-size: 11px !important;
+    border: 1px solid #fca5a5 !important;
+}
+
+#planningTable .etat-partiel { 
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 3px !important;
+    background: #fef3c7 !important; 
+    color: #92400e !important; 
+    font-weight: 700 !important; 
+    padding: 4px 10px !important; 
+    border-radius: 12px !important; 
+    font-size: 11px !important;
+    border: 1px solid #fcd34d !important;
+}
+
+/* Colonnes Total Prévu et Nombre Fait */
+#planningTable .total-prevu { 
+    background: #fef3c7 !important; 
+    font-weight: 700 !important; 
+    color: #92400e !important;
+    border-left: 2px solid #fbbf24 !important;
+}
+
+#planningTable .nombre-fait { 
+    background: #d1fae5 !important; 
+    font-weight: 700 !important; 
+    color: #065f46 !important;
+    border-left: 2px solid #10b981 !important;
+}
+
+/* Container du tableau - bordures arrondies */
+.table-container {
+    background: white;
+    border-radius: 12px !important;
+    overflow: hidden;
+    border: 1px solid #e5e7eb;
+    overflow-x: auto;
+}
 </style>
 </head>
 <body>

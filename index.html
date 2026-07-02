@@ -81,14 +81,38 @@
     
     .file-input { display: none; }
     
-    .welcome-screen {
-        background: white; padding: 60px 40px; border-radius: 10px;
-        text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-        margin-top: 20px;
-    }
-    .welcome-icon { font-size: 80px; margin-bottom: 20px; }
-    .welcome-screen h1 { color: #1f3864; font-size: 28px; margin-bottom: 10px; }
-    .welcome-screen .subtitle { color: #666; font-size: 16px; margin-bottom: 40px; }
+   .welcome-screen {
+    background: transparent;
+    padding: 80px 40px;
+    text-align: center;
+    margin-top: 20px;
+}
+    .welcome-icon { 
+    font-size: 100px; 
+    margin-bottom: 30px; 
+    filter: drop-shadow(0 4px 12px rgba(31, 56, 100, 0.15));
+    animation: float 3s ease-in-out infinite;
+}
+@keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+}
+    .welcome-screen h1 { 
+    color: #1f3864; 
+    font-size: 34px; 
+    margin-bottom: 15px; 
+    font-weight: 700;
+    letter-spacing: -0.5px;
+}
+    .welcome-screen .subtitle { 
+    color: #666; 
+    font-size: 17px; 
+    margin-bottom: 40px; 
+    line-height: 1.7;
+    max-width: 600px;
+    margin-left: auto;
+    margin-right: auto;
+}
     
     .steps-container {
         display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));

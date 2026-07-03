@@ -302,6 +302,54 @@
     border-radius: 0 0 8px 8px;
     -webkit-overflow-scrolling: touch;
 }
+     /* ============================================
+   BADGES OVALES DES EN-TÊTES PS-
+   ============================================ */
+
+/* Cellules d'en-tête avec dates (colspan=2) */
+.row-header .total-date-cell {
+    vertical-align: middle !important;
+    padding: 8px 0 !important;
+    text-align: center !important;
+}
+
+/* Cacher les traits bleus (strong vides) */
+.row-header .total-date-cell strong:empty {
+    display: none !important;
+}
+
+/* Badge ovale violet pour les chiffres */
+.row-header .total-date-cell strong:not(:empty) {
+    display: inline-block !important;
+    min-width: 30px !important;
+    height: 18px !important;
+    padding: 1px 10px !important;
+    background: #4f46e5 !important;
+    color: #ffffff !important;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    border-radius: 999px !important;
+    text-align: center !important;
+    line-height: 17px !important;
+    box-shadow: none !important;
+    border: none !important;
+    margin-right: 55% !important;  /* ← Ajustez cette valeur si besoin */
+}
+
+/* Colonne TOTAL PRÉVU : chiffre simple */
+.row-header .total-prevu {
+    text-align: center !important;
+    vertical-align: middle !important;
+}
+
+.row-header .total-prevu strong:not(:empty) {
+    background: transparent !important;
+    color: #92400e !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    padding: 0 !important;
+    border: none !important;
+}
     table { width: 100%; border-collapse: collapse; background: white; font-size: 12px; }
    th { 
     background: #f9fafb; 

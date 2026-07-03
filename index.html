@@ -1967,8 +1967,29 @@ function loadPlanningFile(event) {
         try {
             const data = new Uint8Array(e.target.result);
             const workbook = XLSX.read(data, {type: 'array'});
-            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-            const jsonData = XLSX.utils.sheet_to_json(firstSheet, {header: 1, defval: ''});
+
+// 🔍 Diagnostic : afficher les onglets du fichier
+console.log('📑 Onglets trouvés :', workbook.SheetNames);
+
+const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+
+// ✅ CORRECTION : recalculer le vrai range du fichier
+// (répare les fichiers Excel dont les métadonnées sont fausses)
+console.log('📏 Range déclaré par le fichier :', firstSheet['!ref']);
+
+const cellules = Object.keys(firstSheet).filter(k => k[0] !== '!');
+let maxRow = 0, maxCol = 0;
+cellules.forEach(addr => {
+    const c = XLSX.utils.decode_cell(addr);
+    if (c.r > maxRow) maxRow = c.r;
+    if (c.c > maxCol) maxCol = c.c;
+});
+firstSheet['!ref'] = XLSX.utils.encode_range({s: {r: 0, c: 0}, e: {r: maxRow, c: maxCol}});
+
+console.log('📏 Range réel recalculé :', firstSheet['!ref']);
+
+const jsonData = XLSX.utils.sheet_to_json(firstSheet, {header: 1, defval: ''});
+console.log('📊 Nombre de lignes lues dans Excel :', jsonData.length);
 parsePlanningData(jsonData);
             const nbLignes = planningData.filter(r => r.type === 'row').length;
             const nbOT = planningData.filter(r => r.type === 'row').reduce((acc, r) => acc + r.ots.filter(o => isValidOT(o)).length, 0);

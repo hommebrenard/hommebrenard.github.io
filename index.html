@@ -1978,7 +1978,12 @@ parsePlanningData(jsonData);
             updateFileStatus();
             mainHeaderText = file.name.replace(/\.(xlsx|xls)$/i, '');
             const titreNettoye = getCleanTitle(mainHeaderText).replace(/^OT\s+PREVENTIF\s*-?\s*/i, '');
-            document.getElementById('mainHeader').textContent = 'OT PREVENTIF - ' + titreNettoye;
+           // Nouveau header structuré avec titre, date et infos
+const mainHeaderTitle = document.getElementById('mainHeaderTitle');
+if (mainHeaderTitle) {
+    mainHeaderTitle.textContent = 'OT Préventif - ' + titreNettoye;
+}
+updateHeaderInfos();
             checkWorkspaceReady();
             document.getElementById('toolbarButtons').classList.remove('active');
             showNotification('✅ Planning chargé : ' + nbLignes + ' équipements / ' + nbOT + ' OT / ' + nbNC + ' NC');
@@ -1991,31 +1996,69 @@ function parsePlanningData(jsonData) {
     let headerRow = -1;
     for (let i = 0; i < Math.min(15, jsonData.length); i++) {
         const row = jsonData[i].map(c => String(c).toLowerCase());
-        if (row.some(c => c.includes('matériel') || c.includes('materiel'))) { headerRow = i; break; }
+        if (row.some(c => c.includes('matériel') || c.includes('materiel'))) { 
+            headerRow = i; 
+            break; 
+        }
     }
     if (headerRow === -1) throw new Error('En-tête "Matériel" introuvable');
+    
     planningHeaders = jsonData[headerRow].map(h => String(h));
     planningData = [];
     const dateCols = [];
-    planningHeaders.forEach((h, idx) => { if (/\d{2}\/\d{2}\/\d{4}/.test(String(h))) dateCols.push(idx); });
+    planningHeaders.forEach((h, idx) => { 
+        if (/\d{2}\/\d{2}\/\d{4}/.test(String(h))) dateCols.push(idx); 
+    });
     window.dateColumns = dateCols.map(idx => planningHeaders[idx]);
+    
     let currentInterventionType = '';
+    
     for (let i = headerRow + 1; i < jsonData.length; i++) {
         const row = jsonData[i];
         if (!row || row.length === 0) continue;
+        
         const materiel = String(row[0] || '').trim();
         const libelle = String(row[1] || '').trim();
+        
         if (!materiel) continue;
-        if (/^PS-/i.test(materiel)) {
+        
+        // ✅ CORRECTION 1 : Détecte tous les en-têtes de type "préventif"
+        // Un en-tête est identifié par : préfixe PS- OU libellé contenant "PREVENTIF"
+        const isHeader = /^PS-/i.test(materiel) 
+                      || /^PREVENTIF/i.test(libelle)
+                      || /PREVENTIF SYSTEMATIQUE/i.test(libelle);
+        
+        // ✅ CORRECTION 2 : Détecte les équipements
+        // Un équipement est identifié par : présence d'OTs dans les colonnes de dates
+        // OU présence d'un libellé ET un matériel non vide
+        const hasOTs = dateCols.some(c => {
+            const val = String(row[c] || '').trim();
+            return val && val !== '';
+        });
+        
+        if (isHeader) {
             currentInterventionType = materiel;
             const totals = dateCols.map(c => row[c] || '');
-            planningData.push({type: 'header', materiel, libelle, totals, totalPrevu: row[row.length - 1] || ''});
-        } else if (/^BAM-/i.test(materiel)) {
+            planningData.push({
+                type: 'header', 
+                materiel, 
+                libelle, 
+                totals, 
+                totalPrevu: row[row.length - 1] || ''
+            });
+        } else if (materiel && libelle) {
+            // ✅ CORRECTION 3 : Accepte TOUS les préfixes (BAM-, KNT-, TGBT-, etc.)
             const ots = dateCols.map(c => String(row[c] || '').trim());
-            planningData.push({type: 'row', materiel, interventionType: currentInterventionType, libelle, ots, totalPrevu: row[row.length - 1] || ''});
+            planningData.push({
+                type: 'row', 
+                materiel, 
+                interventionType: currentInterventionType, 
+                libelle, 
+                ots, 
+                totalPrevu: row[row.length - 1] || ''
+            });
         }
     }
-}
 
     
     console.log(`✅ Chargement terminé : ${planningData.length} éléments (dont ${planningData.filter(d => d.type === 'header').length} en-têtes et ${planningData.filter(d => d.type === 'row').length} équipements)`);

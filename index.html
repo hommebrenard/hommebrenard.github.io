@@ -2675,7 +2675,7 @@ function clearSignature() {
                     
                     // Bouton "Ouvrir fiche" à droite
                     html += '<div>';
-                    html += '<button onclick="closeAnomaliesModal(); openOTFromAnomaly(\'' + otNum + '\', \'' + (ot.materiel || '').replace(/'/g, "\\'") + '\', \'' + (ot.interventionType || '').replace(/'/g, "\\'") + '\', \'' + (ot.libelle || '').replace(/'/g, "\\'") + '\', \'' + (ot.dateOT || '') + '\')" style="padding:8px 16px; background:white; color:#4f46e5; border:none; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer; box-shadow:0 2px 4px rgba(0,0,0,0.1); white-space:nowrap;">🔧 Ouvrir fiche</button>';
+                    window.anomaliesOTData[ot.otNumber] = ot;html += '<button onclick="closeAnomaliesModal(); openOTFromAnomaly(\'' + ot.otNumber + '\')" style="padding:8px 16px; background:white; color:#4f46e5;border:none; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer; box-shadow:0 2px 4px rgba(0,0,0,0.1); white-space:nowrap;">🔧 Ouvrir fiche</button>'; 
                     html += '</div>';
                     
                     html += '</div>';
@@ -2700,11 +2700,22 @@ function clearSignature() {
             modal.style.display = 'flex';
         }
         
-        function openOTFromAnomaly(otNum, materiel, interventionType, libelle, dateOT) {
+                // Variable globale pour stocker les infos des OT avec anomalies
+        window.anomaliesOTData = {};
+        
+        function openOTFromAnomaly(otKey) {
+            const data = window.anomaliesOTData[otKey];
+            if (!data) {
+                alert('Impossible de retrouver les informations de cet OT.');
+                return;
+            }
+            
+            const otNum = data.otNumber.split('|')[0] || data.otNumber;
+            
             if (typeof openChecklist === 'function') {
-                openChecklist(otNum, materiel, interventionType, libelle, dateOT);
+                openChecklist(otNum, data.materiel, data.interventionType, data.libelle, data.dateOT);
             } else {
-                alert('Impossible d\'ouvrir la fiche. Fonction openChecklist introuvable.');
+                alert('Fonction openChecklist introuvable.');
             }
         }
         

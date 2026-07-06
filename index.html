@@ -2613,7 +2613,7 @@ function clearSignature() {
                                     // Récupérer les vraies infos de l'OT
                                     const otInfo = findOTInfo(otKey);
                                     
-                                    anomaliesByOT[otKey] = {
+                                   anomaliesByOT[otKey] = {
                                         otNumber: otKey,
                                         materiel: state.materiel || otInfo.materiel || 'N/A',
                                         equipement: state.equipement || otInfo.equipement || 'Non spécifié',

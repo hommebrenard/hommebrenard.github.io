@@ -1429,7 +1429,7 @@
                 <div class="tech-info-row">
                     <div>
                         <label for="techName">👷 Nom du Technicien *</label>
-                        <input type="text" id="techName" name="techName" placeholder="Ex: AHMED BENALI" 
+                         <input type="text" id="techName" placeholder="Ex: AHMED BENALI" autocomplete="off" autocorrect="off" spellcheck="false" />
                                aria-label="Nom du technicien" autocomplete="name">
                     </div>
                     <div>
@@ -2705,6 +2705,10 @@ function clearSignature() {
                 // Variable globale pour stocker les infos des OT avec anomalies
         window.anomaliesOTData = {};
         
+        // Variable globale pour stocker les infos des OT avec anomalies
+        window.anomaliesOTData = window.anomaliesOTData || {};
+        window.openedFromAnomalies = false;
+        
         function openOTFromAnomaly(otKey) {
             const data = window.anomaliesOTData[otKey];
             if (!data) {
@@ -2715,6 +2719,8 @@ function clearSignature() {
             const otNum = data.otNumber.split('|')[0] || data.otNumber;
             
             if (typeof openChecklist === 'function') {
+                // Marquer qu'on vient du rapport d'anomalies
+                window.openedFromAnomalies = true;
                 openChecklist(otNum, data.materiel, data.interventionType, data.libelle, data.dateOT);
             } else {
                 alert('Fonction openChecklist introuvable.');
@@ -2747,7 +2753,17 @@ function saveChecklist() {
     countAnomalies();
 }
 
-function closeModal() { document.getElementById('modalOverlay').classList.remove('active'); }
+function closeModal() { 
+            document.getElementById('modalOverlay').classList.remove('active');
+            
+            // Si on venait du rapport d'anomalies, y retourner
+            if (window.openedFromAnomalies) {
+                window.openedFromAnomalies = false;
+                setTimeout(function() {
+                    showAnomaliesModal();
+                }, 300);
+            }
+        }
 
 function saveToLocalStorage(silent = false) {
     if (!planningLoaded) { showNotification('Chargez d\'abord vos fichiers', 'warning'); return; }

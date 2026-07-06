@@ -2580,10 +2580,12 @@ function clearSignature() {
                                 if (window.dateColumns && window.dateColumns[idx]) {
                                     info.dateOT = window.dateColumns[idx];
                                 }
-                                // Chercher aussi le libellé de l'intervention dans les en-têtes
+                                // Chercher le CODE de l'intervention dans les en-têtes (pas le libellé)
                                 for (let j = i - 1; j >= 0; j--) {
                                     if (planningData[j].type === 'header') {
-                                        info.intervention = planningData[j].libelle || info.intervention;
+                                        info.interventionCode = planningData[j].materiel || '';
+                                        info.interventionLibelle = planningData[j].libelle || '';
+                                        info.intervention = info.interventionLibelle || info.intervention;
                                         break;
                                     }
                                 }
@@ -2615,11 +2617,11 @@ function clearSignature() {
                                         otNumber: otKey,
                                         materiel: state.materiel || otInfo.materiel || 'N/A',
                                         equipement: state.equipement || otInfo.equipement || 'Non spécifié',
-                                        intervention: state.intervention || otInfo.intervention || 'Non spécifié',
+                                        intervention: state.intervention || otInfo.interventionLibelle || otInfo.intervention || 'Non spécifié',
                                         date: formatDate(state.dateDebut || state.date || otInfo.dateOT),
                                         dateOT: otInfo.dateOT || state.dateDebut || state.date,
                                         libelle: otInfo.libelle,
-                                        interventionType: otInfo.intervention,
+                                        interventionType: otInfo.interventionCode || otInfo.intervention,
                                         technicien: state.technicien || 'Non renseigné',
                                         anomalies: []
                                     };

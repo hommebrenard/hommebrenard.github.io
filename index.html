@@ -2536,8 +2536,101 @@ function clearSignature() {
             return totalAnomalies;
         }
         
-        function showAnomaliesModal() {
-            alert('📋 Panneau anomalies en cours de création...\nÉtape 1.2 à venir !');
+            function showAnomaliesModal() {
+            const modal = document.getElementById('anomaliesModal');
+            const content = document.getElementById('anomaliesContent');
+            const stats = document.getElementById('anomaliesStats');
+            const subtitle = document.getElementById('anomaliesSubtitle');
+            
+            // Titre du planning actuel
+            const mainHeader = document.getElementById('mainHeaderTitle');
+            subtitle.textContent = mainHeader ? mainHeader.textContent : 'Planning';
+            
+            // Collecter toutes les anomalies groupées par OT
+            const anomaliesByOT = {};
+            let totalAnomalies = 0;
+            
+            if (typeof otStates !== 'undefined' && otStates) {
+                Object.keys(otStates).forEach(otKey => {
+                    const state = otStates[otKey];
+                    if (state && state.commentaires) {
+                        Object.keys(state.commentaires).forEach(actionCode => {
+                            const comment = state.commentaires[actionCode];
+                            const c = String(comment || '').trim().toUpperCase();
+                            if (c && c !== 'RAS' && c !== 'R.A.S' && c !== 'R.A.S.' && c !== 'RAS.') {
+                                if (!anomaliesByOT[otKey]) {
+                                    anomaliesByOT[otKey] = {
+                                        otNumber: otKey,
+                                        equipement: state.equipement || 'Non spécifié',
+                                        intervention: state.intervention || 'Non spécifié',
+                                        date: state.dateDebut || state.date || 'Non spécifiée',
+                                        technicien: state.technicien || 'Non renseigné',
+                                        anomalies: []
+                                    };
+                                }
+                                
+                                // Récupérer la description de l'action
+                                let actionDesc = actionCode;
+                                if (typeof checklistData !== 'undefined' && checklistData) {
+                                    Object.values(checklistData).forEach(cl => {
+                                        if (cl.actions) {
+                                            const action = cl.actions.find(a => a.code === actionCode);
+                                            if (action) actionDesc = action.desc;
+                                        }
+                                    });
+                                }
+                                
+                                anomaliesByOT[otKey].anomalies.push({
+                                    code: actionCode,
+                                    action: actionDesc,
+                                    constat: comment
+                                });
+                                totalAnomalies++;
+                            }
+                        });
+                    }
+                });
+            }
+            
+            // Mettre à jour les stats
+            const nbFiches = Object.keys(anomaliesByOT).length;
+            stats.innerHTML = '📊 Total : <strong>' + totalAnomalies + ' anomalie' + (totalAnomalies > 1 ? 's' : '') + '</strong> détectée' + (totalAnomalies > 1 ? 's' : '') + ' sur <strong>' + nbFiches + ' fiche' + (nbFiches > 1 ? 's' : '') + '</strong>';
+            
+            // Générer le contenu
+            if (totalAnomalies === 0) {
+                content.innerHTML = '<div style="text-align:center; padding:60px 20px; color:#059669;"><div style="font-size:60px; margin-bottom:20px;">✅</div><h3 style="margin:0; font-size:22px;">Aucune anomalie détectée</h3><p style="color:#6b7280; margin-top:10px;">Toutes les interventions sont conformes.</p></div>';
+            } else {
+                let html = '';
+                Object.values(anomaliesByOT).forEach(ot => {
+                    const otNum = ot.otNumber.split('|')[0] || ot.otNumber;
+                    html += '<div style="border:1px solid #e5e7eb; border-radius:10px; margin-bottom:20px; overflow:hidden; box-shadow:0 2px 4px rgba(0,0,0,0.05);">';
+                    html += '<div style="background:linear-gradient(135deg, #4f46e5, #7c3aed); color:white; padding:15px 20px;">';
+                    html += '<div style="font-size:16px; font-weight:700; margin-bottom:5px;">📋 OT N° ' + otNum + '</div>';
+                    html += '<div style="font-size:12px; opacity:0.9;">🏭 ' + ot.equipement + '</div>';
+                    html += '<div style="font-size:12px; opacity:0.9; margin-top:3px;">🔧 ' + ot.intervention + '</div>';
+                    html += '<div style="font-size:11px; opacity:0.9; margin-top:5px;">📅 ' + ot.date + ' | 👷 ' + ot.technicien + '</div>';
+                    html += '</div>';
+                    html += '<div style="padding:15px 20px; background:#fefefe;">';
+                    html += '<div style="font-size:12px; color:#dc2626; font-weight:700; margin-bottom:10px;">⚠️ ' + ot.anomalies.length + ' anomalie' + (ot.anomalies.length > 1 ? 's' : '') + ' détectée' + (ot.anomalies.length > 1 ? 's' : '') + '</div>';
+                    
+                    ot.anomalies.forEach((a, idx) => {
+                        html += '<div style="background:#fef2f2; border-left:4px solid #dc2626; padding:12px 15px; margin-bottom:8px; border-radius:0 6px 6px 0;">';
+                        html += '<div style="font-size:12px; color:#7f1d1d; font-weight:600; margin-bottom:5px;">Anomalie ' + (idx + 1) + ' - Code : ' + a.code + '</div>';
+                        html += '<div style="font-size:13px; color:#374151; margin-bottom:5px;"><strong>Action :</strong> ' + a.action + '</div>';
+                        html += '<div style="font-size:13px; color:#dc2626;"><strong>Constat :</strong> ' + a.constat + '</div>';
+                        html += '</div>';
+                    });
+                    
+                    html += '</div></div>';
+                });
+                content.innerHTML = html;
+            }
+            
+            modal.style.display = 'flex';
+        }
+        
+        function closeAnomaliesModal() {
+            document.getElementById('anomaliesModal').style.display = 'none';
         }
         
      

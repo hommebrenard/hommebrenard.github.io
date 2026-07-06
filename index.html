@@ -2756,12 +2756,35 @@ function saveChecklist() {
 function closeModal() { 
             document.getElementById('modalOverlay').classList.remove('active');
             
-            // Si on venait du rapport d'anomalies, y retourner
+            // Si on venait du rapport d'anomalies
             if (window.openedFromAnomalies) {
                 window.openedFromAnomalies = false;
-                setTimeout(function() {
-                    showAnomaliesModal();
-                }, 300);
+                
+                // Compter le nombre de fiches avec anomalies
+                let nbFiches = 0;
+                if (typeof otStates !== 'undefined' && otStates) {
+                    const fichesAvecAnomalies = {};
+                    Object.keys(otStates).forEach(otKey => {
+                        const state = otStates[otKey];
+                        if (state && state.commentaires) {
+                            Object.values(state.commentaires).forEach(comment => {
+                                const c = String(comment || '').trim().toUpperCase();
+                                if (c && c !== 'RAS' && c !== 'R.A.S' && c !== 'R.A.S.' && c !== 'RAS.') {
+                                    fichesAvecAnomalies[otKey] = true;
+                                }
+                            });
+                        }
+                    });
+                    nbFiches = Object.keys(fichesAvecAnomalies).length;
+                }
+                
+                // Si 2+ fiches : retourner à la modale pour consulter les autres
+                // Si 1 seule fiche : retour direct au planning
+                if (nbFiches > 1) {
+                    setTimeout(function() {
+                        showAnomaliesModal();
+                    }, 300);
+                }
             }
         }
 

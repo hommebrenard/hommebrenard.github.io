@@ -2916,92 +2916,97 @@ function resetElectronicSignature() {
  * Utilisée pour l'intégration dans le PDF
  * @returns {string|null} DataURL de l'image PNG ou null si pas de signature
  */
-function generateElectronicSignatureImage() {
+
+     function generateElectronicSignatureImage() {
+    console.log('🔍 [DIAG] generateElectronicSignatureImage() appelée');
+    console.log('🔍 [DIAG] electronicSignatureData =', electronicSignatureData);
+    
     if (!electronicSignatureData) {
+        console.warn('⚠️ Pas de données de signature électronique - abandon image');
         return null;
     }
     
-    const data = electronicSignatureData;
-    
-    // Créer un canvas temporaire (invisible)
-    const canvas = document.createElement('canvas');
-    canvas.width = 600;   // Résolution HD pour un rendu net dans le PDF
-    canvas.height = 260;
-    const ctx = canvas.getContext('2d');
-    
-    // Fond blanc légèrement teinté (comme la box "signed" à l'écran)
-    ctx.fillStyle = '#f8fff5';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    // Bordure verte (comme la box signée)
-    ctx.strokeStyle = '#2e7d32';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(2, 2, canvas.width - 4, canvas.height - 4);
-    
-    // ===== NOM DU TECHNICIEN (Georgia italique, comme à l'écran) =====
-    ctx.fillStyle = '#1f3860';
-    ctx.font = 'italic 600 42px Georgia, "Times New Roman", serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(data.name, canvas.width / 2, 70);
-    
-    // Ligne sous le nom
-    const nameWidth = ctx.measureText(data.name).width;
-    ctx.strokeStyle = '#999';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo((canvas.width - nameWidth) / 2 - 20, 82);
-    ctx.lineTo((canvas.width + nameWidth) / 2 + 20, 82);
-    ctx.stroke();
-    
-    // ===== DATE ET HEURE =====
-    ctx.fillStyle = '#333';
-    ctx.font = 'bold 16px Arial, sans-serif';
-    ctx.fillText(`Signé le ${data.date} à ${data.time}`, canvas.width / 2, 115);
-    
-    // ===== ID =====
-    ctx.fillStyle = '#555';
-    ctx.font = '14px Arial, sans-serif';
-    ctx.fillText(`ID : ${data.id}`, canvas.width / 2, 138);
-    
-    // ===== HASH =====
-    ctx.fillStyle = '#666';
-    ctx.font = '12px "Courier New", monospace';
-    
-    // Fond gris clair pour le hash
-    const hashText = `🔒 Hash: ${data.hash}`;
-    const hashWidth = ctx.measureText(hashText).width;
-    ctx.fillStyle = '#f0f0f0';
-    ctx.fillRect((canvas.width - hashWidth) / 2 - 8, 155, hashWidth + 16, 22);
-    ctx.strokeStyle = '#e0e0e0';
-    ctx.strokeRect((canvas.width - hashWidth) / 2 - 8, 155, hashWidth + 16, 22);
-    
-    ctx.fillStyle = '#666';
-    ctx.fillText(hashText, canvas.width / 2, 171);
-    
-    // ===== BADGE "SIGNÉ ÉLECTRONIQUEMENT" =====
-    const badgeText = '✓ SIGNÉ ÉLECTRONIQUEMENT';
-    ctx.font = 'bold 13px Arial, sans-serif';
-    const badgeWidth = ctx.measureText(badgeText).width;
-    const badgeX = (canvas.width - badgeWidth) / 2 - 15;
-    const badgeY = 200;
-    const badgeH = 28;
-    
-    // Fond vert arrondi (simulé)
-    ctx.fillStyle = '#2e7d32';
-    ctx.beginPath();
-    if (ctx.roundRect) {
-        ctx.roundRect(badgeX, badgeY, badgeWidth + 30, badgeH, 14);
-    } else {
-        // Fallback pour anciens navigateurs
-        ctx.rect(badgeX, badgeY, badgeWidth + 30, badgeH);
+    try {
+        const data = electronicSignatureData;
+        
+        // Canvas temporaire
+        const canvas = document.createElement('canvas');
+        canvas.width = 600;
+        canvas.height = 260;
+        const ctx = canvas.getContext('2d');
+        
+        // Fond blanc/vert clair
+        ctx.fillStyle = '#f8fff5';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Bordure verte
+        ctx.strokeStyle = '#2e7d32';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(2, 2, canvas.width - 4, canvas.height - 4);
+        
+        // NOM (Georgia italique)
+        ctx.fillStyle = '#1f3860';
+        ctx.font = 'italic bold 42px Georgia, serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillText(data.name, canvas.width / 2, 70);
+        
+        // Ligne sous le nom
+        const nameWidth = ctx.measureText(data.name).width;
+        ctx.strokeStyle = '#999';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo((canvas.width - nameWidth) / 2 - 20, 82);
+        ctx.lineTo((canvas.width + nameWidth) / 2 + 20, 82);
+        ctx.stroke();
+        
+        // DATE ET HEURE
+        ctx.fillStyle = '#333';
+        ctx.font = 'bold 16px Arial, sans-serif';
+        ctx.fillText('Signe le ' + data.date + ' a ' + data.time, canvas.width / 2, 115);
+        
+        // ID
+        ctx.fillStyle = '#555';
+        ctx.font = '14px Arial, sans-serif';
+        ctx.fillText('ID : ' + data.id, canvas.width / 2, 138);
+        
+        // HASH (fond gris rectangulaire simple)
+        ctx.font = '12px Courier New, monospace';
+        const hashText = 'Hash: ' + data.hash;
+        const hashWidth = ctx.measureText(hashText).width;
+        ctx.fillStyle = '#f0f0f0';
+        ctx.fillRect((canvas.width - hashWidth) / 2 - 8, 155, hashWidth + 16, 22);
+        ctx.strokeStyle = '#ccc';
+        ctx.strokeRect((canvas.width - hashWidth) / 2 - 8, 155, hashWidth + 16, 22);
+        ctx.fillStyle = '#666';
+        ctx.textBaseline = 'alphabetic'; // important!
+        ctx.fillText(hashText, canvas.width / 2, 171);
+        
+        // BADGE VERT (rectangle simple)
+        ctx.font = 'bold 13px Arial, sans-serif';
+        const badgeText = 'SIGNE ELECTRONIQUEMENT';
+        const badgeW = ctx.measureText(badgeText).width;
+        const badgeX = (canvas.width - badgeW) / 2 - 15;
+        const badgeY = 200;
+        const badgeH = 26;
+        
+        ctx.fillStyle = '#2e7d32';
+        ctx.fillRect(badgeX, badgeY, badgeW + 30, badgeH);
+        
+        ctx.fillStyle = '#ffffff';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(badgeText, canvas.width / 2, badgeY + badgeH / 2 + 1);
+        
+        // Conversion en PNG
+        const dataURL = canvas.toDataURL('image/png');
+        console.log('✅ Image signature PNG générée OK, longueur:', dataURL.length);
+        return dataURL;
+        
+    } catch(err) {
+        console.error('❌ ERREUR CRITIQUE dans generateElectronicSignatureImage():', err);
+        console.error('Stack:', err.stack || 'N/A');
+        return null;
     }
-    ctx.fill();
-    
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(badgeText, canvas.width / 2, badgeY + 19);
-    
-    // Conversion en PNG
-    return canvas.toDataURL('image/png');
 }
 
 /**
@@ -3526,43 +3531,99 @@ function exportChecklistPDF() {
             }
         });
     }
+console.log('🔍 [DIAG] Début bloc Signature PDF. Mode actuel:', currentSignatureMode);
+console.log('🔍 [DIAG] has electronicSignatureData:', !!electronicSignatureData);
+console.log('🔍 [DIAG] state.signature existe:', !!state.signature);
 
-// ===== 🆕 ÉTAPE 7 : SIGNATURE (électronique OU manuelle) =====
-if (finalY > 220) { doc.addPage(); finalY = 20; }
-doc.setFontSize(10); doc.setFont('helvetica', 'bold');
-doc.text('Signature du technicien :', 14, finalY);
-finalY += 5;
+// Gestion pagination signature
+if (finalY > 220) { 
+    console.log('🔍 [DIAG] Nouvelle page ajoutée pour signature (finalY > 220)');
+    doc.addPage(); 
+    finalY = 20; 
+}
 
-// Cas 1 : Signature électronique active et générée
-if (currentSignatureMode === 'electronic' && electronicSignatureData) {
-    try {
-        const esigImage = generateElectronicSignatureImage();
-        if (esigImage) {
-            // Insertion de l'image : largeur 100mm, hauteur ~43mm (ratio 600/260)
-            doc.addImage(esigImage, 'PNG', 14, finalY, 100, 43);
-            finalY += 48;
+try {
+    doc.setFontSize(10); 
+    doc.setFont('helvetica', 'bold');
+    doc.text('Signature du technicien :', 14, finalY);
+    finalY += 5;
+
+    // CAS 1 : Signature électronique active
+    console.log('🔍 [DIAG] Test mode électronique...');
+    if (currentSignatureMode === 'electronic') {
+        console.log('🔍 [DIAG] ✅ On est en mode ELECTRONIQUE');
+        console.log('🔍 [DIAG] Données existent ?', !!electronicSignatureData);
+        
+        if (electronicSignatureData) {
+            console.log('🔍 [DIAG] Appel de generateElectronicSignatureImage()...');
+            
+            const esigImage = generateElectronicSignatureImage();
+            console.log('🔍 [DIAG] Résultat image:', esigImage ? 'EXISTE ('+ esigImage.length+' chars)' : 'NULL');
+            
+            if (esigImage && esigImage.startsWith('data:image')) {
+                console.log('🔍 [DIAG] Insertion dans PDF...');
+                doc.addImage(esigImage, 'PNG', 14, finalY, 100, 43);
+                finalY += 50;
+                console.log('🔍 [DIAG] Insérée OK');
+            } else {
+                console.error('❌ Format image invalide ou null');
+                doc.setTextColor(255, 0, 0);
+                doc.setFontSize(9);
+                doc.text('[ERREUR: Image signature]', 14, finalY);
+                doc.setTextColor(0);
+                finalY += 10;
+            }
+        } else {
+            console.warn('⚠️ Pas de données électroniques malgré mode electronique');
+            doc.setFont('helvetica', 'italic');
+            doc.setTextColor(150);
+            doc.text('(Pas encore signé électroniquement)', 14, finalY);
+            doc.setTextColor(0);
+            finalY += 10;
         }
-    } catch(e) { 
-        console.error('Erreur signature électronique PDF:', e); 
     }
-}
-// Cas 2 : Signature manuelle
-else if (state.signature) {
-    try { 
-        doc.addImage(state.signature, 'PNG', 14, finalY, 80, 25); 
-        finalY += 30;
-    } catch(e) {
-        console.error('Erreur signature manuelle PDF:', e);
+    // CAS 2 : Signature manuelle
+    else {
+        console.log('🔍 [DIAG] On est en mode MANUEL');
+        if (state.signature) {
+            try {
+                doc.addImage(state.signature, 'PNG', 14, finalY, 80, 25);
+                finalY += 30;
+            } catch(eImg) {
+                console.error('Erreur insertion img manuelle:', eImg);
+            }
+        } else {
+            doc.setFont('helvetica', 'italic');
+            doc.setTextColor(150);
+            doc.text('(Aucune signature)', 14, finalY);
+            doc.setTextColor(0);
+            finalY += 10;
+        }
     }
+    
+} catch(errSig) {
+    console.error('❌ ERREUR BLOC SIGNATURE COMPLET:', errSig);
 }
-// Cas 3 : Aucune signature
-else {
-    doc.setFont('helvetica', 'italic');
-    doc.setTextColor(150);
-    doc.text('(Aucune signature)', 14, finalY + 5);
-    doc.setTextColor(0);
+
+// SAVETAGE FINAL DU PDF
+console.log('🔍 [DIAG] === AVANT DOC.SAVE() ===');
+console.log('🔍 [DIAG] Type PDF doc:', typeof doc, 'Existence:', !!doc);
+if (!doc || typeof doc.save !== 'function') {
+    console.error('❌ ERREUR FATALE: doc.save n\'est pas une fonction!');
+    alert('Erreur critique: Impossible de sauvegarder le PDF');
+    return; // STOP ICI si bug majeur
 }
-  
+
+const pdfFilename = 'OT_' + currentOT + '_' + new Date().toISOString().slice(0,10) + '.pdf';
+console.log('🔍 [DIAG] Nom fichier:', pdfFilename);
+
+try {
+    doc.save(pdfFilename);
+    console.log('✅ [DIAG] doc.save() EXECUTE AVEC SUCCES!');
+} catch(saveErr) {
+    console.error('❌ ERREUR LORS DE doc.save():', saveErr);
+    alert('Erreur lors du téléchargement PDF: ' + saveErr.message);
+}
     showNotification('PDF généré');
 }
 

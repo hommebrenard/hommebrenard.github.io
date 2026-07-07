@@ -3427,11 +3427,7 @@ function resetElectronicSignature() {
         ctx.fillStyle = '#ffffff';
         ctx.textBaseline = 'middle';
         ctx.fillText(badgeText, canvas.width / 2, badgeY + badgeH / 2 + 1);
-        
-        // Conversion en PNG
-        const dataURL = canvas.toDataURL('image/png');
-        console.log('✅ Image signature PNG générée OK, longueur:', dataURL.length);
-         // ... tout le dessin du badge vert ...
+
     
     // 🆕 ÉTAPE 8 : Ajout du tampon si disponible
     if (stampImageObj) {

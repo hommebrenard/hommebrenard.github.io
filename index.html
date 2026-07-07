@@ -1692,7 +1692,7 @@
                 <div class="attachments-list" id="attachmentsList"></div>
             </div>
             
-            <div class="signature-zone">
+   <div class="signature-zone">
     <label for="signaturePad" style="font-weight:bold; color:#e65100;">✍️ Signature du Technicien :</label>
     
     <!-- 🆕 SÉLECTEUR DE MODE (Étape 3) -->
@@ -1707,13 +1707,38 @@
         </button>
     </div>
     
-    <!-- Canvas existant (inchangé pour l'instant) -->
-    <canvas class="signature-pad" id="signaturePad" width="500" height="120" 
-            role="img" aria-label="Zone de signature du technicien">
-        Zone de signature - Utilisez un appareil tactile ou la souris pour signer
-    </canvas>
-    <button class="btn btn-secondary" style="margin-top:8px; padding:8px 14px; font-size:12px;" 
-            onclick="clearSignature()" aria-label="Effacer la signature">Effacer signature</button>
+    <!-- 🆕 CONTENEUR SIGNATURE ÉLECTRONIQUE (Étape 4) -->
+    <div id="electronicSignatureContainer">
+        <div class="electronic-signature-box" id="esigBox">
+            <div class="esig-placeholder" id="esigPlaceholder">
+                Cliquez sur "⚡ Signer électroniquement" pour générer votre signature
+            </div>
+        </div>
+        <div style="text-align: center;">
+            <button type="button" class="btn-esign" id="btnEsign" 
+                    aria-label="Générer la signature électronique">
+                ⚡ Signer électroniquement
+            </button>
+            <button type="button" class="btn-esign-reset" id="btnEsignReset" 
+                    style="display:none;" aria-label="Refaire la signature">
+                🔄 Refaire la signature
+            </button>
+        </div>
+    </div>
+    
+    <!-- 🆕 CONTENEUR SIGNATURE MANUELLE (Étape 4 - wrap le canvas existant) -->
+    <div id="manualSignatureContainer">
+        <canvas class="signature-pad" id="signaturePad" width="500" height="120" 
+                role="img" aria-label="Zone de signature du technicien">
+            Zone de signature - Utilisez un appareil tactile ou la souris pour signer
+        </canvas>
+        <button class="btn btn-secondary" style="margin-top:8px; padding:8px 14px; font-size:12px;" 
+                onclick="clearSignature()" aria-label="Effacer la signature">Effacer signature</button>
+    </div>
+    
+    <!-- 🆕 CHAMPS CACHÉS POUR STOCKER LES DONNÉES DE SIGNATURE -->
+    <input type="hidden" id="signatureType" value="electronic">
+    <input type="hidden" id="signatureElectronicData" value="">
 </div>
         </div>
         <div class="modal-footer">

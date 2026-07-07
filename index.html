@@ -767,6 +767,209 @@
         display: block; margin-top: 10px;
         max-width: 100%; height: auto; touch-action: none;
     }
+
+     /* ============================================
+   SIGNATURE ÉLECTRONIQUE (Option A)
+   Charte orange cohérente avec l'application
+   ============================================ */
+
+/* Sélecteur de mode (2 boutons) */
+.signature-mode-selector {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+.sig-mode-btn {
+    flex: 1;
+    min-width: 140px;
+    padding: 10px 15px;
+    border: 2px solid #ffcc80;
+    background: #fff8f0;
+    color: #e65100;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 0.25s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.sig-mode-btn:hover {
+    border-color: #ff9800;
+    background: #fff3e0;
+    transform: translateY(-1px);
+}
+
+.sig-mode-btn.active {
+    background: linear-gradient(135deg, #e65100 0%, #ff9800 100%);
+    color: #ffffff;
+    border-color: #e65100;
+    box-shadow: 0 3px 10px rgba(230, 81, 0, 0.35);
+}
+
+/* Box de la signature électronique */
+.electronic-signature-box {
+    border: 2px dashed #ffb74d;
+    border-radius: 10px;
+    padding: 18px;
+    background: linear-gradient(135deg, #fff8f0 0%, #ffffff 100%);
+    text-align: center;
+    min-height: 140px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.3s ease;
+}
+
+.electronic-signature-box.signed {
+    border-style: solid;
+    border-color: #2e7d32;
+    background: linear-gradient(135deg, #f1f8e9 0%, #ffffff 100%);
+}
+
+/* Nom en écriture cursive */
+.esig-name {
+    font-family: 'Brush Script MT', 'Lucida Handwriting', 'Segoe Script', cursive;
+    font-size: 32px;
+    color: #1f3860;
+    font-weight: 400;
+    border-bottom: 1px solid #999;
+    padding: 3px 30px 6px 30px;
+    margin-bottom: 4px;
+    line-height: 1;
+}
+
+/* Infos date / heure / ID */
+.esig-info {
+    font-size: 11px;
+    color: #555;
+    line-height: 1.5;
+}
+
+.esig-info strong {
+    color: #333;
+}
+
+/* Hash de sécurité */
+.esig-hash {
+    font-family: 'Courier New', Consolas, monospace;
+    font-size: 10px;
+    color: #666;
+    background: #f5f5f5;
+    padding: 3px 8px;
+    border-radius: 4px;
+    margin-top: 4px;
+    border: 1px solid #e0e0e0;
+}
+
+/* Badge "Signé électroniquement" */
+.esig-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #2e7d32;
+    color: #ffffff;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 700;
+    margin-top: 6px;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+}
+
+/* Placeholder (avant signature) */
+.esig-placeholder {
+    color: #999;
+    font-size: 13px;
+    font-style: italic;
+    padding: 20px 10px;
+}
+
+/* Bouton "Signer électroniquement" */
+.btn-esign {
+    background: linear-gradient(135deg, #e65100 0%, #ff9800 100%);
+    color: #ffffff;
+    border: none;
+    padding: 10px 22px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.25s ease;
+    box-shadow: 0 2px 6px rgba(230, 81, 0, 0.25);
+}
+
+.btn-esign:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 14px rgba(230, 81, 0, 0.4);
+}
+
+.btn-esign:active {
+    transform: translateY(0);
+}
+
+/* Bouton "Refaire la signature" */
+.btn-esign-reset {
+    background: #6c757d;
+    color: #ffffff;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 10px;
+    transition: all 0.2s ease;
+}
+
+.btn-esign-reset:hover {
+    background: #5a6268;
+    transform: translateY(-1px);
+}
+
+/* ============================================
+   RESPONSIVE - MOBILE
+   ============================================ */
+@media (max-width: 600px) {
+    .signature-mode-selector {
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .sig-mode-btn {
+        min-width: 100%;
+        padding: 12px;
+        font-size: 14px;
+    }
+    
+    .esig-name {
+        font-size: 26px;
+        padding: 3px 15px 6px 15px;
+    }
+    
+    .electronic-signature-box {
+        padding: 15px 10px;
+        min-height: 120px;
+    }
+    
+    .btn-esign {
+        width: 100%;
+        justify-content: center;
+        padding: 12px;
+    }
+}
     
     .modal-footer {
         background: #f5f5f5; padding: 15px 20px; display: flex;

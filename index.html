@@ -2702,11 +2702,80 @@ function initSignaturePad() {
     canvas.ontouchstart = (e) => { e.preventDefault(); drawing = true; const r = canvas.getBoundingClientRect(); const t = e.touches[0]; ctx.beginPath(); ctx.moveTo(t.clientX - r.left, t.clientY - r.top); };
     canvas.ontouchmove = (e) => { e.preventDefault(); if (!drawing) return; const r = canvas.getBoundingClientRect(); const t = e.touches[0]; ctx.lineTo(t.clientX - r.left, t.clientY - r.top); ctx.stroke(); };
     canvas.ontouchend = () => drawing = false;
+      // 🆕 ÉTAPE 5 : Initialisation du sélecteur de mode signature
+    initSignatureModeSelector();
 }
 
 function clearSignature() {
     const canvas = document.getElementById('signaturePad');
     canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+}
+
+     /* ============================================
+   SIGNATURE ÉLECTRONIQUE - GESTION DES MODES
+   Étape 5 : Basculement entre électronique/manuel
+   ============================================ */
+
+// Variable globale pour connaître le mode actif
+let currentSignatureMode = 'electronic'; // Par défaut : électronique
+
+/**
+ * Bascule entre le mode signature électronique et manuelle
+ * @param {string} mode - 'electronic' ou 'manual'
+ */
+function switchSignatureMode(mode) {
+    // Sauvegarde du mode actuel
+    currentSignatureMode = mode;
+    
+    // Mise à jour du champ caché
+    const signatureTypeInput = document.getElementById('signatureType');
+    if (signatureTypeInput) {
+        signatureTypeInput.value = mode;
+    }
+    
+    // Mise à jour visuelle des boutons (classe active)
+    document.querySelectorAll('.sig-mode-btn').forEach(btn => {
+        if (btn.getAttribute('data-mode') === mode) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+    
+    // Affichage/masquage des conteneurs
+    const electronicContainer = document.getElementById('electronicSignatureContainer');
+    const manualContainer = document.getElementById('manualSignatureContainer');
+    
+    if (mode === 'electronic') {
+        if (electronicContainer) electronicContainer.style.display = 'block';
+        if (manualContainer) manualContainer.style.display = 'none';
+    } else {
+        if (electronicContainer) electronicContainer.style.display = 'none';
+        if (manualContainer) manualContainer.style.display = 'block';
+    }
+    
+    console.log('🔄 Mode signature changé :', mode);
+}
+
+/**
+ * Initialise les événements de clic sur les boutons de mode
+ * (appelé automatiquement à l'ouverture du modal)
+ */
+function initSignatureModeSelector() {
+    const modeButtons = document.querySelectorAll('.sig-mode-btn');
+    modeButtons.forEach(btn => {
+        // Retire les anciens listeners pour éviter les doublons
+        btn.onclick = null;
+        btn.onclick = function() {
+            const mode = this.getAttribute('data-mode');
+            switchSignatureMode(mode);
+        };
+    });
+    
+    // Force le mode "électronique" au démarrage
+    switchSignatureMode('electronic');
+    
+    console.log('✅ Sélecteur de mode signature initialisé');
 }
 
         /* ============================================

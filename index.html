@@ -936,6 +936,185 @@
     transition: all 0.2s ease;
 }
 
+     /* ============================================
+   TAMPON DU TECHNICIEN (Étape 8)
+   Upload + Superposé transparent
+   ============================================ */
+
+/* Zone d'upload du tampon */
+.stamp-zone {
+    margin-bottom: 12px;
+    padding: 10px 14px;
+    background: #fafafa;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+}
+
+.stamp-zone > label:first-child {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: #555;
+    font-weight: normal;
+}
+
+/* Conteneur flex preview + boutons */
+.stamp-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+/* Zone de prévisualisation */
+.stamp-preview {
+    width: 80px;
+    height: 80px;
+    border: 2px dashed #ccc;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #fff;
+    overflow: hidden;
+    flex-shrink: 0;
+    transition: all 0.2s;
+}
+
+.stamp-preview.has-stamp {
+    border-style: solid;
+    border-color: #2e7d32;
+}
+
+.stamp-preview-img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+.stamp-placeholder {
+    font-size: 10px;
+    color: #999;
+    text-align: center;
+    padding: 5px;
+    line-height: 1.3;
+}
+
+/* Boutons tampon */
+.stamp-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.btn-stamp-upload {
+    background: linear-gradient(135deg, #e65100, #ff9800);
+    color: #fff;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-stamp-upload:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(230, 81, 0, 0.3);
+}
+
+.btn-stamp-remove {
+    background: #dc3545;
+    color: #fff;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-stamp-remove:hover {
+    background: #c82333;
+}
+
+/* === OVERLAY TAMPON (superposé transparent) === */
+
+/* Position relative pour le positionnement absolu */
+.electronic-signature-box {
+    position: relative;
+    overflow: hidden;
+}
+
+#manualSignatureContainer {
+    position: relative;
+}
+
+/* Overlay sur la box électronique */
+.electronic-signature-box .stamp-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    opacity: 0.12;
+    pointer-events: none;
+    width: 140px;
+    height: 140px;
+    object-fit: contain;
+    z-index: 0;
+}
+
+/* Texte au-dessus du tampon */
+.electronic-signature-box .esig-name,
+.electronic-signature-box .esig-info,
+.electronic-signature-box .esig-hash,
+.electronic-signature-box .esig-badge,
+.electronic-signature-box .esig-placeholder {
+    position: relative;
+    z-index: 1;
+}
+
+/* Overlay sur le canvas manuel */
+.canvas-stamp-overlay {
+    position: absolute;
+    top: 45%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    opacity: 0.12;
+    pointer-events: none;
+    width: 120px;
+    height: 100px;
+    object-fit: contain;
+    z-index: 2;
+}
+
+/* === RESPONSIVE === */
+@media (max-width: 600px) {
+    .stamp-controls {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .stamp-preview {
+        width: 60px;
+        height: 60px;
+    }
+    
+    .btn-stamp-upload,
+    .btn-stamp-remove {
+        width: 100%;
+        text-align: center;
+        padding: 10px;
+    }
+    
+    .electronic-signature-box .stamp-overlay {
+        width: 110px;
+        height: 110px;
+    }
+}
+
 .btn-esign-reset:hover {
     background: #5a6268;
     transform: translateY(-1px);
@@ -1696,6 +1875,36 @@
             
    <div class="signature-zone">
     <label for="signaturePad" style="font-weight:bold; color:#e65100;">✍️ Signature du Technicien :</label>
+
+        <div class="signature-zone">
+    <label for="signaturePad" style="font-weight:bold; color:#e65100;">✍️ Signature du Technicien :</label>
+    
+    <!-- 🆕 ZONE TAMPON (Étape 8) -->
+    <div class="stamp-zone" id="stampZone">
+        <label>📸 Tampon du technicien (optionnel)</label>
+        <div class="stamp-controls">
+            <div class="stamp-preview" id="stampPreview">
+                <span class="stamp-placeholder">Aucun tampon<br>chargé</span>
+            </div>
+            <div class="stamp-buttons">
+                <button type="button" class="btn-stamp-upload" id="btnStampUpload" 
+                        onclick="triggerStampUpload()">
+                    📎 Charger mon tampon
+                </button>
+                <button type="button" class="btn-stamp-remove" id="btnStampRemove" 
+                        style="display:none;" onclick="removeStamp()">
+                    🗑️ Supprimer
+                </button>
+            </div>
+        </div>
+        <input type="file" id="stampFileInput" accept="image/png,image/jpeg,image/jpg" 
+               style="display:none;" onchange="handleStampUpload(event)">
+    </div>
+    
+    <!-- SÉLECTEUR DE MODE (Étape 3) -->
+    <div class="signature-mode-selector">
+        ...
+    </div>
     
     <!-- 🆕 SÉLECTEUR DE MODE (Étape 3) -->
     <div class="signature-mode-selector">
@@ -2763,6 +2972,211 @@ function switchSignatureMode(mode) {
  * Initialise les événements de clic sur les boutons de mode
  * (appelé automatiquement à l'ouverture du modal)
  */
+
+     /* ============================================
+   TAMPON DU TECHNICIEN (Étape 8)
+   Upload, localStorage, overlay transparent
+   ============================================ */
+
+const STAMP_STORAGE_KEY = 'technicianStamp';
+let stampImageObj = null; // Image pré-chargée du tampon
+
+/**
+ * Pré-charge le tampon depuis localStorage au démarrage
+ */
+function loadStampImage() {
+    const stampData = localStorage.getItem(STAMP_STORAGE_KEY);
+    if (!stampData) {
+        stampImageObj = null;
+        return;
+    }
+    const img = new Image();
+    img.onload = function() {
+        stampImageObj = img;
+        console.log('✅ Tampon pré-chargé depuis localStorage');
+    };
+    img.src = stampData;
+}
+
+/**
+ * Retourne le DataURL du tampon depuis localStorage
+ */
+function getStampData() {
+    return localStorage.getItem(STAMP_STORAGE_KEY);
+}
+
+/**
+ * Ouvre le sélecteur de fichier pour le tampon
+ */
+function triggerStampUpload() {
+    document.getElementById('stampFileInput').click();
+}
+
+/**
+ * Gère l'upload du tampon : lecture, redimensionnement, sauvegarde
+ */
+function handleStampUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    // Validation type
+    if (!file.type.startsWith('image/')) {
+        alert('⚠️ Veuillez sélectionner une image (PNG ou JPG)');
+        return;
+    }
+    
+    // Validation taille (max 2Mo pour localStorage)
+    if (file.size > 2 * 1024 * 1024) {
+        alert('⚠️ Le fichier est trop volumineux (maximum 2 Mo)');
+        return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const dataURL = e.target.result;
+        
+        // Redimensionner pour optimiser l'espace localStorage
+        resizeStampImage(dataURL, 300, 300, function(resizedDataURL) {
+            localStorage.setItem(STAMP_STORAGE_KEY, resizedDataURL);
+            loadStampImage(); // Précharger l'image
+            updateStampUI(true);
+            applyStampOverlay();
+            showNotification('✅ Tampon sauvegardé avec succès');
+        });
+    };
+    reader.readAsDataURL(file);
+    
+    // Réinitialiser le champ fichier pour pouvoir re-uploader le même fichier
+    event.target.value = '';
+}
+
+/**
+ * Redimensionne l'image du tampon pour optimiser l'espace
+ */
+function resizeStampImage(dataURL, maxW, maxH, callback) {
+    const img = new Image();
+    img.onload = function() {
+        let w = img.width;
+        let h = img.height;
+        
+        if (w > maxW || h > maxH) {
+            const ratio = Math.min(maxW / w, maxH / h);
+            w = Math.floor(w * ratio);
+            h = Math.floor(h * ratio);
+        }
+        
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        callback(canvas.toDataURL('image/png'));
+    };
+    img.src = dataURL;
+}
+
+/**
+ * Supprime le tampon du localStorage
+ */
+function removeStamp() {
+    if (!confirm('Supprimer le tampon du technicien ?')) return;
+    
+    localStorage.removeItem(STAMP_STORAGE_KEY);
+    stampImageObj = null;
+    updateStampUI(false);
+    removeStampOverlay();
+    showNotification('🗑️ Tampon supprimé');
+}
+
+/**
+ * Met à jour l'affichage de la zone tampon
+ */
+function updateStampUI(hasStamp) {
+    const preview = document.getElementById('stampPreview');
+    const btnUpload = document.getElementById('btnStampUpload');
+    const btnRemove = document.getElementById('btnStampRemove');
+    
+    if (hasStamp) {
+        const stampData = getStampData();
+        preview.innerHTML = '<img src="' + stampData + '" alt="Tampon" class="stamp-preview-img">';
+        preview.classList.add('has-stamp');
+        btnUpload.textContent = '🔄 Changer le tampon';
+        btnRemove.style.display = 'inline-flex';
+    } else {
+        preview.innerHTML = '<span class="stamp-placeholder">Aucun tampon<br>chargé</span>';
+        preview.classList.remove('has-stamp');
+        btnUpload.textContent = '📎 Charger mon tampon';
+        btnRemove.style.display = 'none';
+    }
+}
+
+/**
+ * Applique l'overlay transparent du tampon sur les zones de signature
+ */
+function applyStampOverlay() {
+    const stampData = getStampData();
+    if (!stampData) return;
+    
+    // Overlay sur la box électronique
+    const esigBox = document.getElementById('esigBox');
+    if (esigBox) {
+        const existing = esigBox.querySelector('.stamp-overlay');
+        if (existing) existing.remove();
+        
+        const overlay = document.createElement('img');
+        overlay.src = stampData;
+        overlay.className = 'stamp-overlay';
+        overlay.alt = 'Tampon';
+        esigBox.appendChild(overlay);
+    }
+    
+    // Overlay sur le canvas manuel
+    const manualContainer = document.getElementById('manualSignatureContainer');
+    if (manualContainer) {
+        const existing = manualContainer.querySelector('.canvas-stamp-overlay');
+        if (existing) existing.remove();
+        
+        const overlay = document.createElement('img');
+        overlay.src = stampData;
+        overlay.className = 'canvas-stamp-overlay';
+        overlay.alt = 'Tampon';
+        manualContainer.appendChild(overlay);
+    }
+}
+
+/**
+ * Supprime les overlays de tampon
+ */
+function removeStampOverlay() {
+    const esigBox = document.getElementById('esigBox');
+    if (esigBox) {
+        const o = esigBox.querySelector('.stamp-overlay');
+        if (o) o.remove();
+    }
+    
+    const manualContainer = document.getElementById('manualSignatureContainer');
+    if (manualContainer) {
+        const o = manualContainer.querySelector('.canvas-stamp-overlay');
+        if (o) o.remove();
+    }
+}
+
+/**
+ * Initialise le système de tampon
+ */
+function initStamp() {
+    loadStampImage();
+    const hasStamp = !!getStampData();
+    updateStampUI(hasStamp);
+    
+    // Appliquer l'overlay un petit délai pour laisser le DOM se charger
+    setTimeout(function() {
+        applyStampOverlay();
+    }, 100);
+    
+    console.log('✅ Système de tampon initialisé, tampon existant:', hasStamp);
+}
+     
 function initSignatureModeSelector() {
     const modeButtons = document.querySelectorAll('.sig-mode-btn');
     modeButtons.forEach(btn => {
@@ -2779,6 +3193,9 @@ function initSignatureModeSelector() {
 
      // 🆕 ÉTAPE 6 : Initialisation des boutons de signature électronique
     initElectronicSignatureButtons();
+
+      // 🆕 ÉTAPE 8 : Initialisation du tampon du technicien
+    initStamp()
     
     console.log('✅ Sélecteur de mode signature initialisé');
 }
@@ -2880,6 +3297,13 @@ function generateElectronicSignature() {
     const btnEsignReset = document.getElementById('btnEsignReset');
     if (btnEsign) btnEsign.style.display = 'none';
     if (btnEsignReset) btnEsignReset.style.display = 'inline-flex';
+
+     // Dans generateElectronicSignature(), à la FIN (avant le console.log) :
+
+// ... code existant qui affiche la signature ...
+    
+    // 🆕 ÉTAPE 8 : Ré-appliquer l'overlay du tampon
+    applyStampOverlay();
     
     console.log('✅ Signature électronique générée :', electronicSignatureData);
 }
@@ -2907,6 +3331,13 @@ function resetElectronicSignature() {
     const btnEsignReset = document.getElementById('btnEsignReset');
     if (btnEsign) btnEsign.style.display = 'inline-flex';
     if (btnEsignReset) btnEsignReset.style.display = 'none';
+
+     // Dans resetElectronicSignature(), à la FIN (avant le console.log) :
+
+    // ... code existant qui remet la box à zéro ...
+    
+    // 🆕 ÉTAPE 8 : Ré-appliquer l'overlay du tampon
+    applyStampOverlay();
     
     console.log('🔄 Signature électronique effacée');
 }
@@ -3000,6 +3431,25 @@ function resetElectronicSignature() {
         // Conversion en PNG
         const dataURL = canvas.toDataURL('image/png');
         console.log('✅ Image signature PNG générée OK, longueur:', dataURL.length);
+         // ... tout le dessin du badge vert ...
+    
+    // 🆕 ÉTAPE 8 : Ajout du tampon si disponible
+    if (stampImageObj) {
+        try {
+            ctx.globalAlpha = 0.15;
+            const stampSize = 150;
+            ctx.drawImage(stampImageObj,
+                (canvas.width - stampSize) / 2,
+                (canvas.height - stampSize) / 2,
+                stampSize, stampSize);
+            ctx.globalAlpha = 1.0;
+        } catch(e) {
+            console.warn('⚠️ Tampon non dessinable:', e);
+        }
+    }
+    
+    // Conversion en PNG
+    const dataURL = canvas.toDataURL('image/png');
         return dataURL;
         
     } catch(err) {
@@ -3582,26 +4032,50 @@ try {
             finalY += 10;
         }
     }
-    // CAS 2 : Signature manuelle
-    else {
-        console.log('🔍 [DIAG] On est en mode MANUEL');
-        if (state.signature) {
-            try {
+
+// CAS 2 : Signature manuelle
+else {
+    console.log('🔍 [DIAG] On est en mode MANUEL');
+    if (state.signature) {
+        try {
+            // 🆕 ÉTAPE 8 : Ajouter le tampon sur la signature manuelle dans le PDF
+            if (stampImageObj) {
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = 400;
+                tempCanvas.height = 200;
+                const tempCtx = tempCanvas.getContext('2d');
+                
+                // Fond blanc
+                tempCtx.fillStyle = '#ffffff';
+                tempCtx.fillRect(0, 0, 400, 200);
+                
+                // Signature manuelle
+                const sigImg = new Image();
+                sigImg.src = state.signature;
+                try {
+                    tempCtx.drawImage(sigImg, 0, 0, 400, 200);
+                } catch(e) { console.warn('Image sig non dessinable'); }
+                
+                // Tampon overlay
+                tempCtx.globalAlpha = 0.15;
+                const stampSize = 120;
+                tempCtx.drawImage(stampImageObj,
+                    (400 - stampSize) / 2,
+                    (200 - stampSize) / 2,
+                    stampSize, stampSize);
+                tempCtx.globalAlpha = 1.0;
+                
+                doc.addImage(tempCanvas.toDataURL('image/png'), 'PNG', 14, finalY, 80, 25);
+            } else {
                 doc.addImage(state.signature, 'PNG', 14, finalY, 80, 25);
-                finalY += 30;
-            } catch(eImg) {
-                console.error('Erreur insertion img manuelle:', eImg);
             }
-        } else {
-            doc.setFont('helvetica', 'italic');
-            doc.setTextColor(150);
-            doc.text('(Aucune signature)', 14, finalY);
-            doc.setTextColor(0);
-            finalY += 10;
+            finalY += 30;
+        } catch(eImg) {
+            console.error('Erreur insertion img manuelle:', eImg);
         }
     }
-    
-} catch(errSig) {
+}   
+ catch(errSig) {
     console.error('❌ ERREUR BLOC SIGNATURE COMPLET:', errSig);
 }
 

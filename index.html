@@ -2774,8 +2774,159 @@ function initSignatureModeSelector() {
     
     // Force le mode "électronique" au démarrage
     switchSignatureMode('electronic');
+
+     // 🆕 ÉTAPE 6 : Initialisation des boutons de signature électronique
+    initElectronicSignatureButtons();
     
     console.log('✅ Sélecteur de mode signature initialisé');
+}
+
+
+     /* ============================================
+   SIGNATURE ÉLECTRONIQUE - GÉNÉRATION
+   Étape 6 : Génération et effacement
+   ============================================ */
+
+// Variable pour stocker les données de la signature électronique
+let electronicSignatureData = null;
+
+/**
+ * Génère un ID unique pour la signature
+ * Format : SIG-YYYY-MMDD-XXXX (X = caractères alphanumériques)
+ */
+function generateSignatureId() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+    return `SIG-${year}-${month}${day}-${random}`;
+}
+
+/**
+ * Génère un hash de sécurité (8 caractères) basé sur les données
+ */
+function generateSignatureHash(name, timestamp, id) {
+    const input = name + timestamp + id;
+    let hash = 0;
+    for (let i = 0; i < input.length; i++) {
+        hash = ((hash << 5) - hash) + input.charCodeAt(i);
+        hash |= 0;
+    }
+    return Math.abs(hash).toString(16).toUpperCase().padStart(8, '0');
+}
+
+/**
+ * Génère la signature électronique et l'affiche dans la box
+ */
+function generateElectronicSignature() {
+    // 1. Récupération du nom du technicien
+    const techNameInput = document.getElementById('techName');
+    const techName = techNameInput ? techNameInput.value.trim() : '';
+    
+    // 2. Validation : le nom est obligatoire
+    if (!techName) {
+        alert('⚠️ Veuillez d\'abord saisir le nom du technicien avant de signer électroniquement.');
+        if (techNameInput) {
+            techNameInput.focus();
+            techNameInput.style.border = '2px solid #dc3545';
+            setTimeout(() => { techNameInput.style.border = ''; }, 3000);
+        }
+        return;
+    }
+    
+    // 3. Génération des données de signature
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('fr-FR');
+    const timeStr = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    const sigId = generateSignatureId();
+    const hashHex = generateSignatureHash(techName, now.getTime(), sigId);
+    
+    // 4. Stockage des données
+    electronicSignatureData = {
+        name: techName,
+        date: dateStr,
+        time: timeStr,
+        id: sigId,
+        hash: hashHex,
+        timestamp: now.toISOString()
+    };
+    
+    // 5. Mise à jour du champ caché (pour sauvegarde)
+    const hiddenInput = document.getElementById('signatureElectronicData');
+    if (hiddenInput) {
+        hiddenInput.value = JSON.stringify(electronicSignatureData);
+    }
+    
+    // 6. Affichage visuel dans la box
+    const box = document.getElementById('esigBox');
+    if (box) {
+        box.classList.add('signed');
+        box.innerHTML = `
+            <div class="esig-name">${techName}</div>
+            <div class="esig-info">
+                <strong>Signé le ${dateStr} à ${timeStr}</strong><br>
+                ID : ${sigId}
+            </div>
+            <div class="esig-hash">🔒 Hash: ${hashHex}</div>
+            <div class="esig-badge">✓ Signé électroniquement</div>
+        `;
+    }
+    
+    // 7. Basculement des boutons (cache "Signer", affiche "Refaire")
+    const btnEsign = document.getElementById('btnEsign');
+    const btnEsignReset = document.getElementById('btnEsignReset');
+    if (btnEsign) btnEsign.style.display = 'none';
+    if (btnEsignReset) btnEsignReset.style.display = 'inline-flex';
+    
+    console.log('✅ Signature électronique générée :', electronicSignatureData);
+}
+
+/**
+ * Efface la signature électronique et remet la box à zéro
+ */
+function resetElectronicSignature() {
+    // 1. Effacement des données
+    electronicSignatureData = null;
+    
+    // 2. Effacement du champ caché
+    const hiddenInput = document.getElementById('signatureElectronicData');
+    if (hiddenInput) hiddenInput.value = '';
+    
+    // 3. Remise à zéro de la box
+    const box = document.getElementById('esigBox');
+    if (box) {
+        box.classList.remove('signed');
+        box.innerHTML = '<div class="esig-placeholder" id="esigPlaceholder">Cliquez sur "⚡ Signer électroniquement" pour générer votre signature</div>';
+    }
+    
+    // 4. Basculement inverse des boutons
+    const btnEsign = document.getElementById('btnEsign');
+    const btnEsignReset = document.getElementById('btnEsignReset');
+    if (btnEsign) btnEsign.style.display = 'inline-flex';
+    if (btnEsignReset) btnEsignReset.style.display = 'none';
+    
+    console.log('🔄 Signature électronique effacée');
+}
+
+/**
+ * Initialise les événements des boutons "Signer" et "Refaire"
+ */
+function initElectronicSignatureButtons() {
+    const btnEsign = document.getElementById('btnEsign');
+    const btnEsignReset = document.getElementById('btnEsignReset');
+    
+    if (btnEsign) {
+        btnEsign.onclick = null;
+        btnEsign.onclick = generateElectronicSignature;
+    }
+    
+    if (btnEsignReset) {
+        btnEsignReset.onclick = null;
+        btnEsignReset.onclick = resetElectronicSignature;
+    }
+    
+    console.log('✅ Boutons signature électronique initialisés');
 }
 
         /* ============================================

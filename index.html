@@ -1876,10 +1876,7 @@
    <div class="signature-zone">
     <label for="signaturePad" style="font-weight:bold; color:#e65100;">✍️ Signature du Technicien :</label>
 
-        <div class="signature-zone">
-    <label for="signaturePad" style="font-weight:bold; color:#e65100;">✍️ Signature du Technicien :</label>
-    
-    <!-- 🆕 ZONE TAMPON (Étape 8) -->
+        <!-- 🆕 ZONE TAMPON (Étape 8) -->
     <div class="stamp-zone" id="stampZone">
         <label>📸 Tampon du technicien (optionnel)</label>
         <div class="stamp-controls">
@@ -1938,19 +1935,6 @@
     <!-- 🆕 CHAMPS CACHÉS POUR STOCKER LES DONNÉES DE SIGNATURE -->
     <input type="hidden" id="signatureType" value="electronic">
     <input type="hidden" id="signatureElectronicData" value="">
-                 
-        </div>
-        <div class="modal-footer">
-            <div class="progress-info">
-                Progression : <strong id="progressText">0 / 0</strong> actions
-            </div>
-            <div>
-                <button class="btn btn-info" onclick="exportChecklistPDF()" aria-label="Exporter en PDF">📄 Export PDF</button>
-                <button class="btn btn-secondary" onclick="closeModal()" aria-label="Annuler les modifications">Annuler</button>
-                <button class="btn btn-success" onclick="saveChecklist()" aria-label="Enregistrer la check-list">💾 Enregistrer</button>
-            </div>
-        </div>
-    </div>
 </div>
 
 <div class="dashboard-modal" id="dashboardModal" role="dialog" aria-modal="true" aria-labelledby="dashboardTitle">

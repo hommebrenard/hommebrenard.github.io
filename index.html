@@ -1693,14 +1693,28 @@
             </div>
             
             <div class="signature-zone">
-                <label for="signaturePad" style="font-weight:bold; color:#e65100;">✍️ Signature du Technicien :</label>
-                <canvas class="signature-pad" id="signaturePad" width="500" height="120" 
-                        role="img" aria-label="Zone de signature du technicien">
-                    Zone de signature - Utilisez un appareil tactile ou la souris pour signer
-                </canvas>
-                <button class="btn btn-secondary" style="margin-top:8px; padding:8px 14px; font-size:12px;" 
-                        onclick="clearSignature()" aria-label="Effacer la signature">Effacer signature</button>
-            </div>
+    <label for="signaturePad" style="font-weight:bold; color:#e65100;">✍️ Signature du Technicien :</label>
+    
+    <!-- 🆕 SÉLECTEUR DE MODE (Étape 3) -->
+    <div class="signature-mode-selector">
+        <button type="button" class="sig-mode-btn active" data-mode="electronic" 
+                aria-label="Choisir signature électronique">
+            ⚡ Signature électronique
+        </button>
+        <button type="button" class="sig-mode-btn" data-mode="manual" 
+                aria-label="Choisir signature manuelle">
+            🖊️ Signature manuelle
+        </button>
+    </div>
+    
+    <!-- Canvas existant (inchangé pour l'instant) -->
+    <canvas class="signature-pad" id="signaturePad" width="500" height="120" 
+            role="img" aria-label="Zone de signature du technicien">
+        Zone de signature - Utilisez un appareil tactile ou la souris pour signer
+    </canvas>
+    <button class="btn btn-secondary" style="margin-top:8px; padding:8px 14px; font-size:12px;" 
+            onclick="clearSignature()" aria-label="Effacer la signature">Effacer signature</button>
+</div>
         </div>
         <div class="modal-footer">
             <div class="progress-info">

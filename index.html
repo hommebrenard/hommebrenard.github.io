@@ -1936,6 +1936,19 @@
     <input type="hidden" id="signatureType" value="electronic">
     <input type="hidden" id="signatureElectronicData" value="">
 </div>
+</div>
+<div class="modal-footer">
+          <div class="progress-info">
+                Progression : <strong id="progressText">0 / 0</strong> actions
+            </div>
+            <div>
+                <button class="btn btn-info" onclick="exportChecklistPDF()" aria-label="Exporter en PDF">📄 Export PDF</button>
+                <button class="btn btn-secondary" onclick="closeModal()" aria-label="Annuler les modifications">Annuler</button>
+                <button class="btn btn-success" onclick="saveChecklist()" aria-label="Enregistrer la check-list">💾 Enregistrer</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <div class="dashboard-modal" id="dashboardModal" role="dialog" aria-modal="true" aria-labelledby="dashboardTitle">
     <div class="dashboard-container">

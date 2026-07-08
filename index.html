@@ -2341,13 +2341,7 @@ function openChecklist(otNum, materiel, interventionType, libelle, dateOT) {
     updateProgress();
     
     setTimeout(() => {
-        resizeSignaturePad();
-        initSignaturePad();
-        if (otStates[otStr].signature) {
-            const img = new Image();
-            img.onload = function() { document.getElementById('signaturePad').getContext('2d').drawImage(img, 0, 0); };
-            img.src = otStates[otStr].signature;
-        }
+        
     }, 100);
     
     document.getElementById('modalOverlay').classList.add('active');
@@ -2372,7 +2366,7 @@ function handleFileUpload(event) {
 function renderAttachments() {
     const list = document.getElementById('attachmentsList');
     list.innerHTML = '';
-    const attachments = (otStates[currentOT] && otStates[currentOT].attachments) || [];
+    const attachments = ( && .attachments) || [];
     if (attachments.length === 0) { list.innerHTML = '<p style="color:#999; font-size:11px; font-style:italic;">Aucune pièce jointe</p>'; return; }
     attachments.forEach((att, idx) => {
         const item = document.createElement('div');
@@ -2392,7 +2386,7 @@ function renderAttachments() {
 }
 
 function viewAttachment(idx) {
-    const att = otStates[currentOT].attachments[idx];
+    const att = .attachments[idx];
     if (!att) return;
     const content = document.getElementById('previewContent');
     content.innerHTML = '';
@@ -2414,7 +2408,7 @@ function viewAttachment(idx) {
 }
 
 function downloadAttachment(idx) {
-    const att = otStates[currentOT].attachments[idx];
+    const att = .attachments[idx];
     if (!att) return;
     const link = document.createElement('a');
     link.href = att.data;
@@ -2723,7 +2717,6 @@ function saveChecklist() {
     otStates[currentOT].site = document.getElementById('site').value;
     otStates[currentOT].dateDebut = document.getElementById('dateDebut').value;
     otStates[currentOT].dateFin = document.getElementById('dateFin').value;
-    otStates[currentOT].signature = document.getElementById('signaturePad').toDataURL();
     if (done === total) otStates[currentOT].status = 'F';
     else if (done === 0) otStates[currentOT].status = 'NF';
     else otStates[currentOT].status = 'P';

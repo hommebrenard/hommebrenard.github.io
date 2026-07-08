@@ -2366,7 +2366,7 @@ function handleFileUpload(event) {
 function renderAttachments() {
     const list = document.getElementById('attachmentsList');
     list.innerHTML = '';
-    const attachments = ( && .attachments) || [];
+    const attachments = (otStates[currentOT] && otStates[currentOT].attachments) || [];
     if (attachments.length === 0) { list.innerHTML = '<p style="color:#999; font-size:11px; font-style:italic;">Aucune pièce jointe</p>'; return; }
     attachments.forEach((att, idx) => {
         const item = document.createElement('div');
@@ -2386,7 +2386,7 @@ function renderAttachments() {
 }
 
 function viewAttachment(idx) {
-    const att = .attachments[idx];
+    const att = otStates[currentOT].attachments[idx];
     if (!att) return;
     const content = document.getElementById('previewContent');
     content.innerHTML = '';

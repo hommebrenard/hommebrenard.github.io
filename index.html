@@ -773,8 +773,77 @@
    Charte orange cohérente avec l'application
    ============================================ */
 
+.signature-mode-selector {
+    display: flex; gap: 10px; margin-top: 10px; margin-bottom: 12px;
+}
+.sig-mode-btn {
+    flex: 1; min-width: 160px; padding: 10px 16px;
+    border: 2px solid #ffb74d; background: white; color: #e65100;
+    border-radius: 8px; font-weight: bold; font-size: 13px;
+    cursor: pointer; transition: all 0.2s;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+.sig-mode-btn:hover { background: #fff3e0; }
+.sig-mode-btn.active { background: #ff9800; color: white; border-color: #ff9800; }
 
-     
+.electronic-signature-box {
+    background: #f8fff5; border: 2px dashed #ffb74d; border-radius: 8px;
+    padding: 20px 15px; min-height: 140px; margin-top: 10px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; position: relative;
+}
+.electronic-signature-box.signed { border-style: solid; border-color: #2e7d32; background: #f1f8f4; }
+.esig-placeholder { color: #999; font-style: italic; font-size: 13px; }
+.esig-name {
+    font-family: 'Georgia', serif; font-style: italic; font-weight: bold;
+    font-size: 32px; color: #1f3864; padding: 3px 20px 8px 20px;
+    border-bottom: 1px solid #999; margin-bottom: 8px;
+}
+.esig-info { font-size: 12px; color: #333; margin-bottom: 4px; }
+.esig-hash { font-size: 11px; color: #555; font-family: 'Consolas', monospace; margin-bottom: 6px; }
+.esig-badge {
+    display: inline-block; background: #4caf50; color: white; font-size: 11px;
+    font-weight: bold; padding: 4px 10px; border-radius: 12px;
+}
+.stamp-overlay, .canvas-stamp-overlay {
+    position: absolute; max-width: 100px; max-height: 100px;
+    opacity: 0.7; pointer-events: none; bottom: 8px; right: 8px;
+}
+.manual-signature-container { margin-top: 10px; position: relative; }
+
+.btn-esign {
+    margin-top: 14px; background: #ff9800; color: white; border: none;
+    padding: 10px 18px; border-radius: 6px; font-weight: bold; font-size: 13px;
+    cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+}
+.btn-esign:hover { background: #f57c00; }
+.btn-esign-reset {
+    margin-top: 14px; background: #757575; color: white; border: none;
+    padding: 10px 18px; border-radius: 6px; font-weight: bold; font-size: 13px;
+    cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+}
+.btn-esign-reset:hover { background: #616161; }
+
+.stamp-section {
+    margin-top: 15px; padding-top: 15px; border-top: 1px dashed #ffb74d;
+    display: flex; align-items: center; gap: 15px; flex-wrap: wrap;
+}
+.stamp-preview {
+    width: 70px; height: 70px; border: 2px dashed #ccc; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    background: white; flex-shrink: 0; overflow: hidden;
+}
+.stamp-preview.has-stamp { border-style: solid; border-color: #4caf50; }
+.stamp-preview-img { width: 100%; height: 100%; object-fit: contain; }
+.stamp-placeholder { font-size: 10px; color: #999; text-align: center; line-height: 1.3; }
+.stamp-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-stamp {
+    background: #2196f3; color: white; border: none; padding: 8px 14px;
+    border-radius: 5px; font-size: 12px; font-weight: bold; cursor: pointer;
+}
+.btn-stamp:hover { background: #1976d2; }
+.btn-stamp-remove { background: #f44336; }
+.btn-stamp-remove:hover { background: #c62828; }
 
 /* ============================================
    RESPONSIVE - MOBILE
@@ -1530,8 +1599,39 @@
             </div>
             
    <div class="signature-zone">
-    <label for="signaturePad" style="font-weight:bold; color:#e65100;">✍️ Signature du Technicien :</label>
-        
+    <label style="font-weight:bold; color:#e65100;">✍️ Signature du Technicien :</label>
+
+    <input type="hidden" id="signatureType" name="signatureType" value="electronic">
+    <input type="hidden" id="signatureElectronicData" name="signatureElectronicData" value="">
+
+    <div class="signature-mode-selector">
+        <button type="button" class="sig-mode-btn active" data-mode="electronic" aria-label="Signature électronique">⚡ Signature électronique</button>
+        <button type="button" class="sig-mode-btn" data-mode="manual" aria-label="Signature manuscrite">✍️ Signature manuscrite</button>
+    </div>
+
+    <div id="electronicSignatureContainer">
+        <div class="electronic-signature-box" id="esigBox">
+            <div class="esig-placeholder" id="esigPlaceholder">Cliquez sur "⚡ Signer électroniquement" pour générer votre signature</div>
+        </div>
+        <button type="button" class="btn-esign" id="btnEsign" aria-label="Signer électroniquement">⚡ Signer électroniquement</button>
+        <button type="button" class="btn-esign-reset" id="btnEsignReset" style="display:none;" aria-label="Refaire la signature">🔄 Refaire la signature</button>
+    </div>
+
+    <div id="manualSignatureContainer" class="manual-signature-container" style="display:none;">
+        <canvas id="signaturePad" class="signature-pad" width="500" height="120" aria-label="Zone de signature manuscrite"></canvas>
+        <button type="button" class="btn btn-secondary" onclick="clearSignature()" style="margin-top:8px;" aria-label="Effacer la signature">🗑️ Effacer</button>
+    </div>
+
+    <div class="stamp-section">
+        <div class="stamp-preview" id="stampPreview">
+            <span class="stamp-placeholder">Aucun tampon<br>chargé</span>
+        </div>
+        <div class="stamp-actions">
+            <input type="file" id="stampFileInput" class="file-input" accept="image/*" onchange="handleStampUpload(event)" aria-label="Charger le tampon du technicien">
+            <button type="button" class="btn-stamp" id="btnStampUpload" onclick="triggerStampUpload()" aria-label="Charger le tampon">📎 Charger mon tampon</button>
+            <button type="button" class="btn-stamp btn-stamp-remove" id="btnStampRemove" onclick="removeStamp()" style="display:none;" aria-label="Supprimer le tampon">🗑️ Supprimer le tampon</button>
+        </div>
+    </div>
 </div>
 </div>
 <div class="modal-footer">

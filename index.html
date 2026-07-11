@@ -104,6 +104,18 @@
     font-weight: 700;
     letter-spacing: -0.5px;
 }
+
+.esig-scan-preview {
+    margin-top: 10px;
+    text-align: center;
+}
+.esig-scan-preview img {
+    max-width: 100%;
+    max-height: 120px;
+    border-radius: 8px;
+    border: 1px solid rgba(31, 56, 100, 0.1);
+    box-shadow: 0 2px 8px rgba(31, 56, 100, 0.08);
+}
     .welcome-screen .subtitle { 
     color: #666; 
     font-size: 17px; 
@@ -767,6 +779,16 @@
         display: block; margin-top: 10px;
         max-width: 100%; height: auto; touch-action: none;
     }
+    .manual-signature-actions {
+        display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px;
+        align-items: center;
+    }
+    .btn-upload-signature {
+        background: #2e7d32; border-color: #2e7d32;
+    }
+    .manual-hint {
+        margin-top: 8px; font-size: 12px; color: #666; line-height: 1.4;
+    }
 
      /* ============================================
    SIGNATURE ÉLECTRONIQUE (Option A)
@@ -787,27 +809,36 @@
 .sig-mode-btn.active { background: #ff9800; color: white; border-color: #ff9800; }
 
 .electronic-signature-box {
-    background: #f8fff5; border: 2px dashed #ffb74d; border-radius: 8px;
-    padding: 20px 15px; min-height: 140px; margin-top: 10px;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    text-align: center; position: relative;
+    background: transparent; border: none; border-radius: 0;
+    padding: 18px 14px; min-height: 150px; margin-top: 10px;
+    display: grid; grid-template-columns: minmax(0,1fr) auto;
+    gap: 16px; align-items: center;
+    text-align: left; position: relative;
+    width: 100%; max-width: 520px; margin-left: auto; margin-right: auto;
 }
-.electronic-signature-box.signed { border-style: solid; border-color: #2e7d32; background: #f1f8f4; }
-.esig-placeholder { color: #999; font-style: italic; font-size: 13px; }
+.electronic-signature-box.signed { border: none; background: transparent; }
+.esig-placeholder { color: #777; font-style: italic; font-size: 13px; line-height: 1.5; text-align: left; }
+.esig-content { width: 100%; }
 .esig-name {
-    font-family: 'Georgia', serif; font-style: italic; font-weight: bold;
-    font-size: 32px; color: #1f3864; padding: 3px 20px 8px 20px;
-    border-bottom: 1px solid #999; margin-bottom: 8px;
+    font-family: 'Georgia', serif; font-style: italic; font-weight: 700;
+    font-size: 32px; color: #1f3864; margin: 0 0 6px; line-height: 1.05;
 }
-.esig-info { font-size: 12px; color: #333; margin-bottom: 4px; }
-.esig-hash { font-size: 11px; color: #555; font-family: 'Consolas', monospace; margin-bottom: 6px; }
-.esig-badge {
-    display: inline-block; background: #4caf50; color: white; font-size: 11px;
-    font-weight: bold; padding: 4px 10px; border-radius: 12px;
+.esig-info { font-size: 14px; color: #444; margin: 0; letter-spacing: 0.2px; }
+.esig-date { font-size: 13px; color: #666; margin-top: 6px; }
+.esig-hash { display: none; }
+.esig-badge { display: none; }
+.esig-stamp-inline {
+    width: 100px; height: 100px; border: 1px solid #ddd;
+    border-radius: 12px; display: flex; align-items: center; justify-content: center;
+    background: #f9f9f9; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.03);
 }
-.stamp-overlay, .canvas-stamp-overlay {
-    position: absolute; max-width: 100px; max-height: 100px;
-    opacity: 0.7; pointer-events: none; bottom: 8px; right: 8px;
+.esig-stamp-inline img { width: 100%; height: 100%; object-fit: contain; }
+.stamp-overlay { display: none; }
+.canvas-stamp-overlay {
+    position: absolute; width: 110px; height: 110px;
+    opacity: 0.18; pointer-events: none; top: 10px; right: 10px;
+    object-fit: contain; filter: grayscale(100%) contrast(1.05);
+    transform: rotate(-4deg);
 }
 .manual-signature-container { margin-top: 10px; position: relative; }
 
@@ -825,25 +856,27 @@
 .btn-esign-reset:hover { background: #616161; }
 
 .stamp-section {
-    margin-top: 15px; padding-top: 15px; border-top: 1px dashed #ffb74d;
-    display: flex; align-items: center; gap: 15px; flex-wrap: wrap;
+    margin-top: 20px; padding-top: 18px; border-top: 1px solid #ddd;
+    display: grid; grid-template-columns: 90px 1fr; gap: 14px; align-items: center;
 }
 .stamp-preview {
-    width: 70px; height: 70px; border: 2px dashed #ccc; border-radius: 8px;
+    width: 90px; height: 90px; border: 1px solid #ddd; border-radius: 14px;
     display: flex; align-items: center; justify-content: center;
-    background: white; flex-shrink: 0; overflow: hidden;
+    background: #fcfcfc; flex-shrink: 0; overflow: hidden;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.03);
 }
-.stamp-preview.has-stamp { border-style: solid; border-color: #4caf50; }
+.stamp-preview.has-stamp { border-color: #4caf50; box-shadow: 0 0 0 2px rgba(76,175,80,0.14); }
 .stamp-preview-img { width: 100%; height: 100%; object-fit: contain; }
-.stamp-placeholder { font-size: 10px; color: #999; text-align: center; line-height: 1.3; }
-.stamp-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.stamp-placeholder { font-size: 11px; color: #777; text-align: center; line-height: 1.3; padding: 8px; }
+.stamp-actions { display: grid; gap: 8px; }
 .btn-stamp {
-    background: #2196f3; color: white; border: none; padding: 8px 14px;
-    border-radius: 5px; font-size: 12px; font-weight: bold; cursor: pointer;
+    background: #1976d2; color: white; border: none; padding: 10px 16px;
+    border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
 }
-.btn-stamp:hover { background: #1976d2; }
-.btn-stamp-remove { background: #f44336; }
-.btn-stamp-remove:hover { background: #c62828; }
+.btn-stamp:hover { background: #1565c0; }
+.btn-stamp-remove { background: #d32f2f; }
+.btn-stamp-remove:hover { background: #b71c1c; }
 
 /* ============================================
    RESPONSIVE - MOBILE
@@ -1606,20 +1639,22 @@
 
     <div class="signature-mode-selector">
         <button type="button" class="sig-mode-btn active" data-mode="electronic" aria-label="Signature électronique">⚡ Signature électronique</button>
-        <button type="button" class="sig-mode-btn" data-mode="manual" aria-label="Signature manuscrite">✍️ Signature manuscrite</button>
     </div>
 
     <div id="electronicSignatureContainer">
         <div class="electronic-signature-box" id="esigBox">
             <div class="esig-placeholder" id="esigPlaceholder">Cliquez sur "⚡ Signer électroniquement" pour générer votre signature</div>
         </div>
-        <button type="button" class="btn-esign" id="btnEsign" aria-label="Signer électroniquement">⚡ Signer électroniquement</button>
-        <button type="button" class="btn-esign-reset" id="btnEsignReset" style="display:none;" aria-label="Refaire la signature">🔄 Refaire la signature</button>
+        <div class="electronic-signature-actions">
+            <button type="button" class="btn-esign" id="btnEsign" aria-label="Signer électroniquement">⚡ Signer électroniquement</button>
+            <button type="button" class="btn btn-secondary btn-upload-signature" id="btnUploadSignatureScan" onclick="document.getElementById('signatureImageInput').click()" aria-label="Importer une signature scannée">📤 Importer signature scannée</button>
+            <input type="file" id="signatureImageInput" class="file-input" accept="image/*" onchange="handleSignatureImageUpload(event)" style="display:none;" />
+            <button type="button" class="btn-esign-reset" id="btnEsignReset" style="display:none;" aria-label="Refaire la signature">🔄 Refaire la signature</button>
+        </div>
     </div>
 
     <div id="manualSignatureContainer" class="manual-signature-container" style="display:none;">
         <canvas id="signaturePad" class="signature-pad" width="500" height="120" aria-label="Zone de signature manuscrite"></canvas>
-        <button type="button" class="btn btn-secondary" onclick="clearSignature()" style="margin-top:8px;" aria-label="Effacer la signature">🗑️ Effacer</button>
     </div>
 
     <div class="stamp-section">
@@ -1762,7 +1797,7 @@ function renderMobileCardsView() {
                         <div class="mobile-ot-status">
                             <div class="mobile-status-badge ${statusClass}">${statusLabel}</div>
                             <button class="mobile-action-btn ${btnClass}" 
-                                    onclick="openChecklist('${otStr}','${row.materiel}','${row.interventionType}','${libelleEscaped}','${datePlanning}')"
+                                    onclick="openChecklist(${JSON.stringify(otStr)}, ${JSON.stringify(row.materiel)}, ${JSON.stringify(row.interventionType)}, ${JSON.stringify(libelleEscaped)}, ${JSON.stringify(datePlanning)})"
                                     aria-label="${state && state.technicien ? 'Modifier' : 'Commencer'} l'OT ${otStr}">
                                 ${state && state.technicien ? '✏️ Modifier' : '▶️ Commencer'}
                             </button>
@@ -2384,8 +2419,11 @@ function renderPlanning() {
                     else if (state === 'NF') { etatBadge = '<span class="etat-nonfait">NF</span>'; linkClass = 'notdone'; }
                     else if (state === 'P') { etatBadge = '<span class="etat-partiel">P</span>'; linkClass = 'partial'; }
                     const libelleEscaped = (row.libelle || '').replace(/'/g, "\\'");
+                    const materielEscaped = (row.materiel || '').replace(/'/g, "\\'");
+                    const interventionEscaped = (row.interventionType || '').replace(/'/g, "\\'");
                     const dateOT = (window.dateColumns && window.dateColumns[otIdx]) || '';
-                    cells += '<td><span class="ot-link ' + linkClass + '" onclick="openChecklist(\'' + otStr + '\',\'' + row.materiel + '\',\'' + row.interventionType + '\',\'' + libelleEscaped + '\',\'' + dateOT + '\')">' + otStr + '</span></td>';
+                    const otClickCall = 'openChecklist(' + [otStr, materielEscaped, interventionEscaped, libelleEscaped, dateOT].map(v => JSON.stringify(v)).join(',') + ')';
+                    cells += '<td><span class="ot-link ' + linkClass + '" onclick="' + otClickCall + '">' + otStr + '</span></td>';
                     cells += '<td>' + etatBadge + '</td>';
                 }
             });
@@ -2443,14 +2481,15 @@ function openChecklist(otNum, materiel, interventionType, libelle, dateOT) {
     setTimeout(() => {
         resizeSignaturePad();
         initSignaturePad();
-        if (otStates[otStr].signature) {
-            const img = new Image();
-            img.onload = function() { document.getElementById('signaturePad').getContext('2d').drawImage(img, 0, 0); };
-            img.src = otStates[otStr].signature;
+
+        electronicSignatureData = otStates[otStr].electronicSignatureData || null;
+
+        if (electronicSignatureData) {
+            restoreElectronicSignatureDisplay(electronicSignatureData);
         }
+
+        switchSignatureMode('electronic');
     }, 100);
-    
-    document.getElementById('modalOverlay').classList.add('active');
 }
 
 function handleFileUpload(event) {
@@ -2602,6 +2641,115 @@ function initSignaturePad() {
 function clearSignature() {
     const canvas = document.getElementById('signaturePad');
     canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function handleSignatureImageUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+        alert('⚠️ Veuillez sélectionner une image de signature valide.');
+        event.target.value = '';
+        return;
+    }
+
+    const techNameInput = document.getElementById('techName');
+    const techName = techNameInput ? techNameInput.value.trim() : '';
+    if (!techName) {
+        alert('⚠️ Veuillez renseigner le nom du technicien avant d’importer une signature scannée.');
+        if (techNameInput) {
+            techNameInput.focus();
+            techNameInput.style.border = '2px solid #dc3545';
+            setTimeout(() => { techNameInput.style.border = ''; }, 3000);
+        }
+        event.target.value = '';
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const dataURL = e.target.result;
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('fr-FR');
+        const timeStr = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        const sigId = generateSignatureId();
+        const hashHex = generateSignatureHash(techName, now.getTime(), sigId);
+
+        if (!electronicSignatureData) {
+            electronicSignatureData = {
+                name: techName,
+                date: dateStr,
+                time: timeStr,
+                id: sigId,
+                hash: hashHex,
+                timestamp: now.toISOString(),
+                scannedSignature: dataURL
+            };
+        } else {
+            electronicSignatureData.name = techName;
+            electronicSignatureData.date = electronicSignatureData.date || dateStr;
+            electronicSignatureData.time = electronicSignatureData.time || timeStr;
+            electronicSignatureData.id = electronicSignatureData.id || sigId;
+            electronicSignatureData.hash = electronicSignatureData.hash || hashHex;
+            electronicSignatureData.timestamp = electronicSignatureData.timestamp || now.toISOString();
+            electronicSignatureData.scannedSignature = dataURL;
+        }
+
+        const hiddenTypeInput = document.getElementById('signatureType');
+        if (hiddenTypeInput) {
+            hiddenTypeInput.value = 'electronic';
+        }
+
+        const hiddenInput = document.getElementById('signatureElectronicData');
+        if (hiddenInput) {
+            hiddenInput.value = JSON.stringify(electronicSignatureData);
+        }
+
+        const img = new Image();
+        img.onload = function() {
+            drawSignatureImage(img);
+            restoreElectronicSignatureDisplay(electronicSignatureData);
+            showNotification('✅ Signature scannée chargée.');
+        };
+        img.src = dataURL;
+    };
+    reader.readAsDataURL(file);
+    event.target.value = '';
+}
+
+function drawSignatureImage(img) {
+    const canvas = document.getElementById('signaturePad');
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const maxW = canvas.width;
+    const maxH = canvas.height;
+    let w = img.width;
+    let h = img.height;
+    const ratio = Math.min(maxW / w, maxH / h);
+    w = Math.round(w * ratio);
+    h = Math.round(h * ratio);
+
+    const x = Math.round((canvas.width - w) / 2);
+    const y = Math.round((canvas.height - h) / 2);
+
+    ctx.drawImage(img, x, y, w, h);
+    removeWhiteBackground(ctx, x, y, w, h);
+}
+
+function removeWhiteBackground(ctx, x, y, w, h) {
+    const imageData = ctx.getImageData(x, y, w, h);
+    const data = imageData.data;
+    for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const a = data[i + 3];
+        const brightness = (r + g + b) / 3;
+        if (brightness > 230 && a > 10) {
+            data[i + 3] = 0;
+        }
+    }
+    ctx.putImageData(imageData, x, y);
 }
 
      /* ============================================
@@ -2799,19 +2947,6 @@ function applyStampOverlay() {
     const stampData = getStampData();
     if (!stampData) return;
     
-    // Overlay sur la box électronique
-    const esigBox = document.getElementById('esigBox');
-    if (esigBox) {
-        const existing = esigBox.querySelector('.stamp-overlay');
-        if (existing) existing.remove();
-        
-        const overlay = document.createElement('img');
-        overlay.src = stampData;
-        overlay.className = 'stamp-overlay';
-        overlay.alt = 'Tampon';
-        esigBox.appendChild(overlay);
-    }
-    
     // Overlay sur le canvas manuel
     const manualContainer = document.getElementById('manualSignatureContainer');
     if (manualContainer) {
@@ -2961,16 +3096,19 @@ function generateElectronicSignature() {
     
     // 6. Affichage visuel dans la box
     const box = document.getElementById('esigBox');
+    const stampData = getStampData();
     if (box) {
         box.classList.add('signed');
         box.innerHTML = `
-            <div class="esig-name">${techName}</div>
-            <div class="esig-info">
-                <strong>Signé le ${dateStr} à ${timeStr}</strong><br>
-                ID : ${sigId}
+            <div class="esig-inner">
+                <div class="esig-content">
+                    <div class="esig-name">${techName}</div>
+                    <div class="esig-info">Signé le ${dateStr}</div>
+                    <div class="esig-date">${timeStr}</div>
+                    ${electronicSignatureData && electronicSignatureData.scannedSignature ? '<div class="esig-scan-preview"><img src="' + electronicSignatureData.scannedSignature + '" alt="Signature scannée"></div>' : ''}
+                </div>
+                ${stampData ? '<div class="esig-stamp-inline"><img src="' + stampData + '" alt="Tampon"></div>' : ''}
             </div>
-            <div class="esig-hash">🔒 Hash: ${hashHex}</div>
-            <div class="esig-badge">✓ Signé électroniquement</div>
         `;
     }
     
@@ -3024,6 +3162,40 @@ function resetElectronicSignature() {
     console.log('🔄 Signature électronique effacée');
 }
 
+function restoreElectronicSignatureDisplay(data) {
+    if (!data) return;
+    electronicSignatureData = data;
+
+    const hiddenInput = document.getElementById('signatureElectronicData');
+    if (hiddenInput) {
+        hiddenInput.value = JSON.stringify(data);
+    }
+
+    const box = document.getElementById('esigBox');
+    const stampData = getStampData();
+    if (box) {
+        box.classList.add('signed');
+        box.innerHTML = `
+            <div class="esig-inner">
+                <div class="esig-content">
+                    <div class="esig-name">${data.name}</div>
+                    <div class="esig-info">Signé le ${data.date}</div>
+                    <div class="esig-date">${data.time}</div>
+                    ${data.scannedSignature ? '<div class="esig-scan-preview"><img src="' + data.scannedSignature + '" alt="Signature scannée"></div>' : ''}
+                </div>
+                ${stampData ? '<div class="esig-stamp-inline"><img src="' + stampData + '" alt="Tampon"></div>' : ''}
+            </div>
+        `;
+    }
+
+    const btnEsign = document.getElementById('btnEsign');
+    const btnEsignReset = document.getElementById('btnEsignReset');
+    if (btnEsign) btnEsign.style.display = 'none';
+    if (btnEsignReset) btnEsignReset.style.display = 'inline-flex';
+
+    applyStampOverlay();
+}
+
      /**
  * ÉTAPE 7 : Génère la signature électronique en tant qu'IMAGE (canvas → PNG)
  * Utilisée pour l'intégration dans le PDF
@@ -3048,69 +3220,24 @@ function resetElectronicSignature() {
         canvas.height = 260;
         const ctx = canvas.getContext('2d');
         
-        // Fond blanc/vert clair
-        ctx.fillStyle = '#f8fff5';
+        // Fond transparent / blanc léger
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = 'transparent';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        // Bordure verte
-        ctx.strokeStyle = '#2e7d32';
-        ctx.lineWidth = 3;
-        ctx.strokeRect(2, 2, canvas.width - 4, canvas.height - 4);
         
         // NOM (Georgia italique)
         ctx.fillStyle = '#1f3860';
         ctx.font = 'italic bold 42px Georgia, serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'alphabetic';
-        ctx.fillText(data.name, canvas.width / 2, 70);
-        
-        // Ligne sous le nom
-        const nameWidth = ctx.measureText(data.name).width;
-        ctx.strokeStyle = '#999';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo((canvas.width - nameWidth) / 2 - 20, 82);
-        ctx.lineTo((canvas.width + nameWidth) / 2 + 20, 82);
-        ctx.stroke();
+        ctx.fillText(data.name, canvas.width / 2, 80);
         
         // DATE ET HEURE
         ctx.fillStyle = '#333';
         ctx.font = 'bold 16px Arial, sans-serif';
-        ctx.fillText('Signe le ' + data.date + ' a ' + data.time, canvas.width / 2, 115);
-        
-        // ID
-        ctx.fillStyle = '#555';
-        ctx.font = '14px Arial, sans-serif';
-        ctx.fillText('ID : ' + data.id, canvas.width / 2, 138);
-        
-        // HASH (fond gris rectangulaire simple)
-        ctx.font = '12px Courier New, monospace';
-        const hashText = 'Hash: ' + data.hash;
-        const hashWidth = ctx.measureText(hashText).width;
-        ctx.fillStyle = '#f0f0f0';
-        ctx.fillRect((canvas.width - hashWidth) / 2 - 8, 155, hashWidth + 16, 22);
-        ctx.strokeStyle = '#ccc';
-        ctx.strokeRect((canvas.width - hashWidth) / 2 - 8, 155, hashWidth + 16, 22);
-        ctx.fillStyle = '#666';
-        ctx.textBaseline = 'alphabetic'; // important!
-        ctx.fillText(hashText, canvas.width / 2, 171);
-        
-        // BADGE VERT (rectangle simple)
-        ctx.font = 'bold 13px Arial, sans-serif';
-        const badgeText = 'SIGNE ELECTRONIQUEMENT';
-        const badgeW = ctx.measureText(badgeText).width;
-        const badgeX = (canvas.width - badgeW) / 2 - 15;
-        const badgeY = 200;
-        const badgeH = 26;
-        
-        ctx.fillStyle = '#2e7d32';
-        ctx.fillRect(badgeX, badgeY, badgeW + 30, badgeH);
-        
-        ctx.fillStyle = '#ffffff';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(badgeText, canvas.width / 2, badgeY + badgeH / 2 + 1);
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillText('Signé le ' + data.date + ' à ' + data.time, canvas.width / 2, 115);
 
-    
     // 🆕 ÉTAPE 8 : Ajout du tampon si disponible
     if (stampImageObj) {
         try {
@@ -3156,41 +3283,6 @@ function initElectronicSignatureButtons() {
     
     console.log('✅ Boutons signature électronique initialisés');
 }
-
-        /* ============================================
-           COMPTAGE DES ANOMALIES
-           Une anomalie = commentaire non vide ≠ "RAS"
-           ============================================ */
-        function countAnomalies() {
-            let totalAnomalies = 0;
-            
-            if (typeof otStates !== 'undefined' && otStates) {
-                Object.keys(otStates).forEach(otKey => {
-                    const state = otStates[otKey];
-                    if (state && state.commentaires) {
-                        Object.values(state.commentaires).forEach(comment => {
-                            const c = String(comment || '').trim().toUpperCase();
-                            if (c && c !== 'RAS' && c !== 'R.A.S' && c !== 'R.A.S.' && c !== 'RAS.') {
-                                totalAnomalies++;
-                            }
-                        });
-                    }
-                });
-            }
-            
-            const headerAnomalies = document.getElementById('headerAnomalies');
-            if (headerAnomalies) {
-                if (totalAnomalies === 0) {
-                    headerAnomalies.innerHTML = '<span onclick="showAnomaliesModal()" style="color:#059669; cursor:pointer;">✅ 0 anomalie</span>';
-                } else {
-                    headerAnomalies.innerHTML = '<span onclick="showAnomaliesModal()" style="color:#dc2626; cursor:pointer; text-decoration:underline;">⚠️ ' + totalAnomalies + ' anomalie' + (totalAnomalies > 1 ? 's' : '') + '</span>';
-                }
-            }
-            
-            console.log('🔍 Anomalies détectées :', totalAnomalies);
-            return totalAnomalies;
-        }
-        
 
         /* ============================================
            COMPTAGE DES ANOMALIES
@@ -3433,6 +3525,8 @@ function saveChecklist() {
     otStates[currentOT].dateDebut = document.getElementById('dateDebut').value;
     otStates[currentOT].dateFin = document.getElementById('dateFin').value;
     otStates[currentOT].signature = document.getElementById('signaturePad').toDataURL();
+    otStates[currentOT].signatureType = document.getElementById('signatureType')?.value || currentSignatureMode || 'electronic';
+    otStates[currentOT].electronicSignatureData = electronicSignatureData;
     if (done === total) otStates[currentOT].status = 'F';
     else if (done === 0) otStates[currentOT].status = 'NF';
     else otStates[currentOT].status = 'P';
@@ -3683,23 +3777,59 @@ try {
         console.log('🔍 [DIAG] Données existent ?', !!electronicSignatureData);
         
         if (electronicSignatureData) {
-            console.log('🔍 [DIAG] Appel de generateElectronicSignatureImage()...');
-            
-            const esigImage = generateElectronicSignatureImage();
-            console.log('🔍 [DIAG] Résultat image:', esigImage ? 'EXISTE ('+ esigImage.length+' chars)' : 'NULL');
-            
-            if (esigImage && esigImage.startsWith('data:image')) {
-                console.log('🔍 [DIAG] Insertion dans PDF...');
-                doc.addImage(esigImage, 'PNG', 14, finalY, 100, 43);
-                finalY += 50;
-                console.log('🔍 [DIAG] Insérée OK');
+            if (electronicSignatureData.scannedSignature) {
+                console.log('🔍 [DIAG] Signature scannée détectée, insertion directe dans le PDF');
+                const imageType = electronicSignatureData.scannedSignature.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+                if (stampImageObj) {
+                    const tempCanvas = document.createElement('canvas');
+                    const tempCtx = tempCanvas.getContext('2d');
+                    const img = new Image();
+                    img.src = electronicSignatureData.scannedSignature;
+                    
+                    // Ajuster la taille du canvas à l'image importée
+                    tempCanvas.width = img.width || 400;
+                    tempCanvas.height = img.height || 120;
+
+                    tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+                    tempCtx.drawImage(img, 0, 0, tempCanvas.width, tempCanvas.height);
+                    tempCtx.globalAlpha = 0.15;
+                    const stampSize = Math.min(120, tempCanvas.width, tempCanvas.height);
+                    tempCtx.drawImage(stampImageObj,
+                        (tempCanvas.width - stampSize) / 2,
+                        (tempCanvas.height - stampSize) / 2,
+                        stampSize, stampSize);
+                    tempCtx.globalAlpha = 1.0;
+
+                    const renderedImage = tempCanvas.toDataURL('image/png');
+                    doc.addImage(renderedImage, 'PNG', 14, finalY, 100, 35);
+                } else {
+                    doc.addImage(electronicSignatureData.scannedSignature, imageType, 14, finalY, 100, 35);
+                }
+                finalY += 42;
+                doc.setFontSize(10);
+                doc.setFont('helvetica', 'bold');
+                doc.text(electronicSignatureData.name || 'Technicien', 14, finalY);
+                doc.setFont('helvetica', 'normal');
+                doc.text('Signé le ' + (electronicSignatureData.date || '') + ' à ' + (electronicSignatureData.time || ''), 14, finalY + 6);
+                finalY += 12;
             } else {
-                console.error('❌ Format image invalide ou null');
-                doc.setTextColor(255, 0, 0);
-                doc.setFontSize(9);
-                doc.text('[ERREUR: Image signature]', 14, finalY);
-                doc.setTextColor(0);
-                finalY += 10;
+                console.log('🔍 [DIAG] Appel de generateElectronicSignatureImage()...');
+                const esigImage = generateElectronicSignatureImage();
+                console.log('🔍 [DIAG] Résultat image:', esigImage ? 'EXISTE ('+ esigImage.length+' chars)' : 'NULL');
+                
+                if (esigImage && esigImage.startsWith('data:image')) {
+                    console.log('🔍 [DIAG] Insertion dans PDF...');
+                    doc.addImage(esigImage, 'PNG', 14, finalY, 100, 43);
+                    finalY += 50;
+                    console.log('🔍 [DIAG] Insérée OK');
+                } else {
+                    console.error('❌ Format image invalide ou null');
+                    doc.setTextColor(255, 0, 0);
+                    doc.setFontSize(9);
+                    doc.text('[ERREUR: Image signature]', 14, finalY);
+                    doc.setTextColor(0);
+                    finalY += 10;
+                }
             }
         } else {
             console.warn('⚠️ Pas de données électroniques malgré mode electronique');

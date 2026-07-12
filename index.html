@@ -1935,6 +1935,15 @@ function isValidOT(value) {
     return true;
 }
 
+function escapeHtml(str) {
+    return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 function getCleanTitle(headerText) {
     let name = String(headerText || '').trim();
     name = name.replace(/\.(xlsx|xls|csv)$/i, '');
@@ -2353,6 +2362,26 @@ function parseChecklistData(jsonData) {
     }
 }
 
+function findChecklistKey(materiel, interventionType, libelle) {
+    const normalized = value => String(value || '').trim().toLowerCase();
+    const candidates = [
+        `${libelle}|${interventionType}`,
+        `${materiel}|${interventionType}`,
+        `${libelle}|${String(interventionType || '').trim().toUpperCase()}`,
+        `${materiel}|${String(interventionType || '').trim().toUpperCase()}`,
+    ];
+    for (const candidate of candidates) {
+        if (candidate && checklistData[candidate]) return candidate;
+    }
+    const lookup = `${normalized(libelle)}|${normalized(interventionType)}`;
+    const lookupAlt = `${normalized(materiel)}|${normalized(interventionType)}`;
+    for (const key in checklistData) {
+        const normalizedKey = key.trim().toLowerCase();
+        if (normalizedKey === lookup || normalizedKey === lookupAlt) return key;
+    }
+    return null;
+}
+
 function updateFileStatus() {
     if (planningLoaded) {
         document.getElementById('planningStatus').textContent = 'Chargé';
@@ -2418,12 +2447,8 @@ function renderPlanning() {
                     if (state === 'F') { etatBadge = '<span class="etat-fait">F</span>'; nbFait++; linkClass = 'done'; }
                     else if (state === 'NF') { etatBadge = '<span class="etat-nonfait">NF</span>'; linkClass = 'notdone'; }
                     else if (state === 'P') { etatBadge = '<span class="etat-partiel">P</span>'; linkClass = 'partial'; }
-                    const libelleEscaped = (row.libelle || '').replace(/'/g, "\\'");
-                    const materielEscaped = (row.materiel || '').replace(/'/g, "\\'");
-                    const interventionEscaped = (row.interventionType || '').replace(/'/g, "\\'");
                     const dateOT = (window.dateColumns && window.dateColumns[otIdx]) || '';
-                    const otClickCall = 'openChecklist(' + [otStr, materielEscaped, interventionEscaped, libelleEscaped, dateOT].map(v => JSON.stringify(v)).join(',') + ')';
-                    cells += '<td><span class="ot-link ' + linkClass + '" onclick="' + otClickCall + '">' + otStr + '</span></td>';
+                    cells += '<td><button type="button" class="ot-link ' + linkClass + '" data-materiel="' + escapeHtml(row.materiel || '') + '" data-intervention-type="' + escapeHtml(row.interventionType || '') + '" data-libelle="' + escapeHtml(row.libelle || '') + '" data-dateot="' + escapeHtml(dateOT) + '" aria-label="Ouvrir la check-list de l\'OT ' + escapeHtml(otStr) + '">' + escapeHtml(otStr) + '</button></td>';
                     cells += '<td>' + etatBadge + '</td>';
                 }
             });
@@ -2432,19 +2457,54 @@ function renderPlanning() {
         }
         tbody.appendChild(tr);
     });
+    setupPlanningTableEvents();
     renderMobileCardsView();
     updateStats();
+}
+
+function setupPlanningTableEvents() {
+    const tbody = document.getElementById('planningBody');
+    if (!tbody) return;
+    if (!tbody.dataset.eventsInitialized) {
+        tbody.addEventListener('click', function(event) {
+            const target = event.target.closest('.ot-link');
+            if (!target) return;
+            openChecklist(
+                target.textContent.trim(),
+                target.dataset.materiel || '',
+                target.dataset.interventionType || '',
+                target.dataset.libelle || '',
+                target.dataset.dateot || ''
+            );
+        });
+        tbody.addEventListener('keydown', function(event) {
+            const target = event.target.closest('.ot-link');
+            if (!target) return;
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                target.click();
+            }
+        });
+        tbody.dataset.eventsInitialized = 'true';
+    }
 }
 
 function showNCMessage() { showNotification('Cet OT est marqué "NC" (Non Communiqué)', 'warning'); }
 
 function openChecklist(otNum, materiel, interventionType, libelle, dateOT) {
+    materiel = String(materiel || '').trim();
+    interventionType = String(interventionType || '').trim();
+    libelle = String(libelle || '').trim();
+    dateOT = String(dateOT || '').trim();
     const otStr = String(otNum || '').trim();
     if (!otStr || isNC(otStr)) { showNCMessage(); return; }
     if (!checklistLoaded) { showNotification('Veuillez d\'abord charger le fichier des check-lists', 'warning'); return; }
-    const key = materiel + '|' + interventionType;
-    const data = checklistData[key];
-    if (!data) { showNotification('Aucune check-list trouvée pour : ' + key, 'warning'); return; }
+    const key = findChecklistKey(materiel, interventionType, libelle);
+    const data = key ? checklistData[key] : null;
+    if (!data) {
+        showNotification('Aucune check-list trouvée pour : ' + materiel + ' | ' + interventionType + ' | ' + libelle, 'warning');
+        return;
+    }
     currentOT = otStr;
     currentKey = key;
     currentOTDate = dateOT;

@@ -2509,6 +2509,7 @@ function openChecklist(otNum, materiel, interventionType, libelle, dateOT) {
     currentKey = key;
     currentOTDate = dateOT;
     currentSiteName = extractSiteName(mainHeaderText);
+    document.getElementById('modalOverlay').classList.add('active');
     document.getElementById('modalTitle').textContent = 'Check-list OT N° ' + otStr;
     document.getElementById('modalInfo').innerHTML = '<strong>Équipement :</strong> ' + data.equipement + '<br><strong>Intervention :</strong> ' + data.intervention;
     if (!otStates[otStr]) {

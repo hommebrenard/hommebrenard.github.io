@@ -1884,15 +1884,38 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
         <input type="file" id="checklistFile" name="checklistFile" class="file-input" 
                accept=".xlsx,.xls" onchange="loadChecklistFile(event)" 
                aria-label="Charger le fichier Excel des check-lists">
-        
+
+        <label for="planningFilesBulk" class="btn btn-secondary">📚 Charger plusieurs Plannings</label>
+        <input type="file" id="planningFilesBulk" name="planningFilesBulk" class="file-input" multiple
+               accept=".xlsx,.xls" onchange="loadPlanningFilesBulk(event)"
+               aria-label="Charger plusieurs fichiers Excel de planning en une fois">
+
+        <label for="checklistFilesBulk" class="btn btn-secondary">📚 Charger plusieurs Check-lists</label>
+        <input type="file" id="checklistFilesBulk" name="checklistFilesBulk" class="file-input" multiple
+               accept=".xlsx,.xls" onchange="loadChecklistFilesBulk(event)"
+               aria-label="Charger plusieurs fichiers Excel de check-list en une fois">
+
         <button class="btn btn-dashboard" id="btnDashboard" onclick="openDashboard()" disabled>📊 Tableau de Bord KPI</button>
         <button class="btn btn-success" id="btnExportExcel" onclick="exportExcel()" disabled>📥 Exporter Excel</button>
         <button class="btn btn-info" id="btnExportPDF" onclick="exportAllPDF()" disabled>📄 Export PDF Global</button>
         <button class="btn btn-warning" id="btnSave" onclick="saveToLocalStorage()" disabled>💾 Sauvegarder</button>
         <button class="btn btn-secondary" onclick="loadFromLocalStorage()">🔄 Recharger</button>
+
+        <button class="btn btn-success" onclick="exportSiteJSON()" title="Télécharge ce site en JSON, à déposer dans le dossier partagé (OneDrive)">📤 Exporter site (partage)</button>
+        <label for="importSiteFile" class="btn btn-info" title="Recharge un site depuis un JSON exporté par un collègue">📥 Importer site (partage)</label>
+        <input type="file" id="importSiteFile" class="file-input" accept=".json" onchange="importSiteJSON(event)" aria-label="Importer un site depuis un fichier JSON partagé">
+
         <button class="btn btn-danger" onclick="resetAll()">🗑️ Réinitialiser</button>
     </div>
 </div>
+
+<div class="file-status" id="siteSelectorWrap" style="display:none; align-items:center; gap:10px; padding:10px 16px; background:#eef3fb; border-bottom:1px solid #d8e2f0;">
+    <span style="font-weight:600; color:#2c4a7c;">📂 Site actif :</span>
+    <select id="siteSelector" onchange="activateSite(this.value)" style="flex:1; max-width:400px; padding:8px 10px; border-radius:6px; border:1px solid #ccc;">
+        <option value="">-- Choisir un site --</option>
+    </select>
+</div>
+
 
 <div class="file-status" id="fileStatus">
     <div class="status-item">
@@ -2150,6 +2173,24 @@ let mainHeaderText = '';
 let annexesData = [];
 let annexePageMap = {};
 let chartsInstances = {};
+
+// ============================================
+// 🆕 BIBLIOTHÈQUE MULTI-SITES
+// Permet de charger et conserver plusieurs sites en mémoire/localStorage,
+// et de basculer de l'un à l'autre sans perdre le travail en cours.
+// ============================================
+let sitesLibrary = {};          // { siteKey: { label, planningData, planningHeaders, checklistData, otStates, dateColumns, mainHeaderText, savedAt } }
+let activeSiteKey = null;
+
+function slugifySiteName(name) {
+    return String(name || '')
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/\.(xlsx|xls)$/i, '')
+        .replace(/^(planning|checklist|check-?list)[_\-\s]*/i, '')
+        .replace(/[_\-\s]+/g, ' ')
+        .trim()
+        .toUpperCase();
+}
 
 function toggleMobileMenu() {
     const btn = document.getElementById('menuToggleBtn');
@@ -2688,6 +2729,8 @@ updateHeaderInfos();
             checkWorkspaceReady();
             document.getElementById('toolbarButtons').classList.remove('active');
             showNotification('✅ Planning chargé : ' + nbLignes + ' équipements / ' + nbOT + ' OT / ' + nbNC + ' NC');
+            activeSiteKey = null; // nouveau chargement individuel = nouveau site actif potentiel
+            syncActiveSiteIntoLibrary();
         } catch (err) { showNotification('Erreur lecture fichier : ' + err.message, 'error'); }
     };
     reader.readAsArrayBuffer(file);
@@ -2785,6 +2828,7 @@ function loadChecklistFile(event) {
             document.getElementById('toolbarButtons').classList.remove('active');
             showNotification('✅ Check-lists chargées : ' + nbGroupes + ' interventions / ' + nbActions + ' actions');
             if (planningLoaded) renderPlanning();
+            syncActiveSiteIntoLibrary();
         } catch (err) { showNotification('Erreur lecture fichier : ' + err.message, 'error'); }
     };
     reader.readAsArrayBuffer(file);
@@ -2834,6 +2878,284 @@ function findChecklistKey(materiel, interventionType, libelle) {
         if (normalizedKey === lookup || normalizedKey === lookupAlt) return key;
     }
     return null;
+}
+
+// ============================================
+// 🆕 VERSIONS "PURES" DU PARSING (n'écrivent dans aucune variable globale)
+// Utilisées par le chargement en masse pour ne jamais percuter le site actif en cours d'édition.
+// ============================================
+function parsePlanningDataStandalone(jsonData) {
+    let headerRow = -1;
+    for (let i = 0; i < Math.min(15, jsonData.length); i++) {
+        const row = jsonData[i].map(c => String(c).toLowerCase());
+        if (row.some(c => c.includes('matériel') || c.includes('materiel'))) { headerRow = i; break; }
+    }
+    if (headerRow === -1) throw new Error('En-tête "Matériel" introuvable');
+
+    const headers = jsonData[headerRow].map(h => String(h));
+    const data = [];
+    const dateCols = [];
+    headers.forEach((h, idx) => { if (/\d{2}\/\d{2}\/\d{4}/.test(String(h))) dateCols.push(idx); });
+    const dateColumns = dateCols.map(idx => headers[idx]);
+
+    let currentInterventionType = '';
+    for (let i = headerRow + 1; i < jsonData.length; i++) {
+        const row = jsonData[i];
+        if (!row || row.length === 0) continue;
+        const materiel = String(row[0] || '').trim();
+        const libelle = String(row[1] || '').trim();
+        if (!materiel) continue;
+        const isHeader = /^PS-/i.test(materiel) || /^PREVENTIF/i.test(libelle) || /PREVENTIF SYSTEMATIQUE/i.test(libelle);
+        if (isHeader) {
+            currentInterventionType = materiel;
+            const totals = dateCols.map(c => row[c] || '');
+            data.push({ type: 'header', materiel, libelle, totals, totalPrevu: row[row.length - 1] || '' });
+        } else if (materiel && libelle) {
+            const ots = dateCols.map(c => String(row[c] || '').trim());
+            data.push({ type: 'row', materiel, interventionType: currentInterventionType, libelle, ots, totalPrevu: row[row.length - 1] || '' });
+        }
+    }
+    return { planningData: data, planningHeaders: headers, dateColumns };
+}
+
+function parseChecklistDataStandalone(jsonData) {
+    const result = {};
+    let headerRow = -1;
+    for (let i = 0; i < Math.min(15, jsonData.length); i++) {
+        const row = jsonData[i].map(c => String(c).toLowerCase());
+        if (row.some(c => c.includes('équipement') || c.includes('equipement'))) { headerRow = i; break; }
+    }
+    if (headerRow === -1) throw new Error('En-tête "Équipement" introuvable');
+    let currentKey = null;
+    for (let i = headerRow + 1; i < jsonData.length; i++) {
+        const row = jsonData[i];
+        if (!row || row.length === 0) continue;
+        const equipement = String(row[0] || '').trim();
+        const description = String(row[1] || '').trim();
+        const codeIntervention = String(row[2] || '').trim();
+        const descEquipement = String(row[3] || '').trim();
+        if (!equipement) continue;
+        if (/^PS-/i.test(codeIntervention)) {
+            currentKey = equipement + '|' + codeIntervention;
+            result[currentKey] = { equipement: descEquipement || equipement, intervention: description, actions: [] };
+        } else if (currentKey && codeIntervention && /ACT/i.test(codeIntervention)) {
+            result[currentKey].actions.push({ code: codeIntervention, desc: description });
+        }
+    }
+    return result;
+}
+
+function readWorkbookFirstSheetJson(arrayBuffer) {
+    const data = new Uint8Array(arrayBuffer);
+    const workbook = XLSX.read(data, {type: 'array'});
+    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+    const cellules = Object.keys(firstSheet).filter(k => k[0] !== '!');
+    let maxRow = 0, maxCol = 0;
+    cellules.forEach(addr => {
+        const c = XLSX.utils.decode_cell(addr);
+        if (c.r > maxRow) maxRow = c.r;
+        if (c.c > maxCol) maxCol = c.c;
+    });
+    firstSheet['!ref'] = XLSX.utils.encode_range({s: {r: 0, c: 0}, e: {r: maxRow, c: maxCol}});
+    return XLSX.utils.sheet_to_json(firstSheet, {header: 1, defval: ''});
+}
+
+// ============================================
+// 🆕 BIBLIOTHÈQUE MULTI-SITES : chargement en masse, bascule, persistance, export/import
+// ============================================
+
+/** Enregistre l'état actif courant (site en cours d'édition) dans la bibliothèque. */
+function syncActiveSiteIntoLibrary() {
+    if (!mainHeaderText) return;
+    const key = activeSiteKey || slugifySiteName(mainHeaderText);
+    activeSiteKey = key;
+    sitesLibrary[key] = {
+        label: currentSiteName || slugifySiteName(mainHeaderText),
+        planningData, planningHeaders, checklistData, otStates,
+        dateColumns: (window.dateColumns || []),
+        mainHeaderText,
+        savedAt: new Date().toISOString()
+    };
+    refreshSiteSelector();
+    persistActiveSiteToLocalStorage();
+}
+
+/** Charge plusieurs fichiers Planning Excel d'un coup dans la bibliothèque (sans toucher au site actif affiché). */
+function loadPlanningFilesBulk(event) {
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
+    let done = 0, ok = 0;
+    files.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const jsonData = readWorkbookFirstSheetJson(e.target.result);
+                const parsed = parsePlanningDataStandalone(jsonData);
+                const key = slugifySiteName(file.name);
+                if (!sitesLibrary[key]) sitesLibrary[key] = { label: key, otStates: {} };
+                Object.assign(sitesLibrary[key], {
+                    label: sitesLibrary[key].label || key,
+                    planningData: parsed.planningData,
+                    planningHeaders: parsed.planningHeaders,
+                    dateColumns: parsed.dateColumns,
+                    mainHeaderText: file.name.replace(/\.(xlsx|xls)$/i, ''),
+                    otStates: sitesLibrary[key].otStates || {}
+                });
+                ok++;
+            } catch (err) {
+                console.error('Erreur planning', file.name, err);
+                showNotification('⚠️ Erreur sur ' + file.name + ' : ' + err.message, 'error');
+            } finally {
+                done++;
+                if (done === files.length) {
+                    refreshSiteSelector();
+                    persistSitesIndex();
+                    showNotification('✅ ' + ok + '/' + files.length + ' fichier(s) planning ajoutés à la bibliothèque');
+                }
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    });
+    event.target.value = '';
+}
+
+/** Charge plusieurs fichiers Check-list Excel d'un coup dans la bibliothèque. */
+function loadChecklistFilesBulk(event) {
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
+    let done = 0, ok = 0;
+    files.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const jsonData = readWorkbookFirstSheetJson(e.target.result);
+                const parsedChecklist = parseChecklistDataStandalone(jsonData);
+                const key = slugifySiteName(file.name);
+                if (!sitesLibrary[key]) sitesLibrary[key] = { label: key, otStates: {} };
+                sitesLibrary[key].checklistData = parsedChecklist;
+                sitesLibrary[key].label = sitesLibrary[key].label || key;
+                ok++;
+            } catch (err) {
+                console.error('Erreur checklist', file.name, err);
+                showNotification('⚠️ Erreur sur ' + file.name + ' : ' + err.message, 'error');
+            } finally {
+                done++;
+                if (done === files.length) {
+                    refreshSiteSelector();
+                    persistSitesIndex();
+                    showNotification('✅ ' + ok + '/' + files.length + ' fichier(s) check-list ajoutés à la bibliothèque');
+                }
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    });
+    event.target.value = '';
+}
+
+/** Reconstruit le menu déroulant de sélection de site à partir de la bibliothèque en mémoire. */
+function refreshSiteSelector() {
+    const sel = document.getElementById('siteSelector');
+    if (!sel) return;
+    const keys = Object.keys(sitesLibrary).sort();
+    sel.innerHTML = '<option value="">-- Choisir un site (' + keys.length + ') --</option>' +
+        keys.map(k => {
+            const b = sitesLibrary[k];
+            const ready = (b.planningData && b.checklistData) ? '✅' : '⏳';
+            return `<option value="${k}" ${k === activeSiteKey ? 'selected' : ''}>${ready} ${b.label}</option>`;
+        }).join('');
+    const wrap = document.getElementById('siteSelectorWrap');
+    if (wrap) wrap.style.display = keys.length ? 'flex' : 'none';
+}
+
+/** Bascule l'application sur le site sélectionné (sauvegarde d'abord le site actif en cours). */
+function activateSite(key) {
+    if (!key || !sitesLibrary[key]) return;
+    if (activeSiteKey && activeSiteKey !== key && mainHeaderText) {
+        syncActiveSiteIntoLibrary();
+    }
+    const bucket = sitesLibrary[key];
+    if (!bucket.planningData || !bucket.checklistData) {
+        showNotification('⚠️ Il manque le planning ou la check-list pour ce site.', 'error');
+        return;
+    }
+    activeSiteKey = key;
+    planningData = bucket.planningData;
+    planningHeaders = bucket.planningHeaders;
+    checklistData = bucket.checklistData;
+    otStates = bucket.otStates || {};
+    window.dateColumns = bucket.dateColumns || [];
+    mainHeaderText = bucket.mainHeaderText;
+    currentSiteName = bucket.label;
+    planningLoaded = true;
+    checklistLoaded = true;
+    updateFileStatus();
+    const titreNettoye = getCleanTitle(mainHeaderText).replace(/^OT\s+PREVENTIF\s*-?\s*/i, '');
+    const mainHeaderTitle = document.getElementById('mainHeaderTitle');
+    if (mainHeaderTitle) mainHeaderTitle.textContent = 'OT Préventif - ' + titreNettoye;
+    updateHeaderInfos();
+    checkWorkspaceReady();
+    renderPlanning();
+    refreshSiteSelector();
+    persistActiveSiteToLocalStorage();
+    showNotification('📂 Site actif : ' + bucket.label);
+}
+
+/** Sauvegarde uniquement l'index (liste des sites connus) — léger, toujours sûr en localStorage. */
+function persistSitesIndex() {
+    try {
+        const index = Object.keys(sitesLibrary).map(k => ({ key: k, label: sitesLibrary[k].label }));
+        localStorage.setItem('otSitesIndex', JSON.stringify(index));
+    } catch (e) { console.warn('⚠️ Impossible de sauvegarder l\'index des sites :', e); }
+}
+
+/** Sauvegarde le site actif complet (données + avancement) sous sa propre clé localStorage. */
+function persistActiveSiteToLocalStorage() {
+    if (!activeSiteKey) return;
+    try {
+        localStorage.setItem('otSiteData_' + activeSiteKey, JSON.stringify(sitesLibrary[activeSiteKey]));
+        persistSitesIndex();
+    } catch (e) {
+        console.warn('⚠️ Stockage local plein ou indisponible :', e);
+        showNotification('⚠️ Stockage local plein — pensez à exporter/archiver ce site en JSON.', 'error');
+    }
+}
+
+/** Exporte le site actif (planning + check-list + avancement) en fichier JSON — pour partage via dossier OneDrive partagé. */
+function exportSiteJSON() {
+    if (!activeSiteKey) { showNotification('Aucun site actif à exporter.', 'error'); return; }
+    syncActiveSiteIntoLibrary();
+    const bucket = sitesLibrary[activeSiteKey];
+    const blob = new Blob([JSON.stringify(bucket, null, 0)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'OT_' + activeSiteKey.replace(/\s+/g, '_') + '.json';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showNotification('📤 Site exporté : ' + a.download + ' (à déposer dans le dossier partagé)');
+}
+
+/** Importe un fichier JSON de site (produit par exportSiteJSON) — depuis le dossier partagé OneDrive par exemple. */
+function importSiteJSON(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const bucket = JSON.parse(e.target.result);
+            if (!bucket || !bucket.planningData || !bucket.checklistData) throw new Error('Fichier de site invalide');
+            const key = activeSiteKey === null ? slugifySiteName(bucket.label || file.name) : slugifySiteName(bucket.label || file.name);
+            sitesLibrary[key] = bucket;
+            refreshSiteSelector();
+            persistSitesIndex();
+            activateSite(key);
+            showNotification('📥 Site importé : ' + (bucket.label || key));
+        } catch (err) {
+            showNotification('Erreur import : ' + err.message, 'error');
+        }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
 }
 
 function updateFileStatus() {
@@ -3946,6 +4268,7 @@ function saveToLocalStorage(silent = false) {
     try {
         const dataToSave = {planningData, checklistData, planningHeaders, otStates, planningLoaded, checklistLoaded, mainHeaderText, dateColumns: window.dateColumns, savedAt: new Date().toISOString()};
         localStorage.setItem('otPreventifData', JSON.stringify(dataToSave));
+        syncActiveSiteIntoLibrary(); // 🆕 persiste aussi sous la clé propre au site (bibliothèque multi-sites)
         if (!silent) showNotification('💾 Données sauvegardées localement');
     } catch (err) {
         if (err.name === 'QuotaExceededError') showNotification('Espace de stockage saturé.', 'error');
@@ -3983,10 +4306,18 @@ updateHeaderInfos();
 }
 
 function resetAll() {
-    if (!confirm('Effacer toutes les données ?')) return;
+    const label = activeSiteKey && sitesLibrary[activeSiteKey] ? sitesLibrary[activeSiteKey].label : 'ce site';
+    if (!confirm('Effacer toutes les données du site actif (' + label + ') ? Les autres sites de la bibliothèque ne sont pas affectés.')) return;
     localStorage.removeItem('otPreventifData');
+    if (activeSiteKey) {
+        localStorage.removeItem('otSiteData_' + activeSiteKey);
+        delete sitesLibrary[activeSiteKey];
+        persistSitesIndex();
+    }
+    activeSiteKey = null;
     planningData = []; checklistData = {}; planningHeaders = []; otStates = {};
     planningLoaded = false; checklistLoaded = false; mainHeaderText = '';
+    refreshSiteSelector();
     document.getElementById('planningStatus').textContent = 'Non chargé';
     document.getElementById('planningStatus').className = 'status-empty';
     document.getElementById('checklistStatus').textContent = 'Non chargé';
@@ -5313,6 +5644,22 @@ window.onload = function() {
     document.getElementById('workspace').classList.add('hidden');
     updateMobileToolbarTitle();
     updateOnlineStatus();
+
+    // 🆕 Restaure l'index des sites déjà connus sur ce poste (bibliothèque multi-sites)
+    try {
+        const indexRaw = localStorage.getItem('otSitesIndex');
+        if (indexRaw) {
+            const index = JSON.parse(indexRaw);
+            index.forEach(entry => {
+                const raw = localStorage.getItem('otSiteData_' + entry.key);
+                if (raw) {
+                    try { sitesLibrary[entry.key] = JSON.parse(raw); } catch(e) {}
+                }
+            });
+            refreshSiteSelector();
+        }
+    } catch (e) { console.warn('⚠️ Impossible de restaurer la bibliothèque de sites :', e); }
+
     const saved = localStorage.getItem('otPreventifData');
     if (saved) {
         try {

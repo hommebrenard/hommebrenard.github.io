@@ -1292,19 +1292,6 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
 .esig-date { font-size: 13px; color: #666; margin-top: 6px; }
 .esig-hash { display: none; }
 .esig-badge { display: none; }
-.esig-stamp-inline {
-    width: 100px; height: 100px; border: 1px solid #ddd;
-    border-radius: 12px; display: flex; align-items: center; justify-content: center;
-    background: #f9f9f9; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.03);
-}
-.esig-stamp-inline img { width: 100%; height: 100%; object-fit: contain; }
-.stamp-overlay { display: none; }
-.canvas-stamp-overlay {
-    position: absolute; width: 110px; height: 110px;
-    opacity: 0.18; pointer-events: none; top: 10px; right: 10px;
-    object-fit: contain; filter: grayscale(100%) contrast(1.05);
-    transform: rotate(-4deg);
-}
 .manual-signature-container { margin-top: 10px; position: relative; }
 
 .btn-esign {
@@ -1319,29 +1306,6 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
     cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
 }
 .btn-esign-reset:hover { background: #616161; }
-
-.stamp-section {
-    margin-top: 20px; padding-top: 18px; border-top: 1px solid #ddd;
-    display: grid; grid-template-columns: 90px 1fr; gap: 14px; align-items: center;
-}
-.stamp-preview {
-    width: 90px; height: 90px; border: 1px solid #ddd; border-radius: 14px;
-    display: flex; align-items: center; justify-content: center;
-    background: #fcfcfc; flex-shrink: 0; overflow: hidden;
-    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.03);
-}
-.stamp-preview.has-stamp { border-color: #4caf50; box-shadow: 0 0 0 2px rgba(76,175,80,0.14); }
-.stamp-preview-img { width: 100%; height: 100%; object-fit: contain; }
-.stamp-placeholder { font-size: 11px; color: #777; text-align: center; line-height: 1.3; padding: 8px; }
-.stamp-actions { display: grid; gap: 8px; }
-.btn-stamp {
-    background: #1976d2; color: white; border: none; padding: 10px 16px;
-    border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-}
-.btn-stamp:hover { background: #1565c0; }
-.btn-stamp-remove { background: #d32f2f; }
-.btn-stamp-remove:hover { background: #b71c1c; }
 
 /* ============================================
    RESPONSIVE - MOBILE
@@ -2047,9 +2011,14 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
                 </div>
                 <div class="tech-info-row dates">
                     <div>
-                        <label for="dateDebut">📅 Date Début (Planning)</label>
-                        <input type="datetime-local" id="dateDebut" name="dateDebut" readonly 
-                               aria-label="Date de début planifiée">
+                        <label for="datePrevue">🗓️ Date Prévue (Planning)</label>
+                        <input type="datetime-local" id="datePrevue" name="datePrevue" readonly
+                               aria-label="Date prévue au planning">
+                    </div>
+                    <div>
+                        <label for="dateDebut">📅 Date Début (Réalisation)</label>
+                        <input type="datetime-local" id="dateDebut" name="dateDebut" onchange="calculateEcart()"
+                               aria-label="Date de début réel de l'intervention">
                     </div>
                     <div>
                         <label for="dateFin">📅 Date Fin (Réalisation)</label>
@@ -2057,8 +2026,12 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
                                aria-label="Date de fin de réalisation">
                     </div>
                     <div>
-                        <label for="ecartDisplay">⏱️ Écart</label>
+                        <label for="ecartDisplay">⏱️ Durée intervention</label>
                         <div class="ecart-display" id="ecartDisplay" role="status" aria-live="polite">En attente...</div>
+                    </div>
+                    <div>
+                        <label for="planningDisplay">📌 Respect planning</label>
+                        <div class="ecart-display" id="planningDisplay" role="status" aria-live="polite">En attente...</div>
                     </div>
                 </div>
             </div>
@@ -2120,17 +2093,6 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
 
     <div id="manualSignatureContainer" class="manual-signature-container" style="display:none;">
         <canvas id="signaturePad" class="signature-pad" width="500" height="120" aria-label="Zone de signature manuscrite"></canvas>
-    </div>
-
-    <div class="stamp-section">
-        <div class="stamp-preview" id="stampPreview">
-            <span class="stamp-placeholder">Aucun tampon<br>chargé</span>
-        </div>
-        <div class="stamp-actions">
-            <input type="file" id="stampFileInput" class="file-input" accept="image/*" onchange="handleStampUpload(event)" aria-label="Charger le tampon du technicien">
-            <button type="button" class="btn-stamp" id="btnStampUpload" onclick="triggerStampUpload()" aria-label="Charger le tampon">📎 Charger mon tampon</button>
-            <button type="button" class="btn-stamp btn-stamp-remove" id="btnStampRemove" onclick="removeStamp()" style="display:none;" aria-label="Supprimer le tampon">🗑️ Supprimer le tampon</button>
-        </div>
     </div>
 </div>
 </div>
@@ -2622,10 +2584,37 @@ function calculateEcart() {
     const debut = document.getElementById('dateDebut').value;
     const fin = document.getElementById('dateFin').value;
     const display = document.getElementById('ecartDisplay');
-    if (!debut || !fin) { display.textContent = 'En attente...'; display.className = 'ecart-display'; return; }
+    if (!debut || !fin) { display.textContent = 'En attente...'; display.className = 'ecart-display'; calculatePlanningRespect(); return; }
     const d1 = new Date(debut);
     const d2 = new Date(fin);
     const diffMs = d2 - d1;
+    if (isNaN(diffMs)) { display.textContent = 'Dates invalides'; display.className = 'ecart-display negative'; calculatePlanningRespect(); return; }
+    if (diffMs < 0) { display.textContent = '⚠️ Date fin avant date début'; display.className = 'ecart-display negative'; calculatePlanningRespect(); return; }
+    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    let text = '';
+    if (days > 0) text += days + 'j ';
+    if (hours > 0) text += hours + 'h ';
+    text += minutes + 'min';
+    display.textContent = text;
+    display.className = 'ecart-display zero';
+    calculatePlanningRespect();
+}
+
+/**
+ * Compare la date de fin de réalisation à la date prévue au planning,
+ * pour indiquer si l'OT a été traité dans les délais.
+ */
+function calculatePlanningRespect() {
+    const display = document.getElementById('planningDisplay');
+    if (!display) return;
+    const prevue = document.getElementById('datePrevue').value;
+    const fin = document.getElementById('dateFin').value;
+    if (!prevue || !fin) { display.textContent = 'En attente...'; display.className = 'ecart-display'; return; }
+    const dPrevue = new Date(prevue);
+    const dFin = new Date(fin);
+    const diffMs = dFin - dPrevue;
     if (isNaN(diffMs)) { display.textContent = 'Dates invalides'; display.className = 'ecart-display negative'; return; }
     const absDiff = Math.abs(diffMs);
     const days = Math.floor(absDiff / (1000 * 60 * 60 * 24));
@@ -2982,8 +2971,14 @@ function openChecklist(otNum, materiel, interventionType, libelle, dateOT) {
     }
     document.getElementById('site').value = otStates[otStr].site || currentSiteName;
     document.getElementById('techName').value = otStates[otStr].technicien || '';
-    const dateDebutAuto = planningDateToDatetime(dateOT);
-    document.getElementById('dateDebut').value = otStates[otStr].dateDebut || dateDebutAuto;
+    const datePrevueAuto = planningDateToDatetime(dateOT);
+    document.getElementById('datePrevue').value = datePrevueAuto;
+    const nowLocal = (() => {
+        const n = new Date();
+        n.setMinutes(n.getMinutes() - n.getTimezoneOffset());
+        return n.toISOString().slice(0, 16);
+    })();
+    document.getElementById('dateDebut').value = otStates[otStr].dateDebut || nowLocal;
     document.getElementById('dateFin').value = otStates[otStr].dateFin || '';
     calculateEcart();
     
@@ -3012,6 +3007,8 @@ function openChecklist(otNum, materiel, interventionType, libelle, dateOT) {
 
         if (electronicSignatureData) {
             restoreElectronicSignatureDisplay(electronicSignatureData);
+        } else {
+            resetElectronicSignature();
         }
 
         switchSignatureMode('electronic');
@@ -3404,198 +3401,6 @@ function switchSignatureMode(mode) {
  * Initialise les événements de clic sur les boutons de mode
  * (appelé automatiquement à l'ouverture du modal)
  */
-
-     /* ============================================
-   TAMPON DU TECHNICIEN (Étape 8)
-   Upload, localStorage, overlay transparent
-   ============================================ */
-
-const STAMP_STORAGE_KEY = 'technicianStamp';
-let stampImageObj = null; // Image pré-chargée du tampon
-
-/**
- * Pré-charge le tampon depuis localStorage au démarrage
- */
-function loadStampImage() {
-    const stampData = localStorage.getItem(STAMP_STORAGE_KEY);
-    if (!stampData) {
-        stampImageObj = null;
-        return;
-    }
-    const img = new Image();
-    img.onload = function() {
-        stampImageObj = img;
-        console.log('✅ Tampon pré-chargé depuis localStorage');
-    };
-    img.src = stampData;
-}
-
-/**
- * Retourne le DataURL du tampon depuis localStorage
- */
-function getStampData() {
-    return localStorage.getItem(STAMP_STORAGE_KEY);
-}
-
-/**
- * Ouvre le sélecteur de fichier pour le tampon
- */
-function triggerStampUpload() {
-    document.getElementById('stampFileInput').click();
-}
-
-/**
- * Gère l'upload du tampon : lecture, redimensionnement, sauvegarde
- */
-function handleStampUpload(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-    
-    // Validation type
-    if (!file.type.startsWith('image/')) {
-        alert('⚠️ Veuillez sélectionner une image (PNG ou JPG)');
-        return;
-    }
-    
-    // Validation taille (max 2Mo pour localStorage)
-    if (file.size > 2 * 1024 * 1024) {
-        alert('⚠️ Le fichier est trop volumineux (maximum 2 Mo)');
-        return;
-    }
-    
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        const dataURL = e.target.result;
-        
-        // Redimensionner pour optimiser l'espace localStorage
-        resizeStampImage(dataURL, 300, 300, function(resizedDataURL) {
-            localStorage.setItem(STAMP_STORAGE_KEY, resizedDataURL);
-            loadStampImage(); // Précharger l'image
-            updateStampUI(true);
-            applyStampOverlay();
-            showNotification('✅ Tampon sauvegardé avec succès');
-        });
-    };
-    reader.readAsDataURL(file);
-    
-    // Réinitialiser le champ fichier pour pouvoir re-uploader le même fichier
-    event.target.value = '';
-}
-
-/**
- * Redimensionne l'image du tampon pour optimiser l'espace
- */
-function resizeStampImage(dataURL, maxW, maxH, callback) {
-    const img = new Image();
-    img.onload = function() {
-        let w = img.width;
-        let h = img.height;
-        
-        if (w > maxW || h > maxH) {
-            const ratio = Math.min(maxW / w, maxH / h);
-            w = Math.floor(w * ratio);
-            h = Math.floor(h * ratio);
-        }
-        
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, w, h);
-        callback(canvas.toDataURL('image/png'));
-    };
-    img.src = dataURL;
-}
-
-/**
- * Supprime le tampon du localStorage
- */
-function removeStamp() {
-    if (!confirm('Supprimer le tampon du technicien ?')) return;
-    
-    localStorage.removeItem(STAMP_STORAGE_KEY);
-    stampImageObj = null;
-    updateStampUI(false);
-    removeStampOverlay();
-    showNotification('🗑️ Tampon supprimé');
-}
-
-/**
- * Met à jour l'affichage de la zone tampon
- */
-function updateStampUI(hasStamp) {
-    const preview = document.getElementById('stampPreview');
-    const btnUpload = document.getElementById('btnStampUpload');
-    const btnRemove = document.getElementById('btnStampRemove');
-    
-    if (hasStamp) {
-        const stampData = getStampData();
-        preview.innerHTML = '<img src="' + stampData + '" alt="Tampon" class="stamp-preview-img">';
-        preview.classList.add('has-stamp');
-        btnUpload.textContent = '🔄 Changer le tampon';
-        btnRemove.style.display = 'inline-flex';
-    } else {
-        preview.innerHTML = '<span class="stamp-placeholder">Aucun tampon<br>chargé</span>';
-        preview.classList.remove('has-stamp');
-        btnUpload.textContent = '📎 Charger mon tampon';
-        btnRemove.style.display = 'none';
-    }
-}
-
-/**
- * Applique l'overlay transparent du tampon sur les zones de signature
- */
-function applyStampOverlay() {
-    const stampData = getStampData();
-    if (!stampData) return;
-    
-    // Overlay sur le canvas manuel
-    const manualContainer = document.getElementById('manualSignatureContainer');
-    if (manualContainer) {
-        const existing = manualContainer.querySelector('.canvas-stamp-overlay');
-        if (existing) existing.remove();
-        
-        const overlay = document.createElement('img');
-        overlay.src = stampData;
-        overlay.className = 'canvas-stamp-overlay';
-        overlay.alt = 'Tampon';
-        manualContainer.appendChild(overlay);
-    }
-}
-
-/**
- * Supprime les overlays de tampon
- */
-function removeStampOverlay() {
-    const esigBox = document.getElementById('esigBox');
-    if (esigBox) {
-        const o = esigBox.querySelector('.stamp-overlay');
-        if (o) o.remove();
-    }
-    
-    const manualContainer = document.getElementById('manualSignatureContainer');
-    if (manualContainer) {
-        const o = manualContainer.querySelector('.canvas-stamp-overlay');
-        if (o) o.remove();
-    }
-}
-
-/**
- * Initialise le système de tampon
- */
-function initStamp() {
-    loadStampImage();
-    const hasStamp = !!getStampData();
-    updateStampUI(hasStamp);
-    
-    // Appliquer l'overlay un petit délai pour laisser le DOM se charger
-    setTimeout(function() {
-        applyStampOverlay();
-    }, 100);
-    
-    console.log('✅ Système de tampon initialisé, tampon existant:', hasStamp);
-}
-     
 function initSignatureModeSelector() {
     const modeButtons = document.querySelectorAll('.sig-mode-btn');
     modeButtons.forEach(btn => {
@@ -3613,9 +3418,6 @@ function initSignatureModeSelector() {
      // 🆕 ÉTAPE 6 : Initialisation des boutons de signature électronique
     initElectronicSignatureButtons();
 
-      // 🆕 ÉTAPE 8 : Initialisation du tampon du technicien
-    initStamp()
-    
     console.log('✅ Sélecteur de mode signature initialisé');
 }
 
@@ -3698,7 +3500,6 @@ function generateElectronicSignature() {
     
     // 6. Affichage visuel dans la box
     const box = document.getElementById('esigBox');
-    const stampData = getStampData();
     if (box) {
         box.classList.add('signed');
         box.innerHTML = `
@@ -3709,7 +3510,6 @@ function generateElectronicSignature() {
                     <div class="esig-date">${timeStr}</div>
                     ${electronicSignatureData && electronicSignatureData.scannedSignature ? '<div class="esig-scan-preview"><img src="' + electronicSignatureData.scannedSignature + '" alt="Signature scannée"></div>' : ''}
                 </div>
-                ${stampData ? '<div class="esig-stamp-inline"><img src="' + stampData + '" alt="Tampon"></div>' : ''}
             </div>
         `;
     }
@@ -3720,13 +3520,6 @@ function generateElectronicSignature() {
     if (btnEsign) btnEsign.style.display = 'none';
     if (btnEsignReset) btnEsignReset.style.display = 'inline-flex';
 
-     // Dans generateElectronicSignature(), à la FIN (avant le console.log) :
-
-// ... code existant qui affiche la signature ...
-    
-    // 🆕 ÉTAPE 8 : Ré-appliquer l'overlay du tampon
-    applyStampOverlay();
-    
     console.log('✅ Signature électronique générée :', electronicSignatureData);
 }
 
@@ -3754,13 +3547,6 @@ function resetElectronicSignature() {
     if (btnEsign) btnEsign.style.display = 'inline-flex';
     if (btnEsignReset) btnEsignReset.style.display = 'none';
 
-     // Dans resetElectronicSignature(), à la FIN (avant le console.log) :
-
-    // ... code existant qui remet la box à zéro ...
-    
-    // 🆕 ÉTAPE 8 : Ré-appliquer l'overlay du tampon
-    applyStampOverlay();
-    
     console.log('🔄 Signature électronique effacée');
 }
 
@@ -3774,7 +3560,6 @@ function restoreElectronicSignatureDisplay(data) {
     }
 
     const box = document.getElementById('esigBox');
-    const stampData = getStampData();
     if (box) {
         box.classList.add('signed');
         box.innerHTML = `
@@ -3785,7 +3570,6 @@ function restoreElectronicSignatureDisplay(data) {
                     <div class="esig-date">${data.time}</div>
                     ${data.scannedSignature ? '<div class="esig-scan-preview"><img src="' + data.scannedSignature + '" alt="Signature scannée"></div>' : ''}
                 </div>
-                ${stampData ? '<div class="esig-stamp-inline"><img src="' + stampData + '" alt="Tampon"></div>' : ''}
             </div>
         `;
     }
@@ -3794,8 +3578,6 @@ function restoreElectronicSignatureDisplay(data) {
     const btnEsignReset = document.getElementById('btnEsignReset');
     if (btnEsign) btnEsign.style.display = 'none';
     if (btnEsignReset) btnEsignReset.style.display = 'inline-flex';
-
-    applyStampOverlay();
 }
 
      /**
@@ -3840,21 +3622,6 @@ function restoreElectronicSignatureDisplay(data) {
         ctx.textBaseline = 'alphabetic';
         ctx.fillText('Signé le ' + data.date + ' à ' + data.time, canvas.width / 2, 115);
 
-    // 🆕 ÉTAPE 8 : Ajout du tampon si disponible
-    if (stampImageObj) {
-        try {
-            ctx.globalAlpha = 0.15;
-            const stampSize = 150;
-            ctx.drawImage(stampImageObj,
-                (canvas.width - stampSize) / 2,
-                (canvas.height - stampSize) / 2,
-                stampSize, stampSize);
-            ctx.globalAlpha = 1.0;
-        } catch(e) {
-            console.warn('⚠️ Tampon non dessinable:', e);
-        }
-    }
-    
     // Conversion en PNG
     const dataURL = canvas.toDataURL('image/png');
         return dataURL;
@@ -4298,16 +4065,37 @@ function exportChecklistPDF() {
     doc.text('Site : ' + (state.site || 'N/A'), 14, y); y += 6;
     doc.text('Technicien : ' + (state.technicien || 'N/A'), 14, y); y += 6;
     const formatDate = (d) => d ? new Date(d).toLocaleString('fr-FR') : 'N/A';
-    doc.text('Date Debut : ' + formatDate(state.dateDebut), 14, y); y += 6;
-    doc.text('Date Fin : ' + formatDate(state.dateFin), 14, y); y += 6;
+    const datePrevueStr = currentOTDate ? formatDate(planningDateToDatetime(currentOTDate)) : 'N/A';
+    doc.text('Date Prévue (Planning) : ' + datePrevueStr, 14, y); y += 6;
+    doc.text('Date Début (Réel) : ' + formatDate(state.dateDebut), 14, y); y += 6;
+    doc.text('Date Fin (Réel) : ' + formatDate(state.dateFin), 14, y); y += 6;
     if (state.dateDebut && state.dateFin) {
         const diff = new Date(state.dateFin) - new Date(state.dateDebut);
-        if (!isNaN(diff)) {
-            const absDiff = Math.abs(diff);
+        if (!isNaN(diff) && diff >= 0) {
+            const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+            const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+            let durText = '';
+            if (days > 0) durText += days + 'j ';
+            if (hours > 0) durText += hours + 'h ';
+            durText += minutes + 'min';
+            doc.text('Durée intervention : ' + durText, 14, y);
+            y += 6;
+        }
+    }
+    if (currentOTDate && state.dateFin) {
+        const diffPlan = new Date(state.dateFin) - new Date(planningDateToDatetime(currentOTDate));
+        if (!isNaN(diffPlan)) {
+            const absDiff = Math.abs(diffPlan);
             const days = Math.floor(absDiff / (1000 * 60 * 60 * 24));
             const hours = Math.floor((absDiff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
             const minutes = Math.floor((absDiff % (1000 * 60 * 60)) / (1000 * 60));
-            doc.text('Ecart : ' + (diff < 0 ? '-' : '+') + days + 'j ' + hours + 'h ' + minutes + 'min', 14, y); 
+            let planText = '';
+            if (days > 0) planText += days + 'j ';
+            if (hours > 0) planText += hours + 'h ';
+            planText += minutes + 'min';
+            const planLabel = diffPlan < 0 ? ('-' + planText + ' (avant prévu)') : (diffPlan === 0 ? 'À l\'heure' : ('+' + planText + (days > 7 ? ' (retard important)' : days === 0 ? '' : ' (retard)')));
+            doc.text('Respect planning : ' + planLabel, 14, y);
             y += 6;
         }
     }
@@ -4396,31 +4184,7 @@ try {
                     if (sigH > MAX_SIG_H) { sigH = MAX_SIG_H; sigW = sigH * ratio; }
                 }
 
-                if (stampImageObj) {
-                    const tempCanvas = document.createElement('canvas');
-                    const tempCtx = tempCanvas.getContext('2d');
-                    const img = new Image();
-                    img.src = electronicSignatureData.scannedSignature;
-                    
-                    // Ajuster la taille du canvas à l'image importée (déjà rognée en amont)
-                    tempCanvas.width = electronicSignatureData.scannedSignatureW || img.width || 400;
-                    tempCanvas.height = electronicSignatureData.scannedSignatureH || img.height || 120;
-
-                    tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
-                    tempCtx.drawImage(img, 0, 0, tempCanvas.width, tempCanvas.height);
-                    tempCtx.globalAlpha = 0.15;
-                    const stampSize = Math.min(120, tempCanvas.width, tempCanvas.height);
-                    tempCtx.drawImage(stampImageObj,
-                        (tempCanvas.width - stampSize) / 2,
-                        (tempCanvas.height - stampSize) / 2,
-                        stampSize, stampSize);
-                    tempCtx.globalAlpha = 1.0;
-
-                    const renderedImage = tempCanvas.toDataURL('image/png');
-                    doc.addImage(renderedImage, 'PNG', 14, finalY, sigW, sigH);
-                } else {
-                    doc.addImage(electronicSignatureData.scannedSignature, imageType, 14, finalY, sigW, sigH);
-                }
+                doc.addImage(electronicSignatureData.scannedSignature, imageType, 14, finalY, sigW, sigH);
                 finalY += sigH + 4;
                 // Ligne fine sous la signature pour un rendu plus professionnel
                 doc.setDrawColor(180); doc.setLineWidth(0.2);
@@ -4469,37 +4233,7 @@ else {
     console.log('🔍 [DIAG] On est en mode MANUEL');
     if (state.signature) {
         try {
-            // 🆕 ÉTAPE 8 : Ajouter le tampon sur la signature manuelle dans le PDF
-            if (stampImageObj) {
-                const tempCanvas = document.createElement('canvas');
-                tempCanvas.width = 400;
-                tempCanvas.height = 200;
-                const tempCtx = tempCanvas.getContext('2d');
-                
-                // Fond blanc
-                tempCtx.fillStyle = '#ffffff';
-                tempCtx.fillRect(0, 0, 400, 200);
-                
-                // Signature manuelle
-                const sigImg = new Image();
-                sigImg.src = state.signature;
-                try {
-                    tempCtx.drawImage(sigImg, 0, 0, 400, 200);
-                } catch(e) { console.warn('Image sig non dessinable'); }
-                
-                // Tampon overlay
-                tempCtx.globalAlpha = 0.15;
-                const stampSize = 120;
-                tempCtx.drawImage(stampImageObj,
-                    (400 - stampSize) / 2,
-                    (200 - stampSize) / 2,
-                    stampSize, stampSize);
-                tempCtx.globalAlpha = 1.0;
-                
-                doc.addImage(tempCanvas.toDataURL('image/png'), 'PNG', 14, finalY, 80, 25);
-            } else {
-                doc.addImage(state.signature, 'PNG', 14, finalY, 80, 25);
-            }
+            doc.addImage(state.signature, 'PNG', 14, finalY, 80, 25);
             finalY += 30;
         } catch(eImg) {
             console.error('Erreur insertion img manuelle:', eImg);
@@ -5263,8 +4997,9 @@ function calculerKPIs() {
                 }
                 kpis.totalActions += analyse.total;
                 kpis.actionsRealisees += analyse.done;
-                if (state.dateDebut && state.dateFin) {
-                    const diff = new Date(state.dateFin) - new Date(state.dateDebut);
+                if (state.dateFin && datePlanning) {
+                    const datePrevueDT = planningDateToDatetime(datePlanning);
+                    const diff = new Date(state.dateFin) - new Date(datePrevueDT);
                     if (!isNaN(diff)) {
                         const diffJours = diff / (1000 * 60 * 60 * 24);
                         totalEcartJours += diffJours; nbOTAvecEcart++;

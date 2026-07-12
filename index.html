@@ -2448,7 +2448,7 @@ function renderPlanning() {
                     else if (state === 'NF') { etatBadge = '<span class="etat-nonfait">NF</span>'; linkClass = 'notdone'; }
                     else if (state === 'P') { etatBadge = '<span class="etat-partiel">P</span>'; linkClass = 'partial'; }
                     const dateOT = (window.dateColumns && window.dateColumns[otIdx]) || '';
-                    cells += '<td><button type="button" class="ot-link ' + linkClass + '" data-materiel="' + escapeHtml(row.materiel || '') + '" data-intervention-type="' + escapeHtml(row.interventionType || '') + '" data-libelle="' + escapeHtml(row.libelle || '') + '" data-dateot="' + escapeHtml(dateOT) + '" aria-label="Ouvrir la check-list de l\'OT ' + escapeHtml(otStr) + '">' + escapeHtml(otStr) + '</button></td>';
+                    cells += `<td><button type="button" class="ot-link ${linkClass}" data-materiel="${escapeHtml(row.materiel || '')}" data-intervention-type="${escapeHtml(row.interventionType || '')}" data-libelle="${escapeHtml(row.libelle || '')}" data-dateot="${escapeHtml(dateOT)}" aria-label="Ouvrir la check-list de l'OT ${escapeHtml(otStr)}">${escapeHtml(otStr)}</button></td>`;
                     cells += '<td>' + etatBadge + '</td>';
                 }
             });

@@ -2186,7 +2186,12 @@ function slugifySiteName(name) {
     return String(name || '')
         .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
         .replace(/\.(xlsx|xls)$/i, '')
-        .replace(/^(planning|checklist|check-?list)[_\-\s]*/i, '')
+        .replace(/[.,;:]+/g, ' ')
+        // Retire tous les mots "bruit" qui varient entre fichiers planning et check-list
+        // d'un même site (ex: "OT AG Type A NADOR Avril 2026 Converti" vs "Gamme AG Type A NADOR Avril 2026"
+        // vs "gamme pmp AG KENITRA avril 2026") pour que les deux se réduisent à la même clé.
+        .replace(/\btype\s*[ab]\b/gi, ' ')
+        .replace(/\b(planning|checklist|check-?list|gamme|pmp|ot|ag|converti|convert|v\d+|final|copie|copy)\b/gi, ' ')
         .replace(/[_\-\s]+/g, ' ')
         .trim()
         .toUpperCase();
@@ -3087,11 +3092,14 @@ function activateSite(key) {
         syncActiveSiteIntoLibrary();
     }
     const bucket = sitesLibrary[key];
+    // 🆕 On marque ce site comme "actif" même s'il est incomplet, pour qu'il reste
+    // possible de le retirer via Réinitialiser (sinon un site orphelin ne pouvait jamais être nettoyé).
+    activeSiteKey = key;
+    refreshSiteSelector();
     if (!bucket.planningData || !bucket.checklistData) {
         showNotification('⚠️ Il manque le planning ou la check-list pour ce site.', 'error');
         return;
     }
-    activeSiteKey = key;
     planningData = bucket.planningData;
     planningHeaders = bucket.planningHeaders;
     checklistData = bucket.checklistData;

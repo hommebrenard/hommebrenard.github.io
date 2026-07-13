@@ -3125,7 +3125,7 @@ function activateSite(key) {
 function persistSitesIndex() {
     try {
         const index = Object.keys(sitesLibrary).map(k => ({ key: k, label: sitesLibrary[k].label }));
-        localStorage.setItem('otSitesIndex', JSON.stringify(index));
+        localStorage.setItem('otSitesIndex_v2', JSON.stringify(index));
     } catch (e) { console.warn('⚠️ Impossible de sauvegarder l\'index des sites :', e); }
 }
 
@@ -3133,7 +3133,7 @@ function persistSitesIndex() {
 function persistActiveSiteToLocalStorage() {
     if (!activeSiteKey) return;
     try {
-        localStorage.setItem('otSiteData_' + activeSiteKey, JSON.stringify(sitesLibrary[activeSiteKey]));
+        localStorage.setItem('otSiteData_v2_' + activeSiteKey, JSON.stringify(sitesLibrary[activeSiteKey]));
         persistSitesIndex();
     } catch (e) {
         console.warn('⚠️ Stockage local plein ou indisponible :', e);
@@ -4331,7 +4331,7 @@ function resetAll() {
     if (!confirm('Effacer toutes les données du site actif (' + label + ') ? Les autres sites de la bibliothèque ne sont pas affectés.')) return;
     localStorage.removeItem('otPreventifData');
     if (activeSiteKey) {
-        localStorage.removeItem('otSiteData_' + activeSiteKey);
+        localStorage.removeItem('otSiteData_v2_' + activeSiteKey);
         delete sitesLibrary[activeSiteKey];
         persistSitesIndex();
     }
@@ -5666,13 +5666,23 @@ window.onload = function() {
     updateMobileToolbarTitle();
     updateOnlineStatus();
 
+    // 🆕 Nettoyage des anciennes entrées (avant la correction de l'appariement des noms de fichiers)
+    try {
+        localStorage.removeItem('otSitesIndex'); // ancien index (sans version), obsolète
+        Object.keys(localStorage).forEach(k => {
+            if (k.startsWith('otSiteData_') && !k.startsWith('otSiteData_v2_')) {
+                localStorage.removeItem(k);
+            }
+        });
+    } catch (e) { console.warn('⚠️ Nettoyage ancien cache impossible :', e); }
+
     // 🆕 Restaure l'index des sites déjà connus sur ce poste (bibliothèque multi-sites)
     try {
-        const indexRaw = localStorage.getItem('otSitesIndex');
+        const indexRaw = localStorage.getItem('otSitesIndex_v2');
         if (indexRaw) {
             const index = JSON.parse(indexRaw);
             index.forEach(entry => {
-                const raw = localStorage.getItem('otSiteData_' + entry.key);
+                const raw = localStorage.getItem('otSiteData_v2_' + entry.key);
                 if (raw) {
                     try { sitesLibrary[entry.key] = JSON.parse(raw); } catch(e) {}
                 }

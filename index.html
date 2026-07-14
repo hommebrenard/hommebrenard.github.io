@@ -1368,8 +1368,9 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
         background: #4caf50; color: white; border-radius: 5px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 2000;
         opacity: 0; transition: opacity 0.3s; font-weight: bold; max-width: 400px;
+        pointer-events: none;
     }
-    .notification.show { opacity: 1; }
+    .notification.show { opacity: 1; pointer-events: auto; }
     .notification.error { background: #f44336; }
     .notification.warning { background: #ff9800; }
     
@@ -2187,11 +2188,17 @@ function slugifySiteName(name) {
         .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
         .replace(/\.(xlsx|xls)$/i, '')
         .replace(/[.,;:]+/g, ' ')
+        // ✅ CORRECTION : underscores/tirets convertis en espaces EN PREMIER. Sinon "2026_Converti"
+        // est vu par regex comme un seul mot continu (l'underscore est un caractère "de mot" pour \b),
+        // et \bconverti\b ne matche jamais -> "CONVERTI" restait collé à la clé du planning uniquement
+        // (les check-lists, sans underscore, n'avaient pas le problème) -> clés différentes -> site
+        // jamais détecté comme complet.
+        .replace(/[_\-]+/g, ' ')
         // Retire tous les mots "bruit" qui varient entre fichiers planning et check-list
         // d'un même site (ex: "OT AG Type A NADOR Avril 2026 Converti" vs "Gamme AG Type A NADOR Avril 2026"
         // vs "gamme pmp AG KENITRA avril 2026") pour que les deux se réduisent à la même clé.
         .replace(/\btype\s*[ab]\b/gi, ' ')
-        // ✅ CORRECTION : "check list" avec ESPACE n'était pas reconnu (seul "checklist" ou "check-list" l'était),
+        // "check list" avec ESPACE n'était pas reconnu (seul "checklist" ou "check-list" l'était),
         // et "preventif" n'était jamais retiré alors qu'il apparaît dans les plannings ("OT PREVENTIF - OT ...")
         // mais généralement pas dans les check-lists -> clés différentes -> site jamais "complet".
         .replace(/\bcheck[\s-]?list\b/gi, ' ')

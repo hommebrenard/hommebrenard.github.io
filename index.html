@@ -1910,9 +1910,17 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
     </div>
 </div>
 
-<div class="file-status" id="siteSelectorWrap" style="display:none; align-items:center; gap:10px; padding:10px 16px; background:#eef3fb; border-bottom:1px solid #d8e2f0;">
-    <span style="font-weight:600; color:#2c4a7c;">📂 Site actif :</span>
-    <select id="siteSelector" onchange="activateSite(this.value)" style="flex:1; max-width:400px; padding:8px 10px; border-radius:6px; border:1px solid #ccc;">
+<div class="file-status" id="siteSelectorWrap" style="display:none; align-items:center; gap:10px; padding:10px 16px; background:#eef3fb; border-bottom:1px solid #d8e2f0; flex-wrap:wrap;">
+    <span style="font-weight:600; color:#2c4a7c;">🔍 Filtrer :</span>
+    <select id="siteFilterSelect" onchange="refreshSiteSelector()" style="padding:8px 10px; border-radius:6px; border:1px solid #ccc; max-width:220px;">
+        <option value="">🏢 Tous les sites</option>
+    </select>
+    <select id="monthFilterSelect" onchange="refreshSiteSelector()" style="padding:8px 10px; border-radius:6px; border:1px solid #ccc; max-width:200px;">
+        <option value="">📅 Tous les mois</option>
+    </select>
+    <button type="button" class="btn btn-secondary" onclick="resetSiteFilters()" style="padding:8px 12px; min-height:auto; font-size:12px;">✖️ Réinitialiser filtres</button>
+    <span style="font-weight:600; color:#2c4a7c; margin-left:10px;">📂 Site actif :</span>
+    <select id="siteSelector" onchange="activateSite(this.value)" style="flex:1; min-width:220px; max-width:400px; padding:8px 10px; border-radius:6px; border:1px solid #ccc;">
         <option value="">-- Choisir un site --</option>
     </select>
 </div>
@@ -3109,22 +3117,84 @@ function loadChecklistFilesBulk(event) {
     event.target.value = '';
 }
 
-/** Reconstruit le menu déroulant de sélection de site à partir de la bibliothèque en mémoire. */
+/** Liste des mois FR utilisée pour extraire "site" et "mois année" d'une clé de bibliothèque (ex: "KENITRA AVRIL 2026"). */
+const MONTHS_FR = ['JANVIER','FEVRIER','MARS','AVRIL','MAI','JUIN','JUILLET','AOUT','SEPTEMBRE','OCTOBRE','NOVEMBRE','DECEMBRE'];
+
+/** Découpe une clé de site en {site, monthYear} pour alimenter les filtres. Ex: "KENITRA AVRIL 2026" -> {site:"KENITRA", monthYear:"AVRIL 2026"}. */
+function parseSiteKey(key) {
+    const re = new RegExp('^(.*?)\\s+(' + MONTHS_FR.join('|') + ')\\s+(\\d{4})$', 'i');
+    const m = String(key || '').match(re);
+    if (m) {
+        return { site: m[1].trim(), monthYear: m[2].toUpperCase() + ' ' + m[3] };
+    }
+    return { site: String(key || '').trim(), monthYear: '' };
+}
+
+/** Réinitialise les filtres Site/Mois et rafraîchit le sélecteur. */
+function resetSiteFilters() {
+    const siteFilterSel = document.getElementById('siteFilterSelect');
+    const monthFilterSel = document.getElementById('monthFilterSelect');
+    if (siteFilterSel) siteFilterSel.value = '';
+    if (monthFilterSel) monthFilterSel.value = '';
+    refreshSiteSelector();
+}
+
+/** Reconstruit le menu déroulant de sélection de site à partir de la bibliothèque en mémoire,
+ *  en tenant compte des filtres Site / Mois éventuellement sélectionnés. */
 function refreshSiteSelector() {
     const sel = document.getElementById('siteSelector');
     if (!sel) return;
-    const keys = Object.keys(sitesLibrary).sort();
-    sel.innerHTML = '<option value="">-- Choisir un site (' + keys.length + ') --</option>' +
-        keys.map(k => {
+    const siteFilterSel = document.getElementById('siteFilterSelect');
+    const monthFilterSel = document.getElementById('monthFilterSelect');
+    const allKeys = Object.keys(sitesLibrary).sort();
+    const parsedByKey = {};
+    allKeys.forEach(k => { parsedByKey[k] = parseSiteKey(k); });
+
+    // ✅ Alimente le filtre "Site" avec la liste des sites uniques connus, en gardant la sélection en cours si toujours valide.
+    if (siteFilterSel) {
+        const current = siteFilterSel.value;
+        const siteNames = [...new Set(allKeys.map(k => parsedByKey[k].site))].sort();
+        siteFilterSel.innerHTML = '<option value="">🏢 Tous les sites</option>' +
+            siteNames.map(s => `<option value="${s.replace(/"/g, '&quot;')}">${s}</option>`).join('');
+        siteFilterSel.value = siteNames.includes(current) ? current : '';
+    }
+
+    // ✅ Alimente le filtre "Mois" avec les mois/années uniques connus, triés chronologiquement (pas alphabétiquement).
+    if (monthFilterSel) {
+        const current = monthFilterSel.value;
+        const monthYears = [...new Set(allKeys.map(k => parsedByKey[k].monthYear).filter(Boolean))]
+            .sort((a, b) => {
+                const [ma, ya] = a.split(' ');
+                const [mb, yb] = b.split(' ');
+                if (ya !== yb) return ya - yb;
+                return MONTHS_FR.indexOf(ma) - MONTHS_FR.indexOf(mb);
+            });
+        monthFilterSel.innerHTML = '<option value="">📅 Tous les mois</option>' +
+            monthYears.map(m => `<option value="${m}">${m.charAt(0) + m.slice(1).toLowerCase()}</option>`).join('');
+        monthFilterSel.value = monthYears.includes(current) ? current : '';
+    }
+
+    const siteFilterVal = siteFilterSel ? siteFilterSel.value : '';
+    const monthFilterVal = monthFilterSel ? monthFilterSel.value : '';
+    const filteredKeys = allKeys.filter(k => {
+        const p = parsedByKey[k];
+        if (siteFilterVal && p.site !== siteFilterVal) return false;
+        if (monthFilterVal && p.monthYear !== monthFilterVal) return false;
+        return true;
+    });
+
+    sel.innerHTML = '<option value="">-- Choisir un site (' + filteredKeys.length + '/' + allKeys.length + ') --</option>' +
+        filteredKeys.map(k => {
             const b = sitesLibrary[k];
             const ready = (b.planningData && b.checklistData) ? '✅' : '⏳';
             return `<option value="${k}">${ready} ${b.label}</option>`;
         }).join('');
     // Force explicitement la valeur affichée (ne dépend pas du comportement par défaut du navigateur)
-    sel.value = (activeSiteKey && sitesLibrary[activeSiteKey]) ? activeSiteKey : '';
+    sel.value = (activeSiteKey && sitesLibrary[activeSiteKey] && filteredKeys.includes(activeSiteKey)) ? activeSiteKey : '';
     const wrap = document.getElementById('siteSelectorWrap');
-    if (wrap) wrap.style.display = keys.length ? 'flex' : 'none';
+    if (wrap) wrap.style.display = allKeys.length ? 'flex' : 'none';
 }
+
 
 /** Bascule l'application sur le site sélectionné (sauvegarde d'abord le site actif en cours). */
 function activateSite(key) {

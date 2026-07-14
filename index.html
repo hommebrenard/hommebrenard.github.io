@@ -1861,9 +1861,24 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
 .table-container {
     background: white;
     border-radius: 12px !important;
-    overflow: hidden;
     border: 1px solid #e5e7eb;
     overflow-x: auto;
+    overflow-y: auto;
+    max-height: 70vh; /* la zone du tableau défile verticalement... */
+}
+
+/* ...pendant que l'en-tête de colonnes (th) reste visible en haut */
+.table-container thead th,
+#planningTable thead th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+@media (max-width: 768px) {
+    .table-container {
+        max-height: none; /* sur mobile la vue en cartes est utilisée, pas le tableau */
+    }
 }
 </style>
 </head>
@@ -4438,14 +4453,20 @@ updateHeaderInfos();
 }
 
 function resetAll() {
-    const label = activeSiteKey && sitesLibrary[activeSiteKey] ? sitesLibrary[activeSiteKey].label : 'ce site';
-    if (!confirm('Effacer toutes les données du site actif (' + label + ') ? Les autres sites de la bibliothèque ne sont pas affectés.')) return;
+    const nbSites = Object.keys(sitesLibrary).length;
+    const message = nbSites > 1
+        ? 'Effacer TOUTES les données de TOUS les sites (' + nbSites + ' sites chargés) ? Cette action est irréversible.'
+        : 'Effacer toutes les données chargées ? Cette action est irréversible.';
+    if (!confirm(message)) return;
+
+    // Supprime les données de chaque site de la bibliothèque (pas seulement le site actif)
+    Object.keys(sitesLibrary).forEach(function(key) {
+        localStorage.removeItem('otSiteData_v2_' + key);
+    });
+    localStorage.removeItem('otSitesIndex_v2');
     localStorage.removeItem('otPreventifData');
-    if (activeSiteKey) {
-        localStorage.removeItem('otSiteData_v2_' + activeSiteKey);
-        delete sitesLibrary[activeSiteKey];
-        persistSitesIndex();
-    }
+
+    sitesLibrary = {};
     activeSiteKey = null;
     planningData = []; checklistData = {}; planningHeaders = []; otStates = {};
     planningLoaded = false; checklistLoaded = false; mainHeaderText = '';

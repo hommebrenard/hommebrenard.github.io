@@ -2191,7 +2191,11 @@ function slugifySiteName(name) {
         // d'un même site (ex: "OT AG Type A NADOR Avril 2026 Converti" vs "Gamme AG Type A NADOR Avril 2026"
         // vs "gamme pmp AG KENITRA avril 2026") pour que les deux se réduisent à la même clé.
         .replace(/\btype\s*[ab]\b/gi, ' ')
-        .replace(/\b(planning|checklist|check-?list|gamme|pmp|ot|ag|converti|convert|v\d+|final|copie|copy)\b/gi, ' ')
+        // ✅ CORRECTION : "check list" avec ESPACE n'était pas reconnu (seul "checklist" ou "check-list" l'était),
+        // et "preventif" n'était jamais retiré alors qu'il apparaît dans les plannings ("OT PREVENTIF - OT ...")
+        // mais généralement pas dans les check-lists -> clés différentes -> site jamais "complet".
+        .replace(/\bcheck[\s-]?list\b/gi, ' ')
+        .replace(/\b(planning|gamme|pmp|ot|ag|preventif|systematique|converti|convert|v\d+|final|copie|copy)\b/gi, ' ')
         .replace(/[_\-\s]+/g, ' ')
         .trim()
         .toUpperCase();
@@ -3001,6 +3005,18 @@ function loadPlanningFilesBulk(event) {
     const files = Array.from(event.target.files || []);
     if (!files.length) return;
     let done = 0, ok = 0;
+
+    // ✅ CORRECTION : fonction de fin de lot centralisée, appelée quoi qu'il arrive
+    // (succès, erreur de parsing OU erreur de lecture du fichier lui-même).
+    function onFileSettled() {
+        done++;
+        if (done === files.length) {
+            refreshSiteSelector();
+            persistSitesIndex();
+            showNotification('✅ ' + ok + '/' + files.length + ' fichier(s) planning ajoutés à la bibliothèque');
+        }
+    }
+
     files.forEach(file => {
         const reader = new FileReader();
         reader.onload = function(e) {
@@ -3008,6 +3024,7 @@ function loadPlanningFilesBulk(event) {
                 const jsonData = readWorkbookFirstSheetJson(e.target.result);
                 const parsed = parsePlanningDataStandalone(jsonData);
                 const key = slugifySiteName(file.name);
+                console.log('🔑 [Planning] "' + file.name + '" -> clé: "' + key + '"');
                 if (!sitesLibrary[key]) sitesLibrary[key] = { label: formatSiteLabel(file.name), otStates: {} };
                 Object.assign(sitesLibrary[key], {
                     label: sitesLibrary[key].label || formatSiteLabel(file.name),
@@ -3022,13 +3039,17 @@ function loadPlanningFilesBulk(event) {
                 console.error('Erreur planning', file.name, err);
                 showNotification('⚠️ Erreur sur ' + file.name + ' : ' + err.message, 'error');
             } finally {
-                done++;
-                if (done === files.length) {
-                    refreshSiteSelector();
-                    persistSitesIndex();
-                    showNotification('✅ ' + ok + '/' + files.length + ' fichier(s) planning ajoutés à la bibliothèque');
-                }
+                onFileSettled();
             }
+        };
+        // ✅ CORRECTION : sans ce handler, un fichier illisible (verrouillé, OneDrive non synchronisé,
+        // permissions...) ne déclenche jamais onload -> "done" reste bloqué -> refreshSiteSelector()
+        // et persistSitesIndex() ne s'exécutent JAMAIS pour tout le lot, même si les autres fichiers
+        // ont été correctement chargés en mémoire. C'est ce qui donnait l'impression que "rien ne se passe".
+        reader.onerror = function() {
+            console.error('Erreur de lecture planning', file.name, reader.error);
+            showNotification('⚠️ Impossible de lire ' + file.name + ' : ' + (reader.error ? reader.error.message : 'erreur inconnue'), 'error');
+            onFileSettled();
         };
         reader.readAsArrayBuffer(file);
     });
@@ -3040,6 +3061,17 @@ function loadChecklistFilesBulk(event) {
     const files = Array.from(event.target.files || []);
     if (!files.length) return;
     let done = 0, ok = 0;
+
+    // ✅ CORRECTION : même principe que loadPlanningFilesBulk.
+    function onFileSettled() {
+        done++;
+        if (done === files.length) {
+            refreshSiteSelector();
+            persistSitesIndex();
+            showNotification('✅ ' + ok + '/' + files.length + ' fichier(s) check-list ajoutés à la bibliothèque');
+        }
+    }
+
     files.forEach(file => {
         const reader = new FileReader();
         reader.onload = function(e) {
@@ -3047,6 +3079,7 @@ function loadChecklistFilesBulk(event) {
                 const jsonData = readWorkbookFirstSheetJson(e.target.result);
                 const parsedChecklist = parseChecklistDataStandalone(jsonData);
                 const key = slugifySiteName(file.name);
+                console.log('🔑 [Check-list] "' + file.name + '" -> clé: "' + key + '"');
                 if (!sitesLibrary[key]) sitesLibrary[key] = { label: formatSiteLabel(file.name), otStates: {} };
                 sitesLibrary[key].checklistData = parsedChecklist;
                 sitesLibrary[key].label = sitesLibrary[key].label || formatSiteLabel(file.name);
@@ -3055,13 +3088,14 @@ function loadChecklistFilesBulk(event) {
                 console.error('Erreur checklist', file.name, err);
                 showNotification('⚠️ Erreur sur ' + file.name + ' : ' + err.message, 'error');
             } finally {
-                done++;
-                if (done === files.length) {
-                    refreshSiteSelector();
-                    persistSitesIndex();
-                    showNotification('✅ ' + ok + '/' + files.length + ' fichier(s) check-list ajoutés à la bibliothèque');
-                }
+                onFileSettled();
             }
+        };
+        // ✅ CORRECTION : voir explication dans loadPlanningFilesBulk.
+        reader.onerror = function() {
+            console.error('Erreur de lecture checklist', file.name, reader.error);
+            showNotification('⚠️ Impossible de lire ' + file.name + ' : ' + (reader.error ? reader.error.message : 'erreur inconnue'), 'error');
+            onFileSettled();
         };
         reader.readAsArrayBuffer(file);
     });

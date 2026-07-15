@@ -5497,11 +5497,23 @@ if (state && state.status) {
                         const key = a.code + ' - ' + tronquerTexte(a.description, 50);
                         if (!kpis.topAnomalies[key]) kpis.topAnomalies[key] = {count: 0, commentaires: []};
                         kpis.topAnomalies[key].count++;
-                        kpis.topAnomalies[key].commentaires.push(a.commentaire);
-                    });
+           kpis.topAnomalies[key].commentaires.push(a.commentaire);
+                });
+            }
+                kpis.totalActions += analyse.total;
+                kpis.actionsRealisees += analyse.done;
+                if (state.dateFin && datePlanning) {
+                    const datePrevueDT = planningDateToDatetime(datePlanning);
+                    const diff = new Date(state.dateFin) - new Date(datePrevueDT);
+                    if (!isNaN(diff)) {
+                        const diffJours = diff / (1000 * 60 * 60 * 24);
+                        totalEcartJours += diffJours; nbOTAvecEcart++;
+                        if (diffJours > 1) kpis.otEnRetard++;
+                        else if (diffJours < -1) kpis.otEnAvance++;
+                        else kpis.otAlHeure++;
+                    }
                 }
-             
-            else {
+            } else {
                 kpis.otEnAttente++;
                 if (datePlanning) kpis.parDate[datePlanning].attente++;
             }

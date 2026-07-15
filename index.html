@@ -5425,6 +5425,21 @@ function showNotification(msg, type = 'success') {
     setTimeout(() => n.classList.remove('show'), 4000);
 }
 
+// Compte les anomalies d'un OT de la même façon que l'en-tête et le pop-up
+// "Anomalies signalées" : tout commentaire non vide et différent de "RAS"
+// (que l'action soit cochée "Fait" ou non), pour que le chiffre soit
+// identique partout dans l'application (en-tête, pop-up, tableau de bord).
+function getOTAnomaliesCount(otNum) {
+    const state = otStates[otNum];
+    if (!state || !state.commentaires) return 0;
+    let count = 0;
+    Object.values(state.commentaires).forEach(comment => {
+        const c = String(comment || '').trim().toUpperCase();
+        if (c && c !== 'RAS' && c !== 'R.A.S' && c !== 'R.A.S.' && c !== 'RAS.') count++;
+    });
+    return count;
+}
+     
 function calculerKPIs() {
     const kpis = { totalOT: 0, otFaits: 0, otNonFaits: 0, otPartiels: 0, otEnAttente: 0, otNC: 0, totalAnomalies: 0, otAvecAnomalies: 0, otConformes: 0, tauxRealisation: 0, tauxConformite: 0, tauxAvancement: 0, ecartMoyen: 0, otEnRetard: 0, otAlHeure: 0, otEnAvance: 0, techniciens: {}, equipements: {}, types: {}, parDate: {}, topAnomalies: {}, totalActions: 0, actionsRealisees: 0 };
     let totalEcartJours = 0; let nbOTAvecEcart = 0;
@@ -5453,11 +5468,12 @@ function calculerKPIs() {
             const equipType = row.materiel.split('_').slice(-1)[0].split('-')[0] || row.materiel;
             if (!kpis.equipements[equipType]) kpis.equipements[equipType] = {total: 0, fait: 0, anomalies: 0};
             kpis.equipements[equipType].total++;
-            if (state && state.status) {
+if (state && state.status) {
+                const anomaliesCount = getOTAnomaliesCount(otStr); // ✅ même définition que l'en-tête / le pop-up
                 if (state.status === 'F') {
                     kpis.otFaits++; kpis.types[row.interventionType].fait++; kpis.equipements[equipType].fait++;
                     if (datePlanning) kpis.parDate[datePlanning].fait++;
-                    if (analyse.anomalies.length === 0) kpis.otConformes++;
+                    if (anomaliesCount === 0) kpis.otConformes++;
                 } else if (state.status === 'NF') { kpis.otNonFaits++; if (datePlanning) kpis.parDate[datePlanning].nonFait++; }
                 else if (state.status === 'P') { kpis.otPartiels++; if (datePlanning) kpis.parDate[datePlanning].partiel++; }
                 if (state.technicien) {
@@ -5466,33 +5482,26 @@ function calculerKPIs() {
                     if (state.status === 'F') kpis.techniciens[state.technicien].fait++;
                     else if (state.status === 'P') kpis.techniciens[state.technicien].partiel++;
                     else if (state.status === 'NF') kpis.techniciens[state.technicien].nonFait++;
-                    kpis.techniciens[state.technicien].anomalies += analyse.anomalies.length;
+                    kpis.techniciens[state.technicien].anomalies += anomaliesCount;
                 }
-                if (analyse.anomalies.length > 0) {
-                    kpis.otAvecAnomalies++; kpis.totalAnomalies += analyse.anomalies.length;
-                    kpis.types[row.interventionType].anomalies += analyse.anomalies.length;
-                    kpis.equipements[equipType].anomalies += analyse.anomalies.length;
-                    analyse.anomalies.forEach(a => {
+                if (anomaliesCount > 0) {
+                    kpis.otAvecAnomalies++; kpis.totalAnomalies += anomaliesCount;
+                    kpis.types[row.interventionType].anomalies += anomaliesCount;
+                    kpis.equipements[equipType].anomalies += anomaliesCount;
+                    // Détail : actions non faites commentées + remarques (hors "RAS") sur actions faites
+                    const detailItems = analyse.anomalies.concat(analyse.remarques.filter(r => {
+                        const c = String(r.commentaire || '').trim().toUpperCase();
+                        return c && c !== 'RAS' && c !== 'R.A.S' && c !== 'R.A.S.' && c !== 'RAS.';
+                    }));
+                    detailItems.forEach(a => {
                         const key = a.code + ' - ' + tronquerTexte(a.description, 50);
                         if (!kpis.topAnomalies[key]) kpis.topAnomalies[key] = {count: 0, commentaires: []};
                         kpis.topAnomalies[key].count++;
                         kpis.topAnomalies[key].commentaires.push(a.commentaire);
                     });
                 }
-                kpis.totalActions += analyse.total;
-                kpis.actionsRealisees += analyse.done;
-                if (state.dateFin && datePlanning) {
-                    const datePrevueDT = planningDateToDatetime(datePlanning);
-                    const diff = new Date(state.dateFin) - new Date(datePrevueDT);
-                    if (!isNaN(diff)) {
-                        const diffJours = diff / (1000 * 60 * 60 * 24);
-                        totalEcartJours += diffJours; nbOTAvecEcart++;
-                        if (diffJours > 1) kpis.otEnRetard++;
-                        else if (diffJours < -1) kpis.otEnAvance++;
-                        else kpis.otAlHeure++;
-                    }
-                }
-            } else {
+             
+            else {
                 kpis.otEnAttente++;
                 if (datePlanning) kpis.parDate[datePlanning].attente++;
             }

@@ -3346,6 +3346,13 @@ function exportAllSitesJSON() {
 }
 
 /** Importe un fichier JSON de site (produit par exportSiteJSON) — depuis le dossier partagé OneDrive par exemple. */
+function countTraitedOT(bucket) {
+    if (!bucket || !bucket.otStates) return 0;
+    return Object.keys(bucket.otStates).filter(function(k) {
+        return bucket.otStates[k] && bucket.otStates[k].technicien;
+    }).length;
+}
+
 function importSiteJSON(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -3356,6 +3363,29 @@ function importSiteJSON(event) {
 
             // 🆕 Fichier multi-sites (produit par exportAllSitesJSON) : on importe chaque site du lot.
             if (parsed && parsed.__multiSite && parsed.sites && typeof parsed.sites === 'object') {
+                // ⚠️ Vérification avant écrasement : repérer les sites déjà présents avec des OT traités
+                const conflicts = [];
+                Object.keys(parsed.sites).forEach(function(origKey) {
+                    const incoming = parsed.sites[origKey];
+                    if (!incoming) return;
+                    const key = slugifySiteName(incoming.label || origKey);
+                    const existing = sitesLibrary[key];
+                    const existingCount = countTraitedOT(existing);
+                    if (existing && existingCount > 0) {
+                        conflicts.push('• ' + (existing.label || key) + ' (' + existingCount + ' OT déjà traité(s))');
+                    }
+                });
+                if (conflicts.length > 0) {
+                    const msg = '⚠️ ' + conflicts.length + ' site(s) déjà chargé(s) et déjà traité(s) vont être REMPLACÉS par ce fichier :\n\n'
+                        + conflicts.join('\n')
+                        + '\n\nLeurs OT déjà traités seront perdus si ce fichier ne les reprend pas. Continuer quand même ?';
+                    if (!window.confirm(msg)) {
+                        showNotification('Import annulé.', 'error');
+                        event.target.value = '';
+                        return;
+                    }
+                }
+
                 const importedKeys = [];
                 Object.keys(parsed.sites).forEach(function(origKey) {
                     const bucket = parsed.sites[origKey];
@@ -3375,7 +3405,20 @@ function importSiteJSON(event) {
             // Cas normal : fichier d'un seul site (produit par exportSiteJSON)
             const bucket = parsed;
             if (!bucket || !bucket.planningData || !bucket.checklistData) throw new Error('Fichier de site invalide');
-            const key = activeSiteKey === null ? slugifySiteName(bucket.label || file.name) : slugifySiteName(bucket.label || file.name);
+            const key = slugifySiteName(bucket.label || file.name);
+
+            // ⚠️ Vérification avant écrasement
+            const existing = sitesLibrary[key];
+            const existingCount = countTraitedOT(existing);
+            if (existing && existingCount > 0) {
+                const msg = '⚠️ Le site "' + (existing.label || key) + '" contient déjà ' + existingCount + ' OT traité(s).\n\nL\'importer va REMPLACER ce site. Ces OT seront perdus si ce fichier ne les reprend pas. Continuer ?';
+                if (!window.confirm(msg)) {
+                    showNotification('Import annulé.', 'error');
+                    event.target.value = '';
+                    return;
+                }
+            }
+
             sitesLibrary[key] = bucket;
             refreshSiteSelector();
             persistSitesIndex();

@@ -1927,6 +1927,7 @@ body.mode-prestataire .internal-only {
         <button class="btn btn-secondary" onclick="loadFromLocalStorage()">🔄 Recharger</button>
 
         <button class="btn btn-success" id="btnExportSite" onclick="exportSiteJSON()" title="Télécharge ce site en JSON, à déposer dans le dossier partagé (OneDrive)">📤 Exporter site (partage)</button>
+        <button class="btn btn-success" id="btnExportAllSites" onclick="exportAllSitesJSON()" title="Télécharge TOUS les sites chargés en mémoire, en un seul fichier JSON">📦 Exporter tous les sites</button>
         <label for="importSiteFile" class="btn btn-info" id="lblImportSite" title="Recharge un site depuis un JSON exporté par un collègue">📥 Importer site (partage)</label>
         <input type="file" id="importSiteFile" class="file-input" accept=".json" onchange="importSiteJSON(event)" aria-label="Importer un site depuis un fichier JSON partagé">
 
@@ -2222,6 +2223,11 @@ if (isPrestataireMode) {
         if (btnExportSite) {
             btnExportSite.textContent = '📤 Envoyer ma saisie';
             btnExportSite.title = 'Télécharge votre saisie complétée, à renvoyer par le canal convenu (email, OneDrive...)';
+        }
+        const btnExportAllSites = document.getElementById('btnExportAllSites');
+        if (btnExportAllSites) {
+            btnExportAllSites.textContent = '📦 Envoyer toute ma saisie (multi-sites)';
+            btnExportAllSites.title = 'Télécharge tous les sites reçus avec votre saisie complétée, en un seul fichier';
         }
         const lblImportSite = document.getElementById('lblImportSite');
         if (lblImportSite) {
@@ -3320,6 +3326,25 @@ function exportSiteJSON() {
     showNotification('📤 Site exporté : ' + a.download + ' (à déposer dans le dossier partagé)');
 }
 
+/** 🆕 Exporte TOUS les sites actuellement chargés en mémoire en UN SEUL fichier JSON
+ *  (utile après un chargement en masse de plusieurs plannings/check-lists), pour éviter
+ *  de devoir basculer site par site et exporter n fois. */
+function exportAllSitesJSON() {
+    if (activeSiteKey && mainHeaderText) syncActiveSiteIntoLibrary();
+    const keys = Object.keys(sitesLibrary);
+    if (keys.length === 0) { showNotification('Aucun site chargé à exporter.', 'error'); return; }
+    const payload = { __multiSite: true, exportedAt: new Date().toISOString(), sites: sitesLibrary };
+    const blob = new Blob([JSON.stringify(payload, null, 0)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const dateTag = new Date().toISOString().slice(0, 10);
+    a.download = 'OT_MULTI_' + keys.length + '_sites_' + dateTag + '.json';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showNotification('📦 ' + keys.length + ' site(s) exporté(s) dans un seul fichier : ' + a.download);
+}
+
 /** Importe un fichier JSON de site (produit par exportSiteJSON) — depuis le dossier partagé OneDrive par exemple. */
 function importSiteJSON(event) {
     const file = event.target.files[0];
@@ -3327,7 +3352,28 @@ function importSiteJSON(event) {
     const reader = new FileReader();
     reader.onload = function(e) {
         try {
-            const bucket = JSON.parse(e.target.result);
+            const parsed = JSON.parse(e.target.result);
+
+            // 🆕 Fichier multi-sites (produit par exportAllSitesJSON) : on importe chaque site du lot.
+            if (parsed && parsed.__multiSite && parsed.sites && typeof parsed.sites === 'object') {
+                const importedKeys = [];
+                Object.keys(parsed.sites).forEach(function(origKey) {
+                    const bucket = parsed.sites[origKey];
+                    if (!bucket || !bucket.planningData || !bucket.checklistData) return;
+                    const key = slugifySiteName(bucket.label || origKey);
+                    sitesLibrary[key] = bucket;
+                    importedKeys.push(key);
+                });
+                if (importedKeys.length === 0) throw new Error('Fichier multi-sites vide ou invalide');
+                refreshSiteSelector();
+                persistSitesIndex();
+                activateSite(importedKeys[0]);
+                showNotification('📦 ' + importedKeys.length + ' site(s) importé(s) depuis le fichier multi-sites');
+                return;
+            }
+
+            // Cas normal : fichier d'un seul site (produit par exportSiteJSON)
+            const bucket = parsed;
             if (!bucket || !bucket.planningData || !bucket.checklistData) throw new Error('Fichier de site invalide');
             const key = activeSiteKey === null ? slugifySiteName(bucket.label || file.name) : slugifySiteName(bucket.label || file.name);
             sitesLibrary[key] = bucket;

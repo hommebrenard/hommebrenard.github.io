@@ -5503,10 +5503,21 @@ function updateHeaderInfos() {
     }
     
     // Compter le nombre d'anomalies
+    // ✅ CORRECTION : règle unifiée avec countAnomalies() — tout commentaire non vide ≠ "RAS"
+    // compte comme anomalie, que l'action soit cochée Fait ou non. (Avant : deux règles
+    // différentes coexistaient, donnant des comptes incohérents entre saisie live et
+    // réactivation/import de site.)
     let totalAnomalies = 0;
-    for (const otNum in otStates) {
-        const analyse = analyserOT(otNum);
-        totalAnomalies += analyse.anomalies.length;
+    for (const otKey in otStates) {
+        const state = otStates[otKey];
+        if (state && state.commentaires) {
+            Object.values(state.commentaires).forEach(comment => {
+                const c = String(comment || '').trim().toUpperCase();
+                if (c && c !== 'RAS' && c !== 'R.A.S' && c !== 'R.A.S.' && c !== 'RAS.') {
+                    totalAnomalies++;
+                }
+            });
+        }
     }
     const anomaliesElement = document.getElementById('headerAnomalies');
     if (anomaliesElement) {

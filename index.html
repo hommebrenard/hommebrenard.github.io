@@ -1884,6 +1884,12 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
 </head>
 <body>
 
+<style>
+/* 🆕 Mode prestataire (?role=prestataire) : masque tous les outils réservés au gestionnaire interne */
+body.mode-prestataire .internal-only {
+    display: none !important;
+}
+</style>
 <div class="toolbar">
     <button class="menu-toggle" onclick="toggleMobileMenu()" 
             aria-label="Ouvrir le menu" aria-expanded="false" id="menuToggleBtn">☰</button>
@@ -1891,41 +1897,44 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
     <div class="toolbar-title" id="toolbarTitle" style="display:none;">🔧 OT PREVENTIF</div>
     
     <div class="toolbar-buttons" id="toolbarButtons">
-        <label for="planningFile" class="btn btn-primary">📋 Charger Planning OT</label>
-        <input type="file" id="planningFile" name="planningFile" class="file-input" 
-               accept=".xlsx,.xls" onchange="loadPlanningFile(event)" 
-               aria-label="Charger le fichier Excel du planning">
-        
-        <label for="checklistFile" class="btn btn-primary">✅ Charger Check-lists</label>
-        <input type="file" id="checklistFile" name="checklistFile" class="file-input" 
-               accept=".xlsx,.xls" onchange="loadChecklistFile(event)" 
-               aria-label="Charger le fichier Excel des check-lists">
+        <div class="internal-only" id="internalOnlyTools" style="display:contents;">
+            <label for="planningFile" class="btn btn-primary">📋 Charger Planning OT</label>
+            <input type="file" id="planningFile" name="planningFile" class="file-input" 
+                   accept=".xlsx,.xls" onchange="loadPlanningFile(event)" 
+                   aria-label="Charger le fichier Excel du planning">
+            
+            <label for="checklistFile" class="btn btn-primary">✅ Charger Check-lists</label>
+            <input type="file" id="checklistFile" name="checklistFile" class="file-input" 
+                   accept=".xlsx,.xls" onchange="loadChecklistFile(event)" 
+                   aria-label="Charger le fichier Excel des check-lists">
 
-        <label for="planningFilesBulk" class="btn btn-secondary">📚 Charger plusieurs Plannings</label>
-        <input type="file" id="planningFilesBulk" name="planningFilesBulk" class="file-input" multiple
-               accept=".xlsx,.xls" onchange="loadPlanningFilesBulk(event)"
-               aria-label="Charger plusieurs fichiers Excel de planning en une fois">
+            <label for="planningFilesBulk" class="btn btn-secondary">📚 Charger plusieurs Plannings</label>
+            <input type="file" id="planningFilesBulk" name="planningFilesBulk" class="file-input" multiple
+                   accept=".xlsx,.xls" onchange="loadPlanningFilesBulk(event)"
+                   aria-label="Charger plusieurs fichiers Excel de planning en une fois">
 
-        <label for="checklistFilesBulk" class="btn btn-secondary">📚 Charger plusieurs Check-lists</label>
-        <input type="file" id="checklistFilesBulk" name="checklistFilesBulk" class="file-input" multiple
-               accept=".xlsx,.xls" onchange="loadChecklistFilesBulk(event)"
-               aria-label="Charger plusieurs fichiers Excel de check-list en une fois">
+            <label for="checklistFilesBulk" class="btn btn-secondary">📚 Charger plusieurs Check-lists</label>
+            <input type="file" id="checklistFilesBulk" name="checklistFilesBulk" class="file-input" multiple
+                   accept=".xlsx,.xls" onchange="loadChecklistFilesBulk(event)"
+                   aria-label="Charger plusieurs fichiers Excel de check-list en une fois">
 
-        <button class="btn btn-dashboard" id="btnDashboard" onclick="openDashboard()" disabled>📊 Tableau de Bord KPI</button>
-        <button class="btn btn-success" id="btnExportExcel" onclick="exportExcel()" disabled>📥 Exporter Excel</button>
-        <button class="btn btn-info" id="btnExportPDF" onclick="exportAllPDF()" disabled>📄 Export PDF Global</button>
+            <button class="btn btn-dashboard" id="btnDashboard" onclick="openDashboard()" disabled>📊 Tableau de Bord KPI</button>
+            <button class="btn btn-success" id="btnExportExcel" onclick="exportExcel()" disabled>📥 Exporter Excel</button>
+            <button class="btn btn-info" id="btnExportPDF" onclick="exportAllPDF()" disabled>📄 Export PDF Global</button>
+        </div>
+
         <button class="btn btn-warning" id="btnSave" onclick="saveToLocalStorage()" disabled>💾 Sauvegarder</button>
         <button class="btn btn-secondary" onclick="loadFromLocalStorage()">🔄 Recharger</button>
 
-        <button class="btn btn-success" onclick="exportSiteJSON()" title="Télécharge ce site en JSON, à déposer dans le dossier partagé (OneDrive)">📤 Exporter site (partage)</button>
-        <label for="importSiteFile" class="btn btn-info" title="Recharge un site depuis un JSON exporté par un collègue">📥 Importer site (partage)</label>
+        <button class="btn btn-success" id="btnExportSite" onclick="exportSiteJSON()" title="Télécharge ce site en JSON, à déposer dans le dossier partagé (OneDrive)">📤 Exporter site (partage)</button>
+        <label for="importSiteFile" class="btn btn-info" id="lblImportSite" title="Recharge un site depuis un JSON exporté par un collègue">📥 Importer site (partage)</label>
         <input type="file" id="importSiteFile" class="file-input" accept=".json" onchange="importSiteJSON(event)" aria-label="Importer un site depuis un fichier JSON partagé">
 
-        <button class="btn btn-danger" onclick="resetAll()">🗑️ Réinitialiser</button>
+        <button class="btn btn-danger internal-only" id="btnResetAll" onclick="resetAll()">🗑️ Réinitialiser</button>
     </div>
 </div>
 
-<div class="file-status" id="siteSelectorWrap" style="display:none; align-items:center; gap:10px; padding:10px 16px; background:#eef3fb; border-bottom:1px solid #d8e2f0; flex-wrap:wrap;">
+<div class="file-status internal-only" id="siteSelectorWrap" style="display:none; align-items:center; gap:10px; padding:10px 16px; background:#eef3fb; border-bottom:1px solid #d8e2f0; flex-wrap:wrap;">
     <span style="font-weight:600; color:#2c4a7c;">🔍 Filtrer :</span>
     <select id="siteFilterSelect" onchange="refreshSiteSelector()" style="padding:8px 10px; border-radius:6px; border:1px solid #ccc; max-width:220px;">
         <option value="">🏢 Tous les sites</option>
@@ -2197,6 +2206,35 @@ let mainHeaderText = '';
 let annexesData = [];
 let annexePageMap = {};
 let chartsInstances = {};
+
+// ============================================
+// 🆕 MODE PRESTATAIRE (?role=prestataire)
+// Variante allégée de l'app : masque les outils de pilotage interne
+// (dashboard, exports rapport, réinitialisation, multi-sites) et ne laisse
+// que le strict nécessaire pour recevoir un site, remplir les checklists,
+// et renvoyer sa saisie.
+// ============================================
+const isPrestataireMode = new URLSearchParams(window.location.search).get('role') === 'prestataire';
+if (isPrestataireMode) {
+    document.body.classList.add('mode-prestataire');
+    document.addEventListener('DOMContentLoaded', function() {
+        const btnExportSite = document.getElementById('btnExportSite');
+        if (btnExportSite) {
+            btnExportSite.textContent = '📤 Envoyer ma saisie';
+            btnExportSite.title = 'Télécharge votre saisie complétée, à renvoyer par le canal convenu (email, OneDrive...)';
+        }
+        const lblImportSite = document.getElementById('lblImportSite');
+        if (lblImportSite) {
+            lblImportSite.textContent = '📥 Charger le site à traiter';
+            lblImportSite.title = 'Sélectionnez le fichier JSON reçu pour commencer à remplir les checklists';
+        }
+        const toolbarTitle = document.getElementById('toolbarTitle');
+        if (toolbarTitle) {
+            toolbarTitle.style.display = 'block';
+            toolbarTitle.textContent = '🔧 SAISIE PRESTATAIRE';
+        }
+    });
+}
 
 // ============================================
 // 🆕 BIBLIOTHÈQUE MULTI-SITES

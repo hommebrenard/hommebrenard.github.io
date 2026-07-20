@@ -1930,6 +1930,11 @@ body.mode-prestataire .internal-only {
         <button class="btn btn-success" id="btnExportAllSites" onclick="exportAllSitesJSON()" title="Télécharge TOUS les sites chargés en mémoire, en un seul fichier JSON">📦 Exporter tous les sites</button>
         <label for="importSiteFile" class="btn btn-info" id="lblImportSite" title="Recharge un site depuis un JSON exporté par un collègue">📥 Importer site (partage)</label>
         <input type="file" id="importSiteFile" class="file-input" accept=".json" onchange="importSiteJSON(event)" aria-label="Importer un site depuis un fichier JSON partagé">
+        <button class="btn btn-warning internal-only" id="btnExportPrestataire" onclick="exportPrestataireJSON()" title="Envoie uniquement les OT non traités du site actif au prestataire">📤 Envoyer au prestataire</button>
+        <label for="importRetourPrestataireFile" class="btn btn-warning internal-only" id="lblImportRetourPrestataire" title="Fusionne le retour du prestataire OT par OT (jamais un écrasement total)">📥 Importer retour prestataire</label>
+        <input type="file" id="importRetourPrestataireFile" class="file-input internal-only" accept=".json" onchange="importRetourPrestataireJSON(event)" aria-label="Importer le retour du prestataire">
+        <button class="btn btn-secondary internal-only" id="btnReviewHorsPlanning" onclick="reviewOTsHorsPlanning()" title="Valider ou rejeter les OT signalés par le prestataire hors du planning initial">🧾 Hors planning</button>
+        <button class="btn btn-secondary internal-only" id="btnCloturerArchiver" onclick="cloturerEtArchiverSiteActif()" title="Génère un instantané figé du site (archive_*.json) pour archivage OneDrive">🗄️ Clôturer / Archiver</button>
 
         <button class="btn btn-danger internal-only" id="btnResetAll" onclick="resetAll()">🗑️ Réinitialiser</button>
     </div>
@@ -3432,6 +3437,243 @@ function importSiteJSON(event) {
     event.target.value = '';
 }
 
+// ============================================
+// 🆕 ÉCHANGE PRESTATAIRE : envoi ciblé, retour fusionné (jamais un écrasement total),
+// quarantaine des OT hors planning, journal d'événements par site.
+// ============================================
+
+/** Liste des OT du planning du site actif non encore traités en interne. */
+function getOTsNonTraites() {
+    const list = [];
+    planningData.forEach(row => {
+        if (row.type !== 'row') return;
+        row.ots.forEach(ot => {
+            const otStr = String(ot || '').trim();
+            if (!isValidOT(otStr)) return;
+            const state = otStates[otStr];
+            if (!state || !state.technicien) list.push(otStr);
+        });
+    });
+    return list;
+}
+
+/** Liste des n° d'OT connus dans le planning d'un bucket de site donné (pour valider un retour prestataire). */
+function getOTKeysFromBucket(bucket) {
+    const keys = [];
+    if (!bucket || !bucket.planningData) return keys;
+    bucket.planningData.forEach(row => {
+        if (row.type !== 'row') return;
+        row.ots.forEach(ot => {
+            const otStr = String(ot || '').trim();
+            if (isValidOT(otStr)) keys.push(otStr);
+        });
+    });
+    return keys;
+}
+
+/** 🆕 Export ciblé "à faire par le prestataire" : uniquement les OT non traités du site actif,
+ *  avec marquage statutSync='envoye' + horodatage + entrée dans le journal du site. */
+function exportPrestataireJSON() {
+    if (!activeSiteKey) { showNotification('Aucun site actif à exporter.', 'error'); return; }
+    syncActiveSiteIntoLibrary();
+    const otList = getOTsNonTraites();
+    if (otList.length === 0) { showNotification('Aucun OT en attente à envoyer au prestataire.', 'error'); return; }
+
+    const now = new Date().toISOString();
+    const bucket = sitesLibrary[activeSiteKey];
+    if (!bucket.historique) bucket.historique = [];
+    const otStatesAllegees = {};
+    otList.forEach(ot => {
+        if (!otStates[ot]) otStates[ot] = { actions: {}, commentaires: {} };
+        otStates[ot].statutSync = 'envoye';
+        otStates[ot].dateEnvoiPrestataire = now;
+        otStatesAllegees[ot] = { statutSync: 'envoye', dateEnvoiPrestataire: now };
+    });
+    bucket.historique.push({ action: 'envoi_prestataire', date: now, nbOT: otList.length });
+    sitesLibrary[activeSiteKey] = bucket;
+    persistActiveSiteToLocalStorage();
+
+    const payload = {
+        __prestataireExport: true,
+        site: currentSiteName || mainHeaderText,
+        siteKey: activeSiteKey,
+        exportedAt: now,
+        planningData, planningHeaders, checklistData,
+        dateColumns: (window.dateColumns || []),
+        mainHeaderText,
+        otStates: otStatesAllegees
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 0)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ENVOI_PRESTATAIRE_' + activeSiteKey.replace(/\s+/g, '_') + '.json';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showNotification('📤 ' + otList.length + ' OT envoyé(s) au prestataire : ' + a.download);
+}
+
+/** 🆕 Import du retour prestataire : fusion OT par OT dans le site correspondant
+ *  (jamais un remplacement total du site), avec :
+ *  - détection de conflit si l'OT a été modifié en interne après l'envoi (pas d'écrasement automatique),
+ *  - mise en quarantaine des OT absents du planning local (hors planning), à valider manuellement. */
+function importRetourPrestataireJSON(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const incoming = JSON.parse(e.target.result);
+            const key = incoming.siteKey && sitesLibrary[incoming.siteKey] ? incoming.siteKey : activeSiteKey;
+            if (!key || !sitesLibrary[key]) throw new Error('Site correspondant introuvable en local. Chargez d\'abord le planning de ce site.');
+
+            const bucket = sitesLibrary[key];
+            if (!bucket.otStates) bucket.otStates = {};
+            if (!bucket.historique) bucket.historique = [];
+            if (!bucket.otsHorsPlanning) bucket.otsHorsPlanning = [];
+
+            const incomingStates = incoming.otStates || {};
+            const knownOTs = new Set(getOTKeysFromBucket(bucket));
+            const now = new Date().toISOString();
+            let fusionnes = 0, conflits = [], horsPlanning = 0;
+
+            Object.keys(incomingStates).forEach(ot => {
+                const incomingState = incomingStates[ot];
+                const isKnown = knownOTs.size > 0 ? knownOTs.has(ot) : true;
+
+                if (!isKnown) {
+                    bucket.otsHorsPlanning.push({
+                        numOT: ot, etat: incomingState.status, technicien: incomingState.technicien,
+                        commentaires: incomingState.commentaires, dateSignalement: now, statutValidation: 'a_valider'
+                    });
+                    horsPlanning++;
+                    return;
+                }
+
+                const local = bucket.otStates[ot];
+                const localModifieDepuisEnvoi = local && local.technicien && local.dateEnvoiPrestataire &&
+                    local.dateModifLocale && new Date(local.dateModifLocale) > new Date(local.dateEnvoiPrestataire);
+
+                if (localModifieDepuisEnvoi) {
+                    conflits.push(ot);
+                    return; // ⚠️ pas d'écrasement automatique : à arbitrer manuellement
+                }
+
+                bucket.otStates[ot] = Object.assign({}, local, incomingState, {
+                    statutSync: 'recu', dateRetourPrestataire: now, modifiePar: 'prestataire'
+                });
+                fusionnes++;
+            });
+
+            bucket.historique.push({ action: 'retour_prestataire', date: now, nbFusionnes: fusionnes, nbConflits: conflits.length, nbHorsPlanning: horsPlanning });
+            sitesLibrary[key] = bucket;
+            if (key === activeSiteKey) { otStates = bucket.otStates; renderPlanning(); updateHeaderInfos(); }
+            persistActiveSiteToLocalStorage();
+
+            let msg = '📥 Retour prestataire intégré : ' + fusionnes + ' OT fusionné(s)';
+            if (horsPlanning > 0) msg += ', ' + horsPlanning + ' hors planning en quarantaine (voir 🧾 Hors planning)';
+            if (conflits.length > 0) msg += ' — ⚠️ ' + conflits.length + ' conflit(s) à arbitrer : ' + conflits.join(', ');
+            showNotification(msg, conflits.length > 0 ? 'warning' : 'success');
+        } catch (err) {
+            showNotification('Erreur import retour prestataire : ' + err.message, 'error');
+        }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+}
+
+/** 🆕 Affiche la file d'attente "hors planning" du site actif et permet de valider ou rejeter chaque entrée. */
+function reviewOTsHorsPlanning() {
+    if (!activeSiteKey || !sitesLibrary[activeSiteKey]) { showNotification('Aucun site actif.', 'error'); return; }
+    const bucket = sitesLibrary[activeSiteKey];
+    const enAttente = (bucket.otsHorsPlanning || []).filter(o => o.statutValidation === 'a_valider');
+    if (enAttente.length === 0) { showNotification('✅ Aucun OT hors planning en attente de validation.'); return; }
+
+    enAttente.forEach(item => {
+        const choix = window.prompt(
+            '🧾 OT hors planning : ' + item.numOT + '\nÉtat déclaré : ' + (item.etat || '?') +
+            '\nTechnicien : ' + (item.technicien || '?') +
+            '\nCommentaires : ' + JSON.stringify(item.commentaires || {}) +
+            '\n\nTaper : "valider" pour l\'intégrer comme OT correctif, "rejeter" pour l\'archiver sans suite, ou laisser vide pour le garder en attente.',
+            ''
+        );
+        if (choix === 'valider') {
+            item.statutValidation = 'valide';
+            if (!otStates[item.numOT]) otStates[item.numOT] = { actions: {}, commentaires: item.commentaires || {} };
+            otStates[item.numOT].status = item.etat || 'NF';
+            otStates[item.numOT].technicien = item.technicien || 'Prestataire';
+            otStates[item.numOT].modifiePar = 'prestataire';
+            bucket.historique = bucket.historique || [];
+            bucket.historique.push({ action: 'ot_hors_planning_valide', date: new Date().toISOString(), numOT: item.numOT });
+        } else if (choix === 'rejeter') {
+            item.statutValidation = 'rejete';
+        }
+    });
+    sitesLibrary[activeSiteKey] = bucket;
+    persistActiveSiteToLocalStorage();
+    renderPlanning();
+    showNotification('🧾 Revue des OT hors planning terminée.');
+}
+
+// ============================================
+// 🆕 ARCHIVAGE / CLÔTURE MENSUELLE PAR SITE
+// Une archive = un instantané figé (planning + otStates + historique + KPI),
+// nommée archive_{site}_{mois}.json — à ranger dans OneDrive/archives/{année}/{mois}/
+// ============================================
+function cloturerEtArchiverSiteActif() {
+    if (!activeSiteKey) { showNotification('Aucun site actif à clôturer.', 'error'); return; }
+    syncActiveSiteIntoLibrary();
+    const bucket = sitesLibrary[activeSiteKey];
+    const parsed = parseSiteKey(activeSiteKey);
+    const now = new Date();
+
+    if (!window.confirm('Clôturer et archiver "' + (bucket.label || activeSiteKey) + '" ?\n\nUn fichier archive_*.json figé sera généré. Le site restera modifiable ensuite (la clôture est informative).')) return;
+
+    let total = 0, fait = 0, partiel = 0, nonFait = 0;
+    (bucket.planningData || []).forEach(row => {
+        if (row.type !== 'row') return;
+        row.ots.forEach(ot => {
+            const otStr = String(ot || '').trim();
+            if (!isValidOT(otStr)) return;
+            total++;
+            const st = (bucket.otStates || {})[otStr];
+            if (st && st.status === 'F') fait++;
+            else if (st && st.status === 'P') partiel++;
+            else if (st && st.status === 'NF') nonFait++;
+        });
+    });
+
+    const archive = {
+        __archive: true,
+        site: parsed.site,
+        siteKey: activeSiteKey,
+        periode: parsed.monthYear,
+        dateValidation: now.toISOString(),
+        planningData: bucket.planningData,
+        planningHeaders: bucket.planningHeaders,
+        checklistData: bucket.checklistData,
+        otStates: bucket.otStates,
+        otsHorsPlanning: bucket.otsHorsPlanning || [],
+        historiqueEchanges: bucket.historique || [],
+        kpis: { totalOT: total, fait, partiel, nonFait }
+    };
+
+    const blob = new Blob([JSON.stringify(archive, null, 0)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'archive_' + activeSiteKey.replace(/\s+/g, '_').toLowerCase() + '.json';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    bucket.statutPeriode = 'cloture';
+    bucket.historique = bucket.historique || [];
+    bucket.historique.push({ action: 'cloture_archivage', date: now.toISOString(), kpis: { totalOT: total, fait, partiel, nonFait } });
+    sitesLibrary[activeSiteKey] = bucket;
+    persistActiveSiteToLocalStorage();
+    showNotification('🗄️ Site clôturé et archivé : ' + a.download + ' (' + total + ' OT, ' + fait + ' faits)');
+}
+
 function updateFileStatus() {
     if (planningLoaded) {
         document.getElementById('planningStatus').textContent = 'Chargé';
@@ -4495,6 +4737,9 @@ function saveChecklist() {
     if (done === total) otStates[currentOT].status = 'F';
     else if (done === 0) otStates[currentOT].status = 'NF';
     else otStates[currentOT].status = 'P';
+    // 🆕 Traçabilité pour la fusion des retours prestataire (détection de conflit)
+    otStates[currentOT].dateModifLocale = new Date().toISOString();
+    otStates[currentOT].modifiePar = 'interne';
     saveToLocalStorage(true);
     showNotification('✅ OT ' + currentOT + ' enregistré (' + done + '/' + total + ' actions)');
     closeModal();

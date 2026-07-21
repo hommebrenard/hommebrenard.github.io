@@ -3369,14 +3369,13 @@ function activateSite(key) {
         syncActiveSiteIntoLibrary();
     }
     const bucket = sitesLibrary[key];
-    // 🆕 On marque ce site comme "actif" même s'il est incomplet, pour qu'il reste
-    // possible de le retirer via Réinitialiser (sinon un site orphelin ne pouvait jamais être nettoyé).
-    activeSiteKey = key;
+if (!bucket.planningData || !bucket.checklistData) {
+    showNotification('⚠️ Il manque le planning ou la check-list pour ce site.', 'error');
     refreshSiteSelector();
-    if (!bucket.planningData || !bucket.checklistData) {
-        showNotification('⚠️ Il manque le planning ou la check-list pour ce site.', 'error');
-        return;
-    }
+    return; // on NE bascule PAS activeSiteKey tant que le site n'est pas complet
+}
+activeSiteKey = key;
+refreshSiteSelector();
     planningData = bucket.planningData;
     planningHeaders = bucket.planningHeaders;
     checklistData = bucket.checklistData;
@@ -3509,7 +3508,25 @@ function importSiteJSON(event) {
                 return;
             }
 
-            // Cas normal : fichier d'un seul site (produit par exportSiteJSON)
+           // 🆕 Fichier "archive_*.json" (Archiver/Clôturer) : structure différente de l'export "Site (partage)".
+if (parsed && parsed.__archive) {
+    const bucket = parsed;
+    if (!bucket.planningData || !bucket.checklistData) throw new Error('Fichier d\'archive invalide');
+    const key = bucket.siteKey || slugifySiteName(((bucket.site || '') + ' ' + (bucket.periode || '')) || file.name);
+    bucket.label = ((bucket.site || '') + (bucket.periode ? ' ' + bucket.periode : '')).trim() || file.name;
+    bucket.mainHeaderText = bucket.label;
+    if (!bucket.dateColumns) {
+        bucket.dateColumns = (bucket.planningHeaders || []).filter(h => /\d{2}\/\d{2}\/\d{4}/.test(String(h)));
+    }
+    sitesLibrary[key] = bucket;
+    refreshSiteSelector();
+    persistSitesIndex();
+    activateSite(key);
+    showNotification('📦 Archive importée (lecture) : ' + bucket.label);
+    return;
+}
+          
+             // Cas normal : fichier d'un seul site (produit par exportSiteJSON)
             const bucket = parsed;
             if (!bucket || !bucket.planningData || !bucket.checklistData) throw new Error('Fichier de site invalide');
             const key = slugifySiteName(bucket.label || file.name);

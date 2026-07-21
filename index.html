@@ -1907,6 +1907,9 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
 body.mode-prestataire .internal-only {
     display: none !important;
 }
+.prestataire-only { display: none !important; }
+body.mode-prestataire .prestataire-only { display: inline-flex !important; }
+     
 </style>
 <div class="toolbar">
     <button class="menu-toggle" onclick="toggleMobileMenu()" 
@@ -1923,6 +1926,7 @@ body.mode-prestataire .internal-only {
         <button class="btn btn-secondary" onclick="loadFromLocalStorage()">🔄 Recharger</button>
         <button class="btn btn-primary" id="btnOpenDataIO" onclick="openDataIOModal()">🔁 Échanger des données</button>
         <button class="btn btn-danger internal-only" id="btnResetAll" onclick="resetAll()">🗑️ Réinitialiser</button>
+        <button class="btn btn-danger prestataire-only" id="btnResetPrestataire" onclick="resetPrestataireData()">🗑️ Effacer mes données</button>
 
         <!-- Champs fichiers réels, déclenchés depuis les cartes de la modale d'échange -->
         <div style="display:none;">
@@ -4958,6 +4962,37 @@ updateHeaderInfos();
         showNotification('✅ Données rechargées');
     } catch (err) { showNotification('Erreur : ' + err.message, 'error'); }
 }
+
+function resetPrestataireData() {
+    if (!window.confirm(
+        'Effacer les données enregistrées sur ce navigateur et recommencer ?\n\n' +
+        'Cela ne supprime ni le fichier reçu ni votre saisie déjà envoyée, seulement ce qui est stocké ici.'
+    )) return;
+
+    Object.keys(sitesLibrary).forEach(function(key) {
+        localStorage.removeItem('otSiteData_v2_' + key);
+    });
+    localStorage.removeItem('otSitesIndex_v2');
+    localStorage.removeItem('otPreventifData');
+
+    sitesLibrary = {};
+    activeSiteKey = null;
+    planningData = []; checklistData = {}; planningHeaders = []; otStates = {};
+    planningLoaded = false; checklistLoaded = false; mainHeaderText = '';
+
+    refreshSiteSelector();
+    document.getElementById('planningStatus').textContent = 'Non chargé';
+    document.getElementById('planningStatus').className = 'status-empty';
+    document.getElementById('checklistStatus').textContent = 'Non chargé';
+    document.getElementById('checklistStatus').className = 'status-empty';
+    document.getElementById('fileStatus').classList.remove('loaded');
+    document.getElementById('welcomeScreen').classList.remove('hidden');
+    document.getElementById('workspace').classList.add('hidden');
+
+    showNotification('🗑️ Données locales effacées. Vous pouvez recharger le site à traiter.');
+}
+
+function resetAll() {
 
 function resetAll() {
     const nbSites = Object.keys(sitesLibrary).length;

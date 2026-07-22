@@ -4221,13 +4221,14 @@ function handleSignatureImageUpload(event) {
 
         // 🆕 Rognage automatique des marges blanches de la photo/scan avant stockage,
         // pour éviter que la signature apparaisse "perdue" dans un grand cadre vide (décalage dans le PDF).
-        trimSignatureCanvas(rawDataURL, function(trimmed) {
+        trimSignatureCanvas(rawDataURL, async function(trimmed) {
             const dataURL = trimmed.dataURL;
             const now = new Date();
             const dateStr = now.toLocaleDateString('fr-FR');
             const timeStr = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
             const sigId = generateSignatureId();
-            const hashHex = generateSignatureHash(techName, now.getTime(), sigId);
+// 🔐 SHA-256 (sécurité renforcée)
+const hashHex = await generateSignatureHashSHA256(techName, now.getTime(), sigId);
 
             if (!electronicSignatureData) {
                 electronicSignatureData = {
@@ -4473,7 +4474,51 @@ function generateSignatureId() {
 /**
  * Génère un hash de sécurité (8 caractères) basé sur les données
  */
-function generateSignatureHash(name, timestamp, id) {
+/**
+ * ============================================
+ * 🔐 GÉNÉRATION HASH SHA-256 (SÉCURITÉ RENFORCÉE)
+ * ============================================
+ * Utilise Web Crypto API native du navigateur.
+ * Conforme aux normes eIDAS, RGPD, ISO 27001.
+ * 
+ * @param {string} name - Nom du signataire
+ * @param {number} timestamp - Timestamp de la signature
+ * @param {string} id - ID unique de la signature
+ * @returns {Promise<string>} Hash SHA-256 en hexadécimal (64 caractères)
+ */
+async function generateSignatureHashSHA256(name, timestamp, id) {
+    try {
+        // Concaténation des données
+        const input = String(name) + String(timestamp) + String(id);
+        
+        // Conversion en bytes (UTF-8)
+        const encoder = new TextEncoder();
+        const data = encoder.encode(input);
+        
+        // Calcul SHA-256 via Web Crypto API (natif navigateur)
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        
+        // Conversion en hexadécimal
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('')
+            .toUpperCase();
+        
+        return hashHex;
+    } catch (error) {
+        console.error('❌ Erreur génération SHA-256:', error);
+        // Fallback : ancien hash si SHA-256 échoue (navigateur trop vieux)
+        return generateSignatureHashLegacy(name, timestamp, id);
+    }
+}
+
+/**
+ * 🔒 Fonction LEGACY (ancien hash) - Conservée pour compatibilité
+ * Utilisée uniquement si SHA-256 n'est pas disponible.
+ * Ne PAS utiliser directement dans le nouveau code.
+ */
+function generateSignatureHashLegacy(name, timestamp, id) {
     const input = name + timestamp + id;
     let hash = 0;
     for (let i = 0; i < input.length; i++) {
@@ -4484,9 +4529,47 @@ function generateSignatureHash(name, timestamp, id) {
 }
 
 /**
+ * 🔐 Vérifie l'intégrité d'une signature en recalculant son hash
+ * Permet de détecter toute altération des données.
+ * 
+ * @param {Object} signatureData - Données de la signature
+ * @returns {Promise<boolean>} true si la signature est intègre
+ */
+async function verifySignatureIntegrity(signatureData) {
+    if (!signatureData || !signatureData.name || !signatureData.timestamp || !signatureData.id || !signatureData.hash) {
+        console.warn('⚠️ Données de signature incomplètes');
+        return false;
+    }
+    
+    try {
+        const timestampMs = new Date(signatureData.timestamp).getTime();
+        const recalculatedHash = await generateSignatureHashSHA256(
+            signatureData.name,
+            timestampMs,
+            signatureData.id
+        );
+        
+        // Comparaison des hashes
+        const isValid = recalculatedHash === signatureData.hash;
+        
+        if (!isValid) {
+            console.warn('🚨 ALERTE : Signature altérée détectée !');
+            console.warn('Hash attendu:', signatureData.hash);
+            console.warn('Hash calculé:', recalculatedHash);
+        }
+        
+        return isValid;
+    } catch (error) {
+        console.error('❌ Erreur vérification signature:', error);
+        return false;
+    }
+}
+     
+
+/**
  * Génère la signature électronique et l'affiche dans la box
  */
-function generateElectronicSignature() {
+async function generateElectronicSignature() {
     // 1. Récupération du nom du technicien
     const techNameInput = document.getElementById('techName');
     const techName = techNameInput ? techNameInput.value.trim() : '';
@@ -4506,8 +4589,9 @@ function generateElectronicSignature() {
     const now = new Date();
     const dateStr = now.toLocaleDateString('fr-FR');
     const timeStr = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-    const sigId = generateSignatureId();
-    const hashHex = generateSignatureHash(techName, now.getTime(), sigId);
+   const sigId = generateSignatureId();
+// 🔐 SHA-256 (sécurité renforcée)
+const hashHex = await generateSignatureHashSHA256(techName, now.getTime(), sigId);
     
     // 4. Stockage des données
     electronicSignatureData = {

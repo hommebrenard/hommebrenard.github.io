@@ -1898,6 +1898,60 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
         max-height: none; /* sur mobile la vue en cartes est utilisée, pas le tableau */
     }
 }
+
+/* ============================================
+   VUE KANBAN — bloc additif, isolé (préfixe kb-)
+   N'affecte aucune règle existante du tableau.
+   ============================================ */
+.kb-view-toggle {
+    display: flex; gap: 6px; background: #f9fafb; border-radius: 8px;
+    padding: 4px; margin-bottom: 15px; width: fit-content;
+}
+.kb-view-btn {
+    padding: 7px 16px; border: none; border-radius: 6px; background: transparent;
+    color: #6b7280; font-size: 12px; font-weight: 600; cursor: pointer;
+    transition: all 0.15s;
+}
+.kb-view-btn.active { background: white; color: #4f46e5; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+.kb-view-btn:hover:not(.active) { color: #374151; }
+
+.kb-board {
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 12px; align-items: start;
+}
+.kb-column-header {
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
+    color: #6b7280; padding: 0 4px 10px; display: flex; justify-content: space-between; align-items: center;
+}
+.kb-column-count {
+    background: #e5e7eb; color: #4b5563; border-radius: 20px; padding: 1px 8px; font-size: 11px;
+}
+.kb-column-body {
+    background: #f9fafb; border-radius: 10px; padding: 8px; min-height: 60px;
+    display: flex; flex-direction: column; gap: 8px; max-height: 65vh; overflow-y: auto;
+}
+.kb-card {
+    background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px;
+    cursor: pointer; transition: all 0.15s; border-left: 3px solid #d1d5db;
+}
+.kb-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); transform: translateY(-1px); }
+.kb-card.kb-pending { border-left-color: #2196f3; }
+.kb-card.kb-fait { border-left-color: #10b981; }
+.kb-card.kb-partiel { border-left-color: #f59e0b; }
+.kb-card.kb-nonfait { border-left-color: #ef4444; }
+.kb-card.kb-nc { border-left-color: #9ca3af; opacity: 0.75; cursor: not-allowed; }
+.kb-card-ot { font-size: 12px; font-weight: 700; color: #1f3864; margin-bottom: 4px; }
+.kb-card-materiel { font-size: 11px; color: #4b5563; margin-bottom: 2px; }
+.kb-card-libelle { font-size: 10px; color: #9ca3af; margin-bottom: 6px; }
+.kb-card-date { font-size: 10px; color: #6b7280; }
+.kb-empty { font-size: 11px; color: #9ca3af; text-align: center; padding: 20px 6px; font-style: italic; }
+
+@media (max-width: 1024px) {
+    .kb-board { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+    .kb-board { grid-template-columns: 1fr; }
+}
 </style>
 </head>
 <body>
@@ -2105,6 +2159,11 @@ body.mode-prestataire .internal-only {
     <span class="status-tag status-nc">— NC - Non Communiqué</span>
 </div>
 
+    <div class="kb-view-toggle" id="kbViewToggle">
+        <button type="button" class="kb-view-btn active" id="kbBtnTableau" onclick="switchMainView('tableau')">📋 Tableau</button>
+        <button type="button" class="kb-view-btn" id="kbBtnKanban" onclick="switchMainView('kanban')">🗂️ Kanban</button>
+    </div>
+
     <div class="mobile-filter-bar" id="mobileFilterBar">
         <input type="search" class="mobile-search-input" id="mobileSearch" name="mobileSearch"
                placeholder="🔍 Rechercher OT, équipement..." onkeyup="filterMobileCards()" 
@@ -2128,6 +2187,8 @@ body.mode-prestataire .internal-only {
     </div>
     
     <div class="mobile-cards-view" id="mobileCardsView"></div>
+
+    <div class="kb-board hidden" id="kanbanBoard"></div>
 
     <div class="summary-bar">
         <div class="stat-box total"><span class="number" id="statTotal">0</span><span class="label">Total OT</span></div>
@@ -3879,6 +3940,7 @@ function renderPlanning() {
     setupPlanningTableEvents();
     renderMobileCardsView();
     updateStats();
+    if (typeof kbRefreshIfActive === 'function') kbRefreshIfActive();
 }
 
 function setupPlanningTableEvents() {
@@ -5934,6 +5996,90 @@ function updateStats() {
     document.getElementById('statEncours').textContent = encours;
     document.getElementById('statNC').textContent = nc;
     updateHeaderInfos();  // Mettre à jour aussi les infos du header
+}
+
+/* ============================================
+   VUE KANBAN — bloc additif, isolé (préfixe kb)
+   Lit uniquement planningData / otStates déjà en mémoire.
+   Ne modifie et n'appelle aucune fonction de rendu existante.
+   ============================================ */
+let kbCurrentView = 'tableau';
+
+function switchMainView(view) {
+    kbCurrentView = view;
+    const tableContainer = document.querySelector('.table-container');
+    const mobileView = document.getElementById('mobileCardsView');
+    const kanbanBoard = document.getElementById('kanbanBoard');
+    const btnTableau = document.getElementById('kbBtnTableau');
+    const btnKanban = document.getElementById('kbBtnKanban');
+    if (view === 'kanban') {
+        if (tableContainer) tableContainer.classList.add('hidden');
+        if (mobileView) mobileView.classList.add('hidden');
+        if (kanbanBoard) kanbanBoard.classList.remove('hidden');
+        if (btnTableau) btnTableau.classList.remove('active');
+        if (btnKanban) btnKanban.classList.add('active');
+        renderKanban();
+    } else {
+        if (tableContainer) tableContainer.classList.remove('hidden');
+        if (isMobile() && mobileView) mobileView.classList.remove('hidden');
+        if (kanbanBoard) kanbanBoard.classList.add('hidden');
+        if (btnTableau) btnTableau.classList.add('active');
+        if (btnKanban) btnKanban.classList.remove('active');
+    }
+}
+
+function kbRefreshIfActive() {
+    if (kbCurrentView === 'kanban') renderKanban();
+}
+
+function renderKanban() {
+    const board = document.getElementById('kanbanBoard');
+    if (!board) return;
+
+    const colonnes = [
+        { key: 'pending', label: '⏳ En attente', cls: 'kb-pending' },
+        { key: 'fait', label: '✅ Fait', cls: 'kb-fait' },
+        { key: 'partiel', label: '⚠️ Partiel', cls: 'kb-partiel' },
+        { key: 'nonfait', label: '❌ Non fait', cls: 'kb-nonfait' },
+        { key: 'nc', label: '📭 NC', cls: 'kb-nc' }
+    ];
+    const buckets = { pending: [], fait: [], partiel: [], nonfait: [], nc: [] };
+
+    planningData.forEach(row => {
+        if (row.type !== 'row') return;
+        row.ots.forEach((ot, otIdx) => {
+            const otStr = String(ot || '').trim();
+            if (!otStr) return;
+            const datePlanning = (window.dateColumns && window.dateColumns[otIdx]) || '';
+            const card = { ot: otStr, materiel: row.materiel, libelle: row.libelle || '', date: datePlanning, interventionType: row.interventionType };
+            if (isNC(otStr)) { buckets.nc.push(card); return; }
+            const s = otStates[otStr] && otStates[otStr].status;
+            if (s === 'F') buckets.fait.push(card);
+            else if (s === 'NF') buckets.nonfait.push(card);
+            else if (s === 'P') buckets.partiel.push(card);
+            else buckets.pending.push(card);
+        });
+    });
+
+    board.innerHTML = colonnes.map(col => {
+        const cards = buckets[col.key];
+        const cardsHtml = cards.length
+            ? cards.map(c => {
+                const libelleEscaped = (c.libelle || '').replace(/'/g, "\\'");
+                const clickable = col.key === 'nc' ? 'showNCMessage()' : `openChecklist('${c.ot}','${c.materiel}','${c.interventionType}','${libelleEscaped}','${c.date}')`;
+                return `<div class="kb-card ${col.cls}" onclick="${clickable}">
+                    <div class="kb-card-ot">🔧 ${c.ot}</div>
+                    <div class="kb-card-materiel">${c.materiel}</div>
+                    <div class="kb-card-libelle">${c.libelle}</div>
+                    <div class="kb-card-date">📅 ${c.date || '-'}</div>
+                </div>`;
+            }).join('')
+            : '<div class="kb-empty">Aucun OT</div>';
+        return `<div>
+            <div class="kb-column-header">${col.label}<span class="kb-column-count">${cards.length}</span></div>
+            <div class="kb-column-body">${cardsHtml}</div>
+        </div>`;
+    }).join('');
 }
 
 function showNotification(msg, type = 'success') {

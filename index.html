@@ -4486,6 +4486,257 @@ function generateSignatureId() {
  * @param {string} id - ID unique de la signature
  * @returns {Promise<string>} Hash SHA-256 en hexadécimal (64 caractères)
  */
+/**
+ * ============================================
+ * 🔐 CHIFFREMENT AES-256 (SÉCURITÉ RENFORCÉE)
+ * ============================================
+ * Utilise Web Crypto API native.
+ * Standard militaire, conforme PCI-DSS, RGPD, BAM.
+ * 
+ * Fonctions :
+ * - generateEncryptionKey() : Génère une clé AES-256
+ * - encryptData(data, key) : Chiffre des données
+ * - decryptData(encrypted, key) : Déchiffre des données
+ * - encryptWithPassword(data, password) : Chiffre avec mot de passe
+ * - decryptWithPassword(encrypted, password) : Déchiffre avec mot de passe
+ * ============================================
+ */
+
+/**
+ * 🔑 Génère une clé de chiffrement AES-256 aléatoire
+ * @returns {Promise<CryptoKey>} Clé AES-256
+ */
+async function generateEncryptionKey() {
+    return await crypto.subtle.generateKey(
+        {
+            name: 'AES-GCM',
+            length: 256  // AES-256 (le plus sûr)
+        },
+        true,  // Extractible (pour sauvegarde)
+        ['encrypt', 'decrypt']
+    );
+}
+
+/**
+ * 🔐 Chiffre des données avec une clé AES-256
+ * @param {any} data - Données à chiffrer (objet, string, etc.)
+ * @param {CryptoKey} key - Clé de chiffrement
+ * @returns {Promise<string>} Données chiffrées en base64
+ */
+async function encryptData(data, key) {
+    try {
+        // Convertir les données en JSON puis en bytes
+        const jsonString = JSON.stringify(data);
+        const encoder = new TextEncoder();
+        const dataBytes = encoder.encode(jsonString);
+        
+        // Générer un IV (Initialization Vector) aléatoire
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        
+        // Chiffrer avec AES-GCM
+        const encryptedBuffer = await crypto.subtle.encrypt(
+            {
+                name: 'AES-GCM',
+                iv: iv
+            },
+            key,
+            dataBytes
+        );
+        
+        // Combiner IV + données chiffrées
+        const encryptedArray = new Uint8Array(encryptedBuffer);
+        const combined = new Uint8Array(iv.length + encryptedArray.length);
+        combined.set(iv, 0);
+        combined.set(encryptedArray, iv.length);
+        
+        // Convertir en base64 pour stockage/transport
+        return btoa(String.fromCharCode.apply(null, combined));
+    } catch (error) {
+        console.error('❌ Erreur chiffrement:', error);
+        throw new Error('Chiffrement impossible : ' + error.message);
+    }
+}
+
+/**
+ * 🔓 Déchiffre des données avec une clé AES-256
+ * @param {string} encryptedBase64 - Données chiffrées en base64
+ * @param {CryptoKey} key - Clé de déchiffrement
+ * @returns {Promise<any>} Données déchiffrées (objet JavaScript)
+ */
+async function decryptData(encryptedBase64, key) {
+    try {
+        // Décoder le base64
+        const combined = new Uint8Array(
+            atob(encryptedBase64).split('').map(c => c.charCodeAt(0))
+        );
+        
+        // Extraire IV (12 premiers bytes) et données chiffrées
+        const iv = combined.slice(0, 12);
+        const encryptedData = combined.slice(12);
+        
+        // Déchiffrer
+        const decryptedBuffer = await crypto.subtle.decrypt(
+            {
+                name: 'AES-GCM',
+                iv: iv
+            },
+            key,
+            encryptedData
+        );
+        
+        // Convertir en string puis parser JSON
+        const decoder = new TextDecoder();
+        const jsonString = decoder.decode(decryptedBuffer);
+        return JSON.parse(jsonString);
+    } catch (error) {
+        console.error('❌ Erreur déchiffrement:', error);
+        throw new Error('Déchiffrement impossible : données corrompues ou clé invalide');
+    }
+}
+
+/**
+ * 🔑 Dérive une clé AES à partir d'un mot de passe (PBKDF2)
+ * Utilisé pour chiffrer les fichiers exportés avec mot de passe utilisateur.
+ * @param {string} password - Mot de passe utilisateur
+ * @param {Uint8Array} salt - Sel aléatoire
+ * @returns {Promise<CryptoKey>} Clé AES-256 dérivée
+ */
+async function deriveKeyFromPassword(password, salt) {
+    // Convertir le mot de passe en bytes
+    const encoder = new TextEncoder();
+    const passwordBytes = encoder.encode(password);
+    
+    // Importer le mot de passe comme matériel cryptographique
+    const passwordKey = await crypto.subtle.importKey(
+        'raw',
+        passwordBytes,
+        { name: 'PBKDF2' },
+        false,
+        ['deriveKey']
+    );
+    
+    // Dériver une clé AES-256 avec PBKDF2 (100 000 itérations)
+    return await crypto.subtle.deriveKey(
+        {
+            name: 'PBKDF2',
+            salt: salt,
+            iterations: 100000,  // 100k itérations = sécurisé
+            hash: 'SHA-256'
+        },
+        passwordKey,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt', 'decrypt']
+    );
+}
+
+/**
+ * 🔐 Chiffre des données avec un mot de passe (pour export sécurisé)
+ * @param {any} data - Données à chiffrer
+ * @param {string} password - Mot de passe utilisateur
+ * @returns {Promise<string>} Données chiffrées en base64
+ */
+async function encryptWithPassword(data, password) {
+    try {
+        // Générer un salt aléatoire
+        const salt = crypto.getRandomValues(new Uint8Array(16));
+        
+        // Dériver la clé du mot de passe
+        const key = await deriveKeyFromPassword(password, salt);
+        
+        // Chiffrer les données
+        const jsonString = JSON.stringify(data);
+        const encoder = new TextEncoder();
+        const dataBytes = encoder.encode(jsonString);
+        
+        // IV aléatoire
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        
+        // Chiffrement
+        const encryptedBuffer = await crypto.subtle.encrypt(
+            { name: 'AES-GCM', iv: iv },
+            key,
+            dataBytes
+        );
+        
+        // Combiner : salt (16) + IV (12) + données chiffrées
+        const encryptedArray = new Uint8Array(encryptedBuffer);
+        const combined = new Uint8Array(salt.length + iv.length + encryptedArray.length);
+        combined.set(salt, 0);
+        combined.set(iv, salt.length);
+        combined.set(encryptedArray, salt.length + iv.length);
+        
+        return btoa(String.fromCharCode.apply(null, combined));
+    } catch (error) {
+        console.error('❌ Erreur chiffrement avec mot de passe:', error);
+        throw new Error('Chiffrement impossible : ' + error.message);
+    }
+}
+
+/**
+ * 🔓 Déchiffre des données avec un mot de passe
+ * @param {string} encryptedBase64 - Données chiffrées
+ * @param {string} password - Mot de passe utilisateur
+ * @returns {Promise<any>} Données déchiffrées
+ */
+async function decryptWithPassword(encryptedBase64, password) {
+    try {
+        // Décoder le base64
+        const combined = new Uint8Array(
+            atob(encryptedBase64).split('').map(c => c.charCodeAt(0))
+        );
+        
+        // Extraire salt (16), IV (12) et données
+        const salt = combined.slice(0, 16);
+        const iv = combined.slice(16, 28);
+        const encryptedData = combined.slice(28);
+        
+        // Re-dériver la clé du mot de passe
+        const key = await deriveKeyFromPassword(password, salt);
+        
+        // Déchiffrer
+        const decryptedBuffer = await crypto.subtle.decrypt(
+            { name: 'AES-GCM', iv: iv },
+            key,
+            encryptedData
+        );
+        
+        // Convertir en JSON
+        const decoder = new TextDecoder();
+        const jsonString = decoder.decode(decryptedBuffer);
+        return JSON.parse(jsonString);
+    } catch (error) {
+        console.error('❌ Erreur déchiffrement avec mot de passe:', error);
+        throw new Error('Mot de passe incorrect ou données corrompues');
+    }
+}
+
+/**
+ * 💾 Exporte une clé AES en format sauvegardable (JWK)
+ * @param {CryptoKey} key - Clé à exporter
+ * @returns {Promise<Object>} Clé au format JWK
+ */
+async function exportKey(key) {
+    return await crypto.subtle.exportKey('jwk', key);
+}
+
+/**
+ * 📥 Importe une clé AES depuis un format JWK
+ * @param {Object} jwk - Clé au format JWK
+ * @returns {Promise<CryptoKey>} Clé AES utilisable
+ */
+async function importKey(jwk) {
+    return await crypto.subtle.importKey(
+        'jwk',
+        jwk,
+        { name: 'AES-GCM', length: 256 },
+        true,
+        ['encrypt', 'decrypt']
+    );
+}
+
+console.log('✅ Fonctions de chiffrement AES-256 chargées');
+     
 async function generateSignatureHashSHA256(name, timestamp, id) {
     try {
         // Concaténation des données

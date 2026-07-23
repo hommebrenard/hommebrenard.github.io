@@ -3467,10 +3467,11 @@ function persistSitesIndex() {
 }
 
 /** Sauvegarde le site actif complet (données + avancement) sous sa propre clé localStorage. */
-function persistActiveSiteToLocalStorage() {
+async function persistActiveSiteToLocalStorage() {
     if (!activeSiteKey) return;
     try {
-        localStorage.setItem('otSiteData_v2_' + activeSiteKey, JSON.stringify(sitesLibrary[activeSiteKey]));
+        // 🔐 Sauvegarde CHIFFRÉE
+        await saveEncrypted('otSiteData_v2_' + activeSiteKey, sitesLibrary[activeSiteKey]);
         persistSitesIndex();
     } catch (e) {
         console.warn('⚠️ Stockage local plein ou indisponible :', e);
@@ -4925,6 +4926,191 @@ async function getKeyInfo() {
 }
 
 console.log('✅ Système de gestion de clé chargé');
+/**
+ * ============================================
+ * 🔒 CHIFFREMENT AUTOMATIQUE DU LOCALSTORAGE
+ * ============================================
+ * Enveloppes sécurisées pour saveToLocalStorage() 
+ * et loadFromLocalStorage().
+ * 
+ * - Chiffrement transparent (invisible pour l'utilisateur)
+ * - Migration automatique des anciennes données
+ * - Compatible avec les données non chiffrées (transition douce)
+ * ============================================
+ */
+
+// Marqueur pour identifier les données chiffrées
+const ENCRYPTED_MARKER = '__ENCRYPTED_V1__:';
+
+/**
+ * 🔒 Sauvegarde chiffrée dans localStorage
+ * @param {string} key - Clé du localStorage
+ * @param {any} data - Données à sauvegarder
+ * @returns {Promise<boolean>} true si succès
+ */
+async function saveEncrypted(key, data) {
+    try {
+        // Récupérer la clé de chiffrement
+        const cryptoKey = await getAppKey();
+        
+        // Chiffrer les données
+        const encrypted = await encryptData(data, cryptoKey);
+        
+        // Ajouter le marqueur + sauvegarder
+        const finalData = ENCRYPTED_MARKER + encrypted;
+        localStorage.setItem(key, finalData);
+        
+        return true;
+    } catch (error) {
+        console.error('❌ Erreur sauvegarde chiffrée:', error);
+        // Fallback : sauvegarde en clair (compatibilité)
+        try {
+            localStorage.setItem(key, JSON.stringify(data));
+            console.warn('⚠️ Fallback : données sauvegardées en clair');
+            return true;
+        } catch (fallbackError) {
+            console.error('❌ Fallback échoué:', fallbackError);
+            return false;
+        }
+    }
+}
+
+/**
+ * 🔓 Chargement déchiffré depuis localStorage
+ * Compatible avec :
+ * - Données chiffrées (nouveau format)
+ * - Données en clair (ancien format) → Migration auto
+ * 
+ * @param {string} key - Clé du localStorage
+ * @returns {Promise<any>} Données déchiffrées ou null
+ */
+async function loadEncrypted(key) {
+    try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return null;
+        
+        // Vérifier si les données sont chiffrées
+        if (raw.startsWith(ENCRYPTED_MARKER)) {
+            // Nouveau format : chiffré
+            const encrypted = raw.substring(ENCRYPTED_MARKER.length);
+            const cryptoKey = await getAppKey();
+            const decrypted = await decryptData(encrypted, cryptoKey);
+            return decrypted;
+        } else {
+            // Ancien format : données en clair → Migration
+            console.log('🔄 Migration : données en clair détectées, chiffrement en cours...');
+            const data = JSON.parse(raw);
+            
+            // Chiffrer et re-sauvegarder
+            await saveEncrypted(key, data);
+            console.log('✅ Migration terminée : données chiffrées');
+            
+            return data;
+        }
+    } catch (error) {
+        console.error('❌ Erreur chargement déchiffré:', error);
+        
+        // Fallback : essayer de parser en clair
+        try {
+            const raw = localStorage.getItem(key);
+            if (raw && !raw.startsWith(ENCRYPTED_MARKER)) {
+                return JSON.parse(raw);
+            }
+        } catch (fallbackError) {
+            console.error('❌ Fallback échoué:', fallbackError);
+        }
+        
+        return null;
+    }
+}
+
+/**
+ * 🔍 Vérifie si une entrée du localStorage est chiffrée
+ * @param {string} key - Clé à vérifier
+ * @returns {boolean}
+ */
+function isEncrypted(key) {
+    const raw = localStorage.getItem(key);
+    return raw && raw.startsWith(ENCRYPTED_MARKER);
+}
+
+/**
+ * 🔄 Migre TOUTES les données de l'app vers le format chiffré
+ * Utile une fois après la mise à jour, ou en cas de problème
+ */
+async function migrateAllToEncrypted() {
+    const keysToMigrate = [
+        'otPreventifData',
+        'otSitesIndex_v2'
+    ];
+    
+    // Ajouter aussi toutes les clés otSiteData_v2_*
+    Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('otSiteData_v2_')) {
+            keysToMigrate.push(key);
+        }
+    });
+    
+    let migrated = 0;
+    let alreadyEncrypted = 0;
+    let errors = 0;
+    
+    for (const key of keysToMigrate) {
+        try {
+            if (isEncrypted(key)) {
+                alreadyEncrypted++;
+                continue;
+            }
+            
+            const raw = localStorage.getItem(key);
+            if (!raw) continue;
+            
+            const data = JSON.parse(raw);
+            await saveEncrypted(key, data);
+            migrated++;
+            console.log('✅ Migré :', key);
+        } catch (error) {
+            errors++;
+            console.error('❌ Erreur migration', key, error);
+        }
+    }
+    
+    const message = `Migration terminée : ${migrated} chiffré(s), ${alreadyEncrypted} déjà chiffré(s), ${errors} erreur(s)`;
+    console.log('📊', message);
+    if (typeof showNotification === 'function') {
+        showNotification('🔒 ' + message, errors > 0 ? 'warning' : 'success');
+    }
+    
+    return { migrated, alreadyEncrypted, errors };
+}
+
+/**
+ * 📊 Retourne le statut de chiffrement de toutes les clés
+ */
+function getEncryptionStatus() {
+    const status = {
+        encrypted: [],
+        plaintext: [],
+        total: 0
+    };
+    
+    Object.keys(localStorage).forEach(key => {
+        // Ignorer la clé de chiffrement elle-même
+        if (key === APP_KEY_STORAGE) return;
+        
+        status.total++;
+        if (isEncrypted(key)) {
+            status.encrypted.push(key);
+        } else {
+            status.plaintext.push(key);
+        }
+    });
+    
+    return status;
+}
+
+console.log('✅ Système de chiffrement localStorage chargé');
+     
      
      
 async function generateSignatureHashSHA256(name, timestamp, id) {
@@ -5504,24 +5690,25 @@ function closeModal() {
             }
         }
 
-function saveToLocalStorage(silent = false) {
+async function saveToLocalStorage(silent = false) {
     if (!planningLoaded) { showNotification('Chargez d\'abord vos fichiers', 'warning'); return; }
     try {
         const dataToSave = {planningData, checklistData, planningHeaders, otStates, planningLoaded, checklistLoaded, mainHeaderText, dateColumns: window.dateColumns, savedAt: new Date().toISOString()};
-        localStorage.setItem('otPreventifData', JSON.stringify(dataToSave));
-        syncActiveSiteIntoLibrary(); // 🆕 persiste aussi sous la clé propre au site (bibliothèque multi-sites)
-        if (!silent) showNotification('💾 Données sauvegardées localement');
+        // 🔐 Sauvegarde CHIFFRÉE
+        await saveEncrypted('otPreventifData', dataToSave);
+        syncActiveSiteIntoLibrary();
+        if (!silent) showNotification('💾 Données sauvegardées (chiffrées) 🔐');
     } catch (err) {
         if (err.name === 'QuotaExceededError') showNotification('Espace de stockage saturé.', 'error');
         else showNotification('Erreur sauvegarde : ' + err.message, 'error');
     }
 }
 
-function loadFromLocalStorage() {
+async function loadFromLocalStorage() {
     try {
-        const saved = localStorage.getItem('otPreventifData');
-        if (!saved) { showNotification('Aucune sauvegarde trouvée', 'warning'); return; }
-        const data = JSON.parse(saved);
+        // 🔓 Chargement DÉCHIFFRÉ (compatible avec anciennes données)
+        const data = await loadEncrypted('otPreventifData');
+        if (!data) { showNotification('Aucune sauvegarde trouvée', 'warning'); return; }
         planningData = data.planningData || [];
         checklistData = data.checklistData || {};
         planningHeaders = data.planningHeaders || [];
@@ -7030,12 +7217,14 @@ window.onload = async function() {
         const indexRaw = localStorage.getItem('otSitesIndex_v2');
         if (indexRaw) {
             const index = JSON.parse(indexRaw);
-            index.forEach(entry => {
-                const raw = localStorage.getItem('otSiteData_v2_' + entry.key);
-                if (raw) {
-                    try { sitesLibrary[entry.key] = JSON.parse(raw); } catch(e) {}
-                }
-            });
+           for (const entry of index) {
+    try {
+        const data = await loadEncrypted('otSiteData_v2_' + entry.key);
+        if (data) sitesLibrary[entry.key] = data;
+    } catch(e) {
+        console.warn('Erreur chargement site', entry.key, e);
+    }
+}
             refreshSiteSelector();
         }
     } catch (e) { console.warn('⚠️ Impossible de restaurer la bibliothèque de sites :', e); }

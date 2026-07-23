@@ -4736,6 +4736,196 @@ async function importKey(jwk) {
 }
 
 console.log('✅ Fonctions de chiffrement AES-256 chargées');
+/**
+ * ============================================
+ * 🔑 GESTION AUTOMATIQUE DE LA CLÉ DE CHIFFREMENT
+ * ============================================
+ * La clé est :
+ * - Générée automatiquement au 1er lancement
+ * - Sauvegardée localement (JWK dans localStorage)
+ * - Récupérée à chaque démarrage
+ * - Invisible pour l'utilisateur
+ * ============================================
+ */
+
+// Nom de la clé dans localStorage (nom volontairement discret)
+const APP_KEY_STORAGE = '__app_meta_config_v2';
+
+// Variable globale pour la clé de session (en mémoire)
+let appEncryptionKey = null;
+
+/**
+ * 🔑 Initialise la clé de chiffrement de l'application
+ * Appelée au démarrage. Génère ou récupère la clé.
+ * @returns {Promise<CryptoKey>} Clé AES-256 prête à utiliser
+ */
+async function initializeAppKey() {
+    try {
+        // Vérifier si une clé existe déjà
+        const savedKey = localStorage.getItem(APP_KEY_STORAGE);
+        
+        if (savedKey) {
+            // Clé existante : la restaurer
+            console.log('🔑 Clé de chiffrement existante détectée');
+            const jwk = JSON.parse(savedKey);
+            appEncryptionKey = await importKey(jwk);
+            console.log('✅ Clé de chiffrement restaurée');
+        } else {
+            // Nouvelle clé : la générer
+            console.log('🔑 Génération d\'une nouvelle clé de chiffrement');
+            appEncryptionKey = await generateEncryptionKey();
+            
+            // Sauvegarder la clé
+            const jwk = await exportKey(appEncryptionKey);
+            localStorage.setItem(APP_KEY_STORAGE, JSON.stringify(jwk));
+            console.log('✅ Nouvelle clé sauvegardée');
+        }
+        
+        return appEncryptionKey;
+    } catch (error) {
+        console.error('❌ Erreur initialisation clé:', error);
+        // En cas d'erreur, générer une nouvelle clé
+        appEncryptionKey = await generateEncryptionKey();
+        return appEncryptionKey;
+    }
+}
+
+/**
+ * 🔑 Récupère la clé de chiffrement (l'initialise si nécessaire)
+ * @returns {Promise<CryptoKey>} Clé de chiffrement
+ */
+async function getAppKey() {
+    if (!appEncryptionKey) {
+        await initializeAppKey();
+    }
+    return appEncryptionKey;
+}
+
+/**
+ * 🔄 Régénère la clé de chiffrement
+ * ⚠️ ATTENTION : Toutes les données chiffrées avec l'ancienne clé
+ * deviendront illisibles ! À utiliser uniquement en cas de problème.
+ * @returns {Promise<CryptoKey>} Nouvelle clé
+ */
+async function regenerateAppKey() {
+    if (!confirm('⚠️ ATTENTION : Régénérer la clé rendra toutes les données chiffrées existantes illisibles.\n\nContinuer ?')) {
+        return null;
+    }
+    
+    console.warn('🔄 Régénération de la clé de chiffrement...');
+    appEncryptionKey = await generateEncryptionKey();
+    const jwk = await exportKey(appEncryptionKey);
+    localStorage.setItem(APP_KEY_STORAGE, JSON.stringify(jwk));
+    console.log('✅ Nouvelle clé générée et sauvegardée');
+    return appEncryptionKey;
+}
+
+/**
+ * 💾 Exporte la clé de chiffrement dans un fichier de sauvegarde
+ * Permet à l'utilisateur de sauvegarder sa clé pour un autre appareil.
+ */
+async function exportAppKeyToFile() {
+    try {
+        const key = await getAppKey();
+        const jwk = await exportKey(key);
+        
+        const backup = {
+            __appKeyBackup: true,
+            version: '1.0',
+            exportedAt: new Date().toISOString(),
+            key: jwk,
+            warning: 'CONFIDENTIEL - Ne partagez cette clé avec personne !'
+        };
+        
+        const blob = new Blob([JSON.stringify(backup, null, 2)], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'CLE_CHIFFREMENT_BACKUP_' + new Date().toISOString().slice(0, 10) + '.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        console.log('✅ Clé exportée dans un fichier de sauvegarde');
+        if (typeof showNotification === 'function') {
+            showNotification('🔑 Clé de chiffrement sauvegardée dans un fichier', 'success');
+        }
+    } catch (error) {
+        console.error('❌ Erreur export clé:', error);
+        if (typeof showNotification === 'function') {
+            showNotification('❌ Erreur lors de l\'export de la clé', 'error');
+        }
+    }
+}
+
+/**
+ * 📥 Importe une clé de chiffrement depuis un fichier de sauvegarde
+ * @param {File} file - Fichier de sauvegarde
+ */
+async function importAppKeyFromFile(file) {
+    if (!file) return;
+    
+    try {
+        const text = await file.text();
+        const backup = JSON.parse(text);
+        
+        if (!backup.__appKeyBackup || !backup.key) {
+            throw new Error('Fichier invalide : ce n\'est pas une sauvegarde de clé');
+        }
+        
+        if (!confirm('⚠️ Importer cette clé remplacera la clé actuelle.\n\nToutes les données actuellement chiffrées deviendront illisibles si elles utilisent une clé différente.\n\nContinuer ?')) {
+            return;
+        }
+        
+        // Importer la clé
+        appEncryptionKey = await importKey(backup.key);
+        
+        // La sauvegarder
+        localStorage.setItem(APP_KEY_STORAGE, JSON.stringify(backup.key));
+        
+        console.log('✅ Clé importée avec succès');
+        if (typeof showNotification === 'function') {
+            showNotification('🔑 Clé de chiffrement importée', 'success');
+        }
+    } catch (error) {
+        console.error('❌ Erreur import clé:', error);
+        if (typeof showNotification === 'function') {
+            showNotification('❌ Erreur : ' + error.message, 'error');
+        }
+    }
+}
+
+/**
+ * 🔍 Vérifie si une clé de chiffrement est disponible
+ * @returns {boolean} true si une clé est disponible
+ */
+function hasAppKey() {
+    return appEncryptionKey !== null || localStorage.getItem(APP_KEY_STORAGE) !== null;
+}
+
+/**
+ * 📊 Retourne les informations sur la clé (sans révéler la clé elle-même)
+ * @returns {Object} Informations
+ */
+async function getKeyInfo() {
+    try {
+        const key = await getAppKey();
+        const jwk = await exportKey(key);
+        return {
+            exists: true,
+            algorithm: jwk.alg || 'AES-256-GCM',
+            type: jwk.kty,
+            usages: jwk.key_ops,
+            created: localStorage.getItem(APP_KEY_STORAGE + '_created') || 'Inconnu'
+        };
+    } catch (error) {
+        return { exists: false, error: error.message };
+    }
+}
+
+console.log('✅ Système de gestion de clé chargé');
+     
      
 async function generateSignatureHashSHA256(name, timestamp, id) {
     try {
@@ -6812,12 +7002,19 @@ function exportDashboardPDF() {
     showNotification('✅ Dashboard exporté en PDF');
 }
 
-window.onload = function() {
+window.onload = async function() {
     document.getElementById('welcomeScreen').classList.remove('hidden');
     document.getElementById('workspace').classList.add('hidden');
     updateMobileToolbarTitle();
     updateOnlineStatus();
-
+    // 🔐 Initialiser la clé de chiffrement au démarrage
+    try {
+        await initializeAppKey();
+        console.log('🔐 Système de chiffrement prêt');
+    } catch (error) {
+        console.error('❌ Erreur initialisation chiffrement:', error);
+    }
+     
     // 🆕 Nettoyage des anciennes entrées (avant la correction de l'appariement des noms de fichiers)
     try {
         localStorage.removeItem('otSitesIndex'); // ancien index (sans version), obsolète

@@ -2089,6 +2089,39 @@ body.mode-prestataire .internal-only {
                     </div>
                 </div>
             </div>
+                         <!-- 🔑 NOUVELLE SECTION : Gestion de la clé de chiffrement -->
+            <div class="dataio-section" style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #e5e7eb;">
+                <h3 style="color: #dc2626;">🔑 Gestion de la clé de chiffrement</h3>
+                <p style="font-size: 12px; color: #6b7280; margin-bottom: 15px;">
+                    ⚠️ IMPORTANT : Sauvegardez votre clé pour éviter toute perte de données !
+                </p>
+                <div class="dataio-grid">
+                    <div class="dataio-card" onclick="exportAppKeyToFile()" 
+                         style="border: 2px solid #10b981; background: #ecfdf5;">
+                        <div class="dataio-icon">💾</div>
+                        <div class="dataio-label" style="color: #059669;">Sauvegarder ma clé</div>
+                        <div class="dataio-sub">Backup obligatoire</div>
+                    </div>
+                    <label class="dataio-card" for="importKeyFile"
+                           style="border: 2px solid #3b82f6; background: #eff6ff;">
+                        <div class="dataio-icon">📥</div>
+                        <div class="dataio-label" style="color: #2563eb;">Restaurer ma clé</div>
+                        <div class="dataio-sub">Depuis un backup</div>
+                    </label>
+                    <div class="dataio-card" onclick="showKeyInfo()"
+                         style="border: 2px solid #6366f1; background: #eef2ff;">
+                        <div class="dataio-icon">ℹ️</div>
+                        <div class="dataio-label" style="color: #4f46e5;">Info sur ma clé</div>
+                        <div class="dataio-sub">Statut & empreinte</div>
+                    </div>
+                </div>
+                
+                <!-- Input caché pour l'import -->
+                <input type="file" id="importKeyFile" class="file-input" 
+                       accept=".json" onchange="importAppKeyFromFile(event)" 
+                       style="display:none;" 
+                       aria-label="Importer une clé de chiffrement">
+            </div>
         </div>
     </div>
 </div>
@@ -4822,78 +4855,254 @@ async function regenerateAppKey() {
 }
 
 /**
- * 💾 Exporte la clé de chiffrement dans un fichier de sauvegarde
- * Permet à l'utilisateur de sauvegarder sa clé pour un autre appareil.
+ * 💾 Exporte la clé de chiffrement (VERSION AMÉLIORÉE)
+ * Génère un fichier JSON contenant la clé, avec métadonnées.
  */
 async function exportAppKeyToFile() {
     try {
         const key = await getAppKey();
         const jwk = await exportKey(key);
         
+        // Calculer une empreinte de la clé (pour identification)
+        const keyString = JSON.stringify(jwk);
+        const encoder = new TextEncoder();
+        const keyBytes = encoder.encode(keyString);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', keyBytes);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const fingerprint = hashArray.slice(0, 8)
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join(':')
+            .toUpperCase();
+        
         const backup = {
             __appKeyBackup: true,
-            version: '1.0',
+            version: '2.0',
+            application: 'OT Preventif BAM',
             exportedAt: new Date().toISOString(),
+            fingerprint: fingerprint,
             key: jwk,
-            warning: 'CONFIDENTIEL - Ne partagez cette clé avec personne !'
+            instructions: {
+                fr: 'CONFIDENTIEL : Ce fichier contient la clé de déchiffrement de vos données. Conservez-le en lieu sûr (clé USB, coffre-fort numérique). Sans cette clé, vos données seront perdues.',
+                en: 'CONFIDENTIAL: This file contains your data decryption key. Keep it in a safe place (USB key, digital safe). Without this key, your data will be lost.'
+            },
+            warning: '⚠️ NE PARTAGEZ JAMAIS CE FICHIER PAR EMAIL OU MESSAGERIE NON SÉCURISÉE ⚠️'
         };
+        
+        // Créer un nom de fichier explicite
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const filename = `CLE_BACKUP_BAM_${dateStr}_${fingerprint.substring(0, 8)}.json`;
         
         const blob = new Blob([JSON.stringify(backup, null, 2)], {type: 'application/json'});
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'CLE_CHIFFREMENT_BACKUP_' + new Date().toISOString().slice(0, 10) + '.json';
+        a.download = filename;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
         
-        console.log('✅ Clé exportée dans un fichier de sauvegarde');
+        // Marquer que la clé a été exportée (pour ne plus alerter)
+        localStorage.setItem('__key_exported', new Date().toISOString());
+        
+        console.log('✅ Clé exportée :', filename);
+        console.log('🔑 Empreinte :', fingerprint);
+        
+        // Message de confirmation détaillé
         if (typeof showNotification === 'function') {
-            showNotification('🔑 Clé de chiffrement sauvegardée dans un fichier', 'success');
+            showNotification('🔑 Clé sauvegardée : ' + filename + ' - Conservez ce fichier en lieu sûr !', 'success');
         }
+        
+        // Alerte importante
+        alert(
+            '🔑 CLÉ DE CHIFFREMENT SAUVEGARDÉE\n\n' +
+            '📁 Fichier : ' + filename + '\n' +
+            '🔒 Empreinte : ' + fingerprint + '\n\n' +
+            '⚠️ CONSERVEZ CE FICHIER EN LIEU SÛR !\n\n' +
+            '✅ Recommandations :\n' +
+            '• Copier sur une clé USB\n' +
+            '• Stocker dans un coffre-fort numérique\n' +
+            '• Sauvegarder sur OneDrive/Google Drive privé\n' +
+            '• NE JAMAIS envoyer par email non sécurisé\n\n' +
+            '❌ Sans ce fichier :\n' +
+            '• Impossible de restaurer vos données\n' +
+            '• Impossible de changer d\'appareil\n' +
+            '• Perte définitive en cas de problème'
+        );
+        
+        return { success: true, filename, fingerprint };
     } catch (error) {
         console.error('❌ Erreur export clé:', error);
         if (typeof showNotification === 'function') {
             showNotification('❌ Erreur lors de l\'export de la clé', 'error');
         }
+        return { success: false, error: error.message };
     }
 }
 
 /**
- * 📥 Importe une clé de chiffrement depuis un fichier de sauvegarde
- * @param {File} file - Fichier de sauvegarde
+ * 📥 Importe une clé de chiffrement depuis un fichier (VERSION AMÉLIORÉE)
+ * @param {Event} event - Événement du input file
  */
-async function importAppKeyFromFile(file) {
+async function importAppKeyFromFile(event) {
+    const file = event.target ? event.target.files[0] : event;
     if (!file) return;
     
     try {
         const text = await file.text();
         const backup = JSON.parse(text);
         
+        // Vérifier le format
         if (!backup.__appKeyBackup || !backup.key) {
-            throw new Error('Fichier invalide : ce n\'est pas une sauvegarde de clé');
+            throw new Error('Ce fichier n\'est pas une sauvegarde de clé valide');
         }
         
-        if (!confirm('⚠️ Importer cette clé remplacera la clé actuelle.\n\nToutes les données actuellement chiffrées deviendront illisibles si elles utilisent une clé différente.\n\nContinuer ?')) {
+        // Afficher les infos du backup
+        const backupInfo = 
+            '🔑 SAUVEGARDE DE CLÉ DÉTECTÉE\n\n' +
+            '📅 Date d\'export : ' + (backup.exportedAt ? new Date(backup.exportedAt).toLocaleString('fr-FR') : 'Inconnue') + '\n' +
+            '🔒 Empreinte : ' + (backup.fingerprint || 'Non disponible') + '\n' +
+            '📛 Application : ' + (backup.application || 'Non spécifiée') + '\n' +
+            '📌 Version : ' + (backup.version || 'Inconnue') + '\n\n';
+        
+        // Vérifier s'il y a déjà une clé
+        const hasExistingKey = localStorage.getItem(APP_KEY_STORAGE) !== null;
+        
+        let confirmMessage = backupInfo;
+        if (hasExistingKey) {
+            confirmMessage += 
+                '⚠️ ATTENTION !\n\n' +
+                'Une clé existe déjà sur cet appareil.\n' +
+                'L\'importation va REMPLACER la clé actuelle.\n\n' +
+                '❌ RISQUE :\n' +
+                'Si les données actuelles ont été chiffrées avec l\'ancienne clé, ' +
+                'elles deviendront ILLISIBLES.\n\n' +
+                '✅ Recommandations AVANT de continuer :\n' +
+                '1. Exporter les données actuelles en JSON\n' +
+                '2. Exporter la clé actuelle (backup de sécurité)\n' +
+                '3. Puis importer la nouvelle clé\n\n' +
+                'CONTINUER l\'import ?';
+        } else {
+            confirmMessage += 
+                '✅ Aucune clé existante détectée.\n\n' +
+                'La clé importée sera utilisée pour :\n' +
+                '• Déchiffrer les données existantes\n' +
+                '• Chiffrer les nouvelles données\n\n' +
+                'Continuer ?';
+        }
+        
+        if (!confirm(confirmMessage)) {
+            console.log('❌ Import annulé par l\'utilisateur');
+            if (event.target) event.target.value = '';
             return;
         }
         
         // Importer la clé
         appEncryptionKey = await importKey(backup.key);
         
-        // La sauvegarder
+        // La sauvegarder localement
         localStorage.setItem(APP_KEY_STORAGE, JSON.stringify(backup.key));
         
         console.log('✅ Clé importée avec succès');
+        console.log('🔑 Empreinte :', backup.fingerprint);
+        
         if (typeof showNotification === 'function') {
-            showNotification('🔑 Clé de chiffrement importée', 'success');
+            showNotification('✅ Clé importée avec succès ! Rechargement en cours...', 'success');
         }
+        
+        // Recharger la page pour recharger toutes les données avec la nouvelle clé
+        setTimeout(() => {
+            alert('✅ CLÉ IMPORTÉE\n\nL\'application va se recharger pour appliquer la nouvelle clé.');
+            window.location.reload();
+        }, 1500);
+        
     } catch (error) {
         console.error('❌ Erreur import clé:', error);
         if (typeof showNotification === 'function') {
             showNotification('❌ Erreur : ' + error.message, 'error');
         }
+        alert('❌ ERREUR D\'IMPORTATION\n\n' + error.message);
+    }
+    
+    if (event.target) event.target.value = '';
+}
+
+/**
+ * 📊 Affiche les informations détaillées sur la clé actuelle
+ */
+async function showKeyInfo() {
+    try {
+        const key = await getAppKey();
+        const jwk = await exportKey(key);
+        
+        // Calculer l'empreinte
+        const keyString = JSON.stringify(jwk);
+        const encoder = new TextEncoder();
+        const keyBytes = encoder.encode(keyString);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', keyBytes);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const fingerprint = hashArray.slice(0, 8)
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join(':')
+            .toUpperCase();
+        
+        // Vérifier si la clé a été exportée
+        const lastExport = localStorage.getItem('__key_exported');
+        const exportInfo = lastExport 
+            ? '✅ Dernière sauvegarde : ' + new Date(lastExport).toLocaleString('fr-FR')
+            : '❌ JAMAIS SAUVEGARDÉE - Faites-le maintenant !';
+        
+        const info = 
+            '🔑 INFORMATIONS SUR LA CLÉ DE CHIFFREMENT\n\n' +
+            '📛 Algorithme : ' + (jwk.alg || 'AES-256-GCM') + '\n' +
+            '🔒 Type : ' + jwk.kty + '\n' +
+            '🎯 Usage : ' + (jwk.key_ops || []).join(', ') + '\n' +
+            '📏 Longueur : 256 bits (militaire)\n' +
+            '🆔 Empreinte : ' + fingerprint + '\n\n' +
+            '💾 État de la sauvegarde :\n' +
+            exportInfo + '\n\n' +
+            (lastExport ? '' : '⚠️ RISQUE : Sans sauvegarde, vous perdrez l\'accès à vos données en cas de problème !');
+        
+        alert(info);
+        
+        console.log('📊 Infos clé :', {
+            algorithm: jwk.alg || 'AES-256-GCM',
+            fingerprint,
+            lastExport
+        });
+    } catch (error) {
+        console.error('❌ Erreur info clé:', error);
+        alert('❌ Erreur : ' + error.message);
+    }
+}
+
+/**
+ * ⚠️ Vérifie si la clé a été sauvegardée et alerte l'utilisateur
+ * À appeler après un certain nombre d'utilisations
+ */
+function checkKeyBackupReminder() {
+    const lastExport = localStorage.getItem('__key_exported');
+    const usageCount = parseInt(localStorage.getItem('__app_usage_count') || '0');
+    
+    // Incrémenter le compteur
+    localStorage.setItem('__app_usage_count', String(usageCount + 1));
+    
+    // Alerter tous les 10 lancements si jamais exporté
+    if (!lastExport && usageCount > 0 && usageCount % 10 === 0) {
+        setTimeout(() => {
+            if (confirm(
+                '⚠️ RAPPEL DE SÉCURITÉ IMPORTANTE\n\n' +
+                'Vous n\'avez JAMAIS sauvegardé votre clé de chiffrement.\n\n' +
+                '❌ RISQUE :\n' +
+                'Si votre navigateur perd la clé (cache vidé, réinstallation, etc.),\n' +
+                'vous perdrez DÉFINITIVEMENT l\'accès à vos données chiffrées.\n\n' +
+                '✅ SOLUTION :\n' +
+                'Sauvegarder la clé maintenant (30 secondes) pour éviter tout risque.\n\n' +
+                'Voulez-vous sauvegarder votre clé maintenant ?'
+            )) {
+                exportAppKeyToFile();
+            }
+        }, 2000);
     }
 }
 
@@ -7201,6 +7410,9 @@ window.onload = async function() {
     } catch (error) {
         console.error('❌ Erreur initialisation chiffrement:', error);
     }
+
+         // 🔑 Vérifier si la clé a été sauvegardée (rappel de sécurité)
+    checkKeyBackupReminder();
      
     // 🆕 Nettoyage des anciennes entrées (avant la correction de l'appariement des noms de fichiers)
     try {

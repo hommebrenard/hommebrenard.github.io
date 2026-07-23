@@ -2317,23 +2317,6 @@ body.mode-prestataire .internal-only {
         <canvas id="signaturePad" class="signature-pad" width="500" height="120" aria-label="Zone de signature manuscrite"></canvas>
     </div>
 </div>
-
-<div class="signature-zone" id="responsableValidationZone" style="display:none; border-left-color:#1f3864; background:#e8f0fe;">
-    <label style="font-weight:bold; color:#1f3864;">✅ Validation du Responsable :</label>
-    <div class="tech-info-row" style="margin-top:10px;">
-        <div>
-            <label for="responsableName">Nom du responsable</label>
-            <input type="text" id="responsableName" placeholder="Ex: RENARDA" aria-label="Nom du responsable" autocomplete="off">
-        </div>
-        <div>
-            <label for="responsableComment">Commentaire (obligatoire si rejet)</label>
-            <input type="text" id="responsableComment" placeholder="Optionnel" aria-label="Commentaire du responsable">
-        </div>
-    </div>
-    <div id="responsableStatusBox" style="margin:10px 0; font-size:13px;"></div>
-    <button type="button" class="btn btn-success" onclick="validerParResponsable()" aria-label="Valider l'OT">✅ Valider l'OT</button>
-    <button type="button" class="btn btn-danger" onclick="rejeterParResponsable()" aria-label="Rejeter l'OT">✗ Rejeter / Renvoyer</button>
-</div>
 </div>
 <div class="modal-footer">
           <div class="progress-info">
@@ -3748,10 +3731,12 @@ function importRetourPrestataireJSON(event) {
                 }
 
                 const local = bucket.otStates[ot];
+                const localModifieDepuisEnvoi = local && local.technicien && local.dateEnvoiPrestataire &&
+                    local.dateModifLocale && new Date(local.dateModifLocale) > new Date(local.dateEnvoiPrestataire);
 
-                if (estUnConflitFusion(local)) {
+                if (localModifieDepuisEnvoi) {
                     conflits.push(ot);
-                    return; // ⚠️ pas d'écrasement automatique : à arbitrer manuellement (modifié depuis l'envoi, ou rempli manuellement en interne)
+                    return; // ⚠️ pas d'écrasement automatique : à arbitrer manuellement
                 }
 
                 bucket.otStates[ot] = Object.assign({}, local, incomingState, {
@@ -4040,7 +4025,6 @@ function openChecklist(otNum, materiel, interventionType, libelle, dateOT) {
     renderChecklistMobileCards();
     renderAttachments();
     updateProgress();
-    appliquerVerrouillageChecklist(otStr);
     
     setTimeout(() => {
         resizeSignaturePad();
@@ -5010,171 +4994,6 @@ function closeAnomaliesModal() {
         }
         
      
-// ============================================
-// 🆕 VERROUILLAGE DE LA SAISIE INTERNE
-// Empêche le gestionnaire de remplir/signer une check-list à la place
-// du prestataire tant qu'aucun retour prestataire n'a été importé,
-// sauf déblocage manuel explicite et justifié (tracé dans otStates).
-// ============================================
-
-/** Détermine si la check-list doit être : 'libre' (édition normale),
- *  'exceptionnel' (déblocage manuel actif) ou 'verrouille' (lecture seule). */
-function determinerEtatVerrouillage(state, modePrestataire) {
-    if (modePrestataire) return 'libre';
-    if (state && state.modifiePar === 'prestataire') return 'libre';
-    if (state && state.autorisationRemplissageInterne) return 'exceptionnel';
-    return 'verrouille';
-}
-
-/** Un OT rempli manuellement en interne (hors circuit) doit toujours être
- *  arbitré à la main si un vrai retour prestataire arrive dessus ensuite. */
-function estUnConflitFusion(local) {
-    const modifieDepuisEnvoi = !!(local && local.technicien && local.dateEnvoiPrestataire &&
-        local.dateModifLocale && new Date(local.dateModifLocale) > new Date(local.dateEnvoiPrestataire));
-    const rempliManuellement = !!(local && local.modifiePar === 'interne_manuel_exceptionnel');
-    return modifieDepuisEnvoi || rempliManuellement;
-}
-
-function setChecklistReadOnly(readonly) {
-    document.querySelectorAll('#checklistBody input, #checklistBody textarea').forEach(el => el.disabled = readonly);
-    document.querySelectorAll('#checklistMobileCards input, #checklistMobileCards textarea').forEach(el => el.disabled = readonly);
-    ['techName', 'site', 'dateDebut', 'dateFin', 'fileUpload', 'cameraUpload'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.disabled = readonly;
-    });
-    const btnEsign = document.getElementById('btnEsign');
-    if (btnEsign) btnEsign.disabled = readonly;
-    const btnUploadScan = document.getElementById('btnUploadSignatureScan');
-    if (btnUploadScan) btnUploadScan.disabled = readonly;
-    const canvas = document.getElementById('signaturePad');
-    if (canvas) canvas.style.pointerEvents = readonly ? 'none' : 'auto';
-    const btnSave = document.querySelector('.modal-footer .btn-success');
-    if (btnSave) btnSave.disabled = readonly;
-}
-
-function afficherBandeauVerrouillage() {
-    let bandeau = document.getElementById('bandeauVerrouillage');
-    if (!bandeau) {
-        bandeau = document.createElement('div');
-        bandeau.id = 'bandeauVerrouillage';
-        document.querySelector('.tech-info').before(bandeau);
-    }
-    bandeau.style.cssText = 'background:#fff3cd;border-left:4px solid #ff9800;padding:12px;margin-bottom:15px;font-size:13px;border-radius:6px;';
-    bandeau.innerHTML =
-        '🔒 <strong>Fiche verrouillée</strong> — en attente du retour du prestataire, ne doit pas être remplie en interne.<br>' +
-        '<button type="button" class="btn btn-warning" style="margin-top:8px;" onclick="demanderDeblocageExceptionnel()">' +
-        '🔓 Remplir manuellement (exceptionnel)</button>';
-}
-
-function afficherBandeauExceptionnel(state) {
-    let bandeau = document.getElementById('bandeauVerrouillage');
-    if (!bandeau) {
-        bandeau = document.createElement('div');
-        bandeau.id = 'bandeauVerrouillage';
-        document.querySelector('.tech-info').before(bandeau);
-    }
-    bandeau.style.cssText = 'background:#ffebee;border-left:4px solid #f44336;padding:12px;margin-bottom:15px;font-size:13px;border-radius:6px;';
-    bandeau.innerHTML = '⚠️ <strong>Remplissage manuel exceptionnel</strong> — motif : ' + (state.justificationRemplissageInterne || '-');
-}
-
-function retirerBandeauVerrouillage() {
-    const bandeau = document.getElementById('bandeauVerrouillage');
-    if (bandeau) bandeau.remove();
-}
-
-function demanderDeblocageExceptionnel() {
-    const raison = window.prompt('⚠️ Vous vous apprêtez à remplir cette fiche à la place du prestataire.\nMerci de préciser le motif (obligatoire) :');
-    if (!raison || !raison.trim()) { showNotification('Déblocage annulé : motif obligatoire.', 'warning'); return; }
-    otStates[currentOT].autorisationRemplissageInterne = true;
-    otStates[currentOT].justificationRemplissageInterne = raison.trim();
-    setChecklistReadOnly(false);
-    afficherBandeauExceptionnel(otStates[currentOT]);
-    showNotification('🔓 Remplissage manuel autorisé — tracé dans l\'historique', 'warning');
-}
-
-/** Applique le verrouillage ET affiche/masque la zone de validation du responsable. */
-function appliquerVerrouillageChecklist(otStr) {
-    const state = otStates[otStr];
-    const etat = determinerEtatVerrouillage(state, isPrestataireMode);
-
-    if (etat === 'verrouille') { setChecklistReadOnly(true); afficherBandeauVerrouillage(); }
-    else if (etat === 'exceptionnel') { setChecklistReadOnly(false); afficherBandeauExceptionnel(state); }
-    else { setChecklistReadOnly(false); retirerBandeauVerrouillage(); }
-
-    const zoneValidation = document.getElementById('responsableValidationZone');
-    const signeParPrestataire = !!(state && state.technicien && (state.signature || state.electronicSignatureData));
-
-    if (!isPrestataireMode && signeParPrestataire) {
-        zoneValidation.style.display = 'block';
-        const v = (state && state.validationResponsable) || {};
-        document.getElementById('responsableName').value = v.nom || '';
-        document.getElementById('responsableComment').value = v.commentaire || '';
-        renderValidationStatus(v);
-        if (v.statut === 'valide') setChecklistReadOnly(true);
-    } else {
-        zoneValidation.style.display = 'none';
-    }
-}
-
-// ============================================
-// 🆕 DOUBLE SIGNATURE : VALIDATION PAR LE RESPONSABLE
-// Deuxième étape, indépendante de la signature du technicien/prestataire.
-// ============================================
-
-function renderValidationStatus(v) {
-    const box = document.getElementById('responsableStatusBox');
-    if (!box) return;
-    if (v.statut === 'valide') {
-        box.innerHTML = '<span style="color:#2e7d32; font-weight:bold;">✅ Validé le ' + v.date + ' à ' + v.heure + ' par ' + v.nom + '</span>';
-    } else if (v.statut === 'rejete') {
-        box.innerHTML = '<span style="color:#c62828; font-weight:bold;">✗ Rejeté le ' + v.date + ' — motif : ' + (v.commentaire || '-') + '</span>';
-    } else {
-        box.innerHTML = '<span style="color:#999;">En attente de validation</span>';
-    }
-}
-
-function validerParResponsable() {
-    const nom = document.getElementById('responsableName').value.trim();
-    if (!nom) { alert('Veuillez indiquer votre nom.'); return; }
-    if (!otStates[currentOT] || !otStates[currentOT].technicien) {
-        showNotification('Cet OT n\'a pas encore été signé par le prestataire', 'warning');
-        return;
-    }
-    const now = new Date();
-    otStates[currentOT].validationResponsable = {
-        nom,
-        commentaire: '',
-        date: now.toLocaleDateString('fr-FR'),
-        heure: now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
-        statut: 'valide',
-        timestamp: now.toISOString()
-    };
-    renderValidationStatus(otStates[currentOT].validationResponsable);
-    setChecklistReadOnly(true);
-    saveToLocalStorage(true);
-    showNotification('✅ OT ' + currentOT + ' validé par ' + nom);
-    renderPlanning();
-}
-
-function rejeterParResponsable() {
-    const nom = document.getElementById('responsableName').value.trim();
-    const commentaire = document.getElementById('responsableComment').value.trim();
-    if (!nom) { alert('Veuillez indiquer votre nom.'); return; }
-    if (!commentaire) { alert('Veuillez préciser le motif du rejet.'); return; }
-    const now = new Date();
-    otStates[currentOT].validationResponsable = {
-        nom, commentaire,
-        date: now.toLocaleDateString('fr-FR'),
-        heure: now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
-        statut: 'rejete',
-        timestamp: now.toISOString()
-    };
-    renderValidationStatus(otStates[currentOT].validationResponsable);
-    saveToLocalStorage(true);
-    showNotification('✗ OT ' + currentOT + ' rejeté — renvoyé au prestataire', 'warning');
-    renderPlanning();
-}
-
 function saveChecklist() {
     const techName = document.getElementById('techName').value.trim();
     if (!techName) { showNotification('⚠️ Veuillez renseigner le nom du technicien', 'warning'); return; }
@@ -5193,9 +5012,7 @@ function saveChecklist() {
     else otStates[currentOT].status = 'P';
     // 🆕 Traçabilité pour la fusion des retours prestataire (détection de conflit)
     otStates[currentOT].dateModifLocale = new Date().toISOString();
-    otStates[currentOT].modifiePar = otStates[currentOT].autorisationRemplissageInterne
-        ? 'interne_manuel_exceptionnel'
-        : 'interne';
+    otStates[currentOT].modifiePar = 'interne';
     saveToLocalStorage(true);
     showNotification('✅ OT ' + currentOT + ' enregistré (' + done + '/' + total + ' actions)');
     closeModal();
@@ -6372,7 +6189,7 @@ function getOTAnomaliesCount(otNum) {
 }
      
 function calculerKPIs() {
-    const kpis = { totalOT: 0, otFaits: 0, otNonFaits: 0, otPartiels: 0, otEnAttente: 0, otNC: 0, totalAnomalies: 0, otAvecAnomalies: 0, otConformes: 0, tauxRealisation: 0, tauxConformite: 0, tauxAvancement: 0, ecartMoyen: 0, otEnRetard: 0, otAlHeure: 0, otEnAvance: 0, techniciens: {}, equipements: {}, types: {}, parDate: {}, topAnomalies: {}, totalActions: 0, actionsRealisees: 0, otRempliInterne: 0 };
+    const kpis = { totalOT: 0, otFaits: 0, otNonFaits: 0, otPartiels: 0, otEnAttente: 0, otNC: 0, totalAnomalies: 0, otAvecAnomalies: 0, otConformes: 0, tauxRealisation: 0, tauxConformite: 0, tauxAvancement: 0, ecartMoyen: 0, otEnRetard: 0, otAlHeure: 0, otEnAvance: 0, techniciens: {}, equipements: {}, types: {}, parDate: {}, topAnomalies: {}, totalActions: 0, actionsRealisees: 0 };
     let totalEcartJours = 0; let nbOTAvecEcart = 0;
     planningData.forEach(row => {
         if (row.type !== 'row') return;
@@ -6400,7 +6217,6 @@ function calculerKPIs() {
             if (!kpis.equipements[equipType]) kpis.equipements[equipType] = {total: 0, fait: 0, anomalies: 0};
             kpis.equipements[equipType].total++;
 if (state && state.status) {
-                if (state.modifiePar === 'interne_manuel_exceptionnel') kpis.otRempliInterne++;
                 const anomaliesCount = getOTAnomaliesCount(otStr); // ✅ même définition que l'en-tête / le pop-up
                 if (state.status === 'F') {
                     kpis.otFaits++; kpis.types[row.interventionType].fait++; kpis.equipements[equipType].fait++;
@@ -6525,12 +6341,6 @@ function renderDashboard() {
                 <div class="kpi-label">OT non communiqués</div>
                 <div class="kpi-value">${kpis.otNC}</div>
                 <div class="kpi-target">À planifier avec le client</div>
-            </div>
-            <div class="kpi-card ${kpis.otRempliInterne === 0 ? 'success' : 'danger'}">
-                <div class="kpi-icon" aria-hidden="true">🔓</div>
-                <div class="kpi-label">OT remplis en interne</div>
-                <div class="kpi-value">${kpis.otRempliInterne}</div>
-                <div class="kpi-target">Hors circuit prestataire — à vérifier</div>
             </div>
             <div class="kpi-card info">
                 <div class="kpi-icon" aria-hidden="true">👷</div>

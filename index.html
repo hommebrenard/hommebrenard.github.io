@@ -993,21 +993,6 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
     border: 1px solid #fcd34d;
 }
 .etat-partiel::before { content: '⚠'; }
-
-/* 🆕 Badges de validation responsable (tableau + cartes mobiles) */
-.badge-validation { font-size: 12px; cursor: help; }
-.badge-validation.valide { color: #2e7d32; }
-.badge-validation.rejete { color: #c62828; }
-.badge-validation.attente { color: #e65100; }
-.badge-validation.interne { color: #c62828; }
-.mobile-validation-badge {
-    display: inline-block; padding: 3px 8px; border-radius: 10px;
-    font-size: 10px; font-weight: bold; margin-top: 4px;
-}
-.mobile-validation-badge.valide { background: #c8e6c9; color: #2e7d32; }
-.mobile-validation-badge.rejete { background: #ffcdd2; color: #c62828; }
-.mobile-validation-badge.attente { background: #ffe0b2; color: #e65100; }
-.mobile-validation-badge.interne { background: #ffcdd2; color: #c62828; }
     
    .total-prevu { 
     background: #fef3c7; 
@@ -2548,7 +2533,6 @@ function renderMobileCardsView() {
                     card.className = 'mobile-ot-card ' + cardClass;
                     card.dataset.status = statusClass === 'pending' ? 'pending' : (statusClass === 'fait' ? 'done' : (statusClass === 'partiel' ? 'partial' : 'notdone'));
                     const libelleEscaped = (row.libelle || '').replace(/'/g, "\\'");
-                    const evMobile = obtenirEtatValidation(otStr);
                     card.innerHTML = `
                         <div class="mobile-ot-info">
                             <div class="mobile-ot-number">🔧 ${otStr}</div>
@@ -2559,8 +2543,6 @@ function renderMobileCardsView() {
                         </div>
                         <div class="mobile-ot-status">
                             <div class="mobile-status-badge ${statusClass}">${statusLabel}</div>
-                            ${evMobile ? '<div class="mobile-validation-badge ' + evMobile.cle + '" title="' + evMobile.titre + '">' + evMobile.emoji + ' ' + evMobile.label + '</div>' : ''}
-                            ${state && state.modifiePar === 'interne_manuel_exceptionnel' ? '<div class="mobile-validation-badge interne">🔓 Interne</div>' : ''}
                             <button class="mobile-action-btn ${btnClass}" 
                                     onclick="openChecklist(${JSON.stringify(otStr)}, ${JSON.stringify(row.materiel)}, ${JSON.stringify(row.interventionType)}, ${JSON.stringify(libelleEscaped)}, ${JSON.stringify(datePlanning)})"
                                     aria-label="${state && state.technicien ? 'Modifier' : 'Commencer'} l'OT ${otStr}">
@@ -3933,16 +3915,6 @@ function checkWorkspaceReady() {
     }
 }
 
-/** Retourne l'état de validation "responsable" d'un OT signé, ou null si pas encore signé. */
-function obtenirEtatValidation(otStr) {
-    const st = otStates[otStr];
-    if (!st || !st.technicien) return null;
-    const v = st.validationResponsable;
-    if (v && v.statut === 'valide') return { cle: 'valide', emoji: '✔️', label: 'Validé', titre: 'Validé par ' + v.nom + ' le ' + v.date + ' à ' + v.heure };
-    if (v && v.statut === 'rejete') return { cle: 'rejete', emoji: '✗', label: 'Rejeté', titre: 'Rejeté par ' + v.nom + ' — ' + (v.commentaire || '') };
-    return { cle: 'attente', emoji: '⏳', label: 'À valider', titre: 'En attente de validation du responsable' };
-}
-
 function renderPlanning() {
     const thead = document.getElementById('planningHead');
     thead.innerHTML = '<tr>' + planningHeaders.map(h => '<th>' + h + '</th>').join('') + '</tr>';
@@ -3970,11 +3942,6 @@ function renderPlanning() {
                     if (state === 'F') { etatBadge = '<span class="etat-fait">F</span>'; nbFait++; linkClass = 'done'; }
                     else if (state === 'NF') { etatBadge = '<span class="etat-nonfait">NF</span>'; linkClass = 'notdone'; }
                     else if (state === 'P') { etatBadge = '<span class="etat-partiel">P</span>'; linkClass = 'partial'; }
-                    const ev = obtenirEtatValidation(otStr);
-                    if (ev) etatBadge += ' <span class="badge-validation ' + ev.cle + '" title="' + escapeHtml(ev.titre) + '">' + ev.emoji + '</span>';
-                    if (otStates[otStr] && otStates[otStr].modifiePar === 'interne_manuel_exceptionnel') {
-                        etatBadge += ' <span class="badge-validation interne" title="Rempli en interne (exceptionnel)">🔓</span>';
-                    }
                     const dateOT = (window.dateColumns && window.dateColumns[otIdx]) || '';
                     cells += `<td><button type="button" class="ot-link ${linkClass}" data-materiel="${escapeHtml(row.materiel || '')}" data-intervention-type="${escapeHtml(row.interventionType || '')}" data-libelle="${escapeHtml(row.libelle || '')}" data-dateot="${escapeHtml(dateOT)}" aria-label="Ouvrir la check-list de l\u0027OT ${escapeHtml(otStr)}">${escapeHtml(otStr)}</button></td>`;
                     cells += '<td>' + etatBadge + '</td>';
@@ -6405,7 +6372,7 @@ function getOTAnomaliesCount(otNum) {
 }
      
 function calculerKPIs() {
-    const kpis = { totalOT: 0, otFaits: 0, otNonFaits: 0, otPartiels: 0, otEnAttente: 0, otNC: 0, totalAnomalies: 0, otAvecAnomalies: 0, otConformes: 0, tauxRealisation: 0, tauxConformite: 0, tauxAvancement: 0, ecartMoyen: 0, otEnRetard: 0, otAlHeure: 0, otEnAvance: 0, techniciens: {}, equipements: {}, types: {}, parDate: {}, topAnomalies: {}, totalActions: 0, actionsRealisees: 0, otRempliInterne: 0, otValidesResponsable: 0, otEnAttenteValidation: 0, otRejetesResponsable: 0 };
+    const kpis = { totalOT: 0, otFaits: 0, otNonFaits: 0, otPartiels: 0, otEnAttente: 0, otNC: 0, totalAnomalies: 0, otAvecAnomalies: 0, otConformes: 0, tauxRealisation: 0, tauxConformite: 0, tauxAvancement: 0, ecartMoyen: 0, otEnRetard: 0, otAlHeure: 0, otEnAvance: 0, techniciens: {}, equipements: {}, types: {}, parDate: {}, topAnomalies: {}, totalActions: 0, actionsRealisees: 0, otRempliInterne: 0 };
     let totalEcartJours = 0; let nbOTAvecEcart = 0;
     planningData.forEach(row => {
         if (row.type !== 'row') return;
@@ -6448,9 +6415,6 @@ if (state && state.status) {
                     else if (state.status === 'P') kpis.techniciens[state.technicien].partiel++;
                     else if (state.status === 'NF') kpis.techniciens[state.technicien].nonFait++;
                     kpis.techniciens[state.technicien].anomalies += anomaliesCount;
-                    if (state.validationResponsable && state.validationResponsable.statut === 'valide') kpis.otValidesResponsable++;
-                    else if (state.validationResponsable && state.validationResponsable.statut === 'rejete') kpis.otRejetesResponsable++;
-                    else kpis.otEnAttenteValidation++;
                 }
                 if (anomaliesCount > 0) {
                     kpis.otAvecAnomalies++; kpis.totalAnomalies += anomaliesCount;
@@ -6567,12 +6531,6 @@ function renderDashboard() {
                 <div class="kpi-label">OT remplis en interne</div>
                 <div class="kpi-value">${kpis.otRempliInterne}</div>
                 <div class="kpi-target">Hors circuit prestataire — à vérifier</div>
-            </div>
-            <div class="kpi-card ${kpis.otEnAttenteValidation === 0 ? 'success' : 'warning'}">
-                <div class="kpi-icon" aria-hidden="true">⏳</div>
-                <div class="kpi-label">OT en attente de validation</div>
-                <div class="kpi-value">${kpis.otEnAttenteValidation}</div>
-                <div class="kpi-target">Validés : ${kpis.otValidesResponsable} | Rejetés : ${kpis.otRejetesResponsable}</div>
             </div>
             <div class="kpi-card info">
                 <div class="kpi-icon" aria-hidden="true">👷</div>

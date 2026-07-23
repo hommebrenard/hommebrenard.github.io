@@ -4027,9 +4027,21 @@ function openChecklist(otNum, materiel, interventionType, libelle, dateOT) {
     document.getElementById('modalOverlay').classList.add('active');
     document.getElementById('modalTitle').textContent = 'Check-list OT N° ' + otStr;
     document.getElementById('modalInfo').innerHTML = '<strong>Équipement :</strong> ' + data.equipement + '<br><strong>Intervention :</strong> ' + data.intervention;
-    if (!otStates[otStr]) {
-        otStates[otStr] = {actions: {}, commentaires: {}, status: '', technicien: '', dateDebut: '', dateFin: '', signature: '', site: currentSiteName, attachments: []};
-    }
+   // 🔐 CORRECTION BUG : Garantir la structure COMPLÈTE de l'OT
+// (fix pour prestataire recevant un fichier avec OT allégés)
+if (!otStates[otStr]) {
+    otStates[otStr] = {};
+}
+// Compléter TOUS les champs manquants (au cas où l'OT existe partiellement)
+if (!otStates[otStr].actions) otStates[otStr].actions = {};
+if (!otStates[otStr].commentaires) otStates[otStr].commentaires = {};
+if (!otStates[otStr].attachments) otStates[otStr].attachments = [];
+if (otStates[otStr].status === undefined) otStates[otStr].status = '';
+if (otStates[otStr].technicien === undefined) otStates[otStr].technicien = '';
+if (otStates[otStr].dateDebut === undefined) otStates[otStr].dateDebut = '';
+if (otStates[otStr].dateFin === undefined) otStates[otStr].dateFin = '';
+if (otStates[otStr].signature === undefined) otStates[otStr].signature = '';
+if (otStates[otStr].site === undefined) otStates[otStr].site = currentSiteName;
     document.getElementById('site').value = otStates[otStr].site || currentSiteName;
     document.getElementById('techName').value = otStates[otStr].technicien || '';
     const datePrevueAuto = planningDateToDatetime(dateOT);

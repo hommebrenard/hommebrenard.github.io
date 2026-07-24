@@ -4659,16 +4659,16 @@ async function generateEncryptionKey() {
  * @param {CryptoKey} key - Clé de chiffrement
  * @returns {Promise<string>} Données chiffrées en base64
  */
-async function encryptData(data, key) {
+function encryptData(data, key) {
     try {
         // Convertir les données en JSON puis en bytes
         const jsonString = JSON.stringify(data);
         const encoder = new TextEncoder();
         const dataBytes = encoder.encode(jsonString);
-        
+
         // Générer un IV (Initialization Vector) aléatoire
         const iv = crypto.getRandomValues(new Uint8Array(12));
-        
+
         // Chiffrer avec AES-GCM
         const encryptedBuffer = await crypto.subtle.encrypt(
             {
@@ -4678,19 +4678,27 @@ async function encryptData(data, key) {
             key,
             dataBytes
         );
-        
+
         // Combiner IV + données chiffrées
         const encryptedArray = new Uint8Array(encryptedBuffer);
         const combined = new Uint8Array(iv.length + encryptedArray.length);
         combined.set(iv, 0);
         combined.set(encryptedArray, iv.length);
-        
-        // Convertir en base64 pour stockage/transport
-        return btoa(String.fromCharCode.apply(null, combined));
+
+        // ✅ Convertir en base64 par chunks (évite le stack overflow)
+        let binary = '';
+        const chunkSize = 8192;
+        for (let i = 0; i < combined.length; i += chunkSize) {
+            const chunk = combined.subarray(i, i + chunkSize);
+            binary += String.fromCharCode.apply(null, chunk);
+        }
+        return btoa(binary);
+
     } catch (error) {
         console.error('❌ Erreur chiffrement:', error);
         throw new Error('Chiffrement impossible : ' + error.message);
     }
+}
 }
 
 /**
@@ -4802,7 +4810,13 @@ async function encryptWithPassword(data, password) {
         combined.set(iv, salt.length);
         combined.set(encryptedArray, salt.length + iv.length);
         
-        return btoa(String.fromCharCode.apply(null, combined));
+       let binary = '';
+        const chunkSize = 8192;
+        for (let i = 0; i < combined.length; i += chunkSize) {
+            const chunk = combined.subarray(i, i + chunkSize);
+            binary += String.fromCharCode.apply(null, chunk);
+        }
+        return btoa(binary);
     } catch (error) {
         console.error('❌ Erreur chiffrement avec mot de passe:', error);
         throw new Error('Chiffrement impossible : ' + error.message);

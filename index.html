@@ -3513,29 +3513,91 @@ async function persistActiveSiteToLocalStorage() {
 }
 
 /** Exporte le site actif (planning + check-list + avancement) en fichier JSON — pour partage via dossier OneDrive partagé. */
-function exportSiteJSON() {
+/** 🔒 Demande un mot de passe pour CHIFFRER un export (avec confirmation pour éviter une faute de frappe).
+ *  Retourne null si l'utilisateur annule ou si les deux saisies ne correspondent pas. */
+function askPasswordForExport() {
+    const p1 = prompt('🔒 Mot de passe pour chiffrer ce fichier\n\n(à transmettre au destinataire par un AUTRE canal que OneDrive : SMS, appel, en main propre...)');
+    if (!p1) return null;
+    const p2 = prompt('🔒 Confirmez le mot de passe :');
+    if (p1 !== p2) {
+        alert('❌ Les deux saisies ne correspondent pas. Export annulé.');
+        return null;
+    }
+    return p1;
+}
+
+/** 🔒 Demande un mot de passe pour DÉCHIFFRER un fichier importé. */
+function askPasswordForImport() {
+    return prompt('🔒 Mot de passe pour déchiffrer ce fichier :');
+}
+
+/** 🔒 Enveloppe un objet dans un conteneur JSON chiffré (mot de passe), prêt à être écrit sur disque. */
+async function buildEncryptedJSONPayload(obj, password) {
+    const data = await encryptWithPassword(obj, password);
+    return JSON.stringify({ __encrypted: true, v: 1, data: data });
+}
+
+/** 🔓 Si le JSON parsé est une enveloppe chiffrée (__encrypted), demande le mot de passe et déchiffre.
+ *  Sinon, renvoie l'objet tel quel (compatibilité avec d'anciens fichiers non chiffrés).
+ *  Lève une erreur si le mot de passe est incorrect ou si l'utilisateur annule. */
+async function unwrapMaybeEncryptedJSON(parsed) {
+    if (!parsed || !parsed.__encrypted) return parsed;
+    const password = askPasswordForImport();
+    if (!password) throw new Error('Mot de passe requis pour déchiffrer ce fichier.');
+    try {
+        return await decryptWithPassword(parsed.data, password);
+    } catch (err) {
+        throw new Error('Mot de passe incorrect ou fichier corrompu.');
+    }
+}
+
+async function exportSiteJSON() {
     if (!activeSiteKey) { showNotification('Aucun site actif à exporter.', 'error'); return; }
     syncActiveSiteIntoLibrary();
     const bucket = sitesLibrary[activeSiteKey];
-    const blob = new Blob([JSON.stringify(bucket, null, 0)], {type: 'application/json'});
+
+    const password = askPasswordForExport();
+    if (!password) { showNotification('Export annulé (mot de passe requis).', 'error'); return; }
+
+    let fileContent;
+    try {
+        fileContent = await buildEncryptedJSONPayload(bucket, password);
+    } catch (err) {
+        showNotification('❌ Erreur lors du chiffrement : ' + err.message, 'error');
+        return;
+    }
+
+    const blob = new Blob([fileContent], {type: 'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = 'OT_' + activeSiteKey.replace(/\s+/g, '_') + '.json';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showNotification('📤 Site exporté : ' + a.download + ' (à déposer dans le dossier partagé)');
+    showNotification('📤 Site exporté (chiffré) : ' + a.download + ' (à déposer dans le dossier partagé)');
 }
 
 /** 🆕 Exporte TOUS les sites actuellement chargés en mémoire en UN SEUL fichier JSON
  *  (utile après un chargement en masse de plusieurs plannings/check-lists), pour éviter
  *  de devoir basculer site par site et exporter n fois. */
-function exportAllSitesJSON() {
+async function exportAllSitesJSON() {
     if (activeSiteKey && mainHeaderText) syncActiveSiteIntoLibrary();
     const keys = Object.keys(sitesLibrary);
     if (keys.length === 0) { showNotification('Aucun site chargé à exporter.', 'error'); return; }
     const payload = { __multiSite: true, exportedAt: new Date().toISOString(), sites: sitesLibrary };
-    const blob = new Blob([JSON.stringify(payload, null, 0)], {type: 'application/json'});
+
+    const password = askPasswordForExport();
+    if (!password) { showNotification('Export annulé (mot de passe requis).', 'error'); return; }
+
+    let fileContent;
+    try {
+        fileContent = await buildEncryptedJSONPayload(payload, password);
+    } catch (err) {
+        showNotification('❌ Erreur lors du chiffrement : ' + err.message, 'error');
+        return;
+    }
+
+    const blob = new Blob([fileContent], {type: 'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -3543,7 +3605,7 @@ function exportAllSitesJSON() {
     a.download = 'OT_MULTI_' + keys.length + '_sites_' + dateTag + '.json';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showNotification('📦 ' + keys.length + ' site(s) exporté(s) dans un seul fichier : ' + a.download);
+    showNotification('📦 ' + keys.length + ' site(s) exporté(s) (chiffré) dans un seul fichier : ' + a.download);
 }
 
 /** Importe un fichier JSON de site (produit par exportSiteJSON) — depuis le dossier partagé OneDrive par exemple. */
@@ -3558,9 +3620,16 @@ function importSiteJSON(event) {
     const file = event.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = function(e) {
+    reader.onload = async function(e) {
         try {
-            const parsed = JSON.parse(e.target.result);
+            let parsed = JSON.parse(e.target.result);
+            try {
+                parsed = await unwrapMaybeEncryptedJSON(parsed);
+            } catch (decErr) {
+                showNotification('❌ ' + decErr.message, 'error');
+                event.target.value = '';
+                return;
+            }
 
             // 🆕 Fichier multi-sites (produit par exportAllSitesJSON) : on importe chaque site du lot.
             if (parsed && parsed.__multiSite && parsed.sites && typeof parsed.sites === 'object') {
@@ -3687,11 +3756,16 @@ function getOTKeysFromBucket(bucket) {
 
 /** 🆕 Export ciblé "à faire par le prestataire" : uniquement les OT non traités du site actif,
  *  avec marquage statutSync='envoye' + horodatage + entrée dans le journal du site. */
-function exportPrestataireJSON() {
+async function exportPrestataireJSON() {
     if (!activeSiteKey) { showNotification('Aucun site actif à exporter.', 'error'); return; }
     syncActiveSiteIntoLibrary();
     const otList = getOTsNonTraites();
     if (otList.length === 0) { showNotification('Aucun OT en attente à envoyer au prestataire.', 'error'); return; }
+
+    // 🔒 Mot de passe demandé AVANT toute modification d'état, pour ne rien marquer "envoyé"
+    // si l'utilisateur annule.
+    const password = askPasswordForExport();
+    if (!password) { showNotification('Export annulé (mot de passe requis).', 'error'); return; }
 
     const now = new Date().toISOString();
     const bucket = sitesLibrary[activeSiteKey];
@@ -3717,14 +3791,23 @@ function exportPrestataireJSON() {
         mainHeaderText,
         otStates: otStatesAllegees
     };
-    const blob = new Blob([JSON.stringify(payload, null, 0)], {type: 'application/json'});
+
+    let fileContent;
+    try {
+        fileContent = await buildEncryptedJSONPayload(payload, password);
+    } catch (err) {
+        showNotification('❌ Erreur lors du chiffrement : ' + err.message, 'error');
+        return;
+    }
+
+    const blob = new Blob([fileContent], {type: 'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = 'ENVOI_PRESTATAIRE_' + activeSiteKey.replace(/\s+/g, '_') + '.json';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showNotification('📤 ' + otList.length + ' OT envoyé(s) au prestataire : ' + a.download);
+    showNotification('📤 ' + otList.length + ' OT envoyé(s) au prestataire (chiffré) : ' + a.download);
 }
 
 /** 🆕 Import du retour prestataire : fusion OT par OT dans le site correspondant
@@ -3735,9 +3818,16 @@ function importRetourPrestataireJSON(event) {
     const file = event.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = function(e) {
+    reader.onload = async function(e) {
         try {
-            const incoming = JSON.parse(e.target.result);
+            let incoming = JSON.parse(e.target.result);
+            try {
+                incoming = await unwrapMaybeEncryptedJSON(incoming);
+            } catch (decErr) {
+                showNotification('❌ ' + decErr.message, 'error');
+                event.target.value = '';
+                return;
+            }
             const key = incoming.siteKey && sitesLibrary[incoming.siteKey] ? incoming.siteKey : activeSiteKey;
             if (!key || !sitesLibrary[key]) throw new Error('Site correspondant introuvable en local. Chargez d\'abord le planning de ce site.');
 

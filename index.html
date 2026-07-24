@@ -4659,7 +4659,7 @@ async function generateEncryptionKey() {
  * @param {CryptoKey} key - Clé de chiffrement
  * @returns {Promise<string>} Données chiffrées en base64
  */
-function encryptData(data, key) {
+async function encryptData(data, key) {
     try {
         // Convertir les données en JSON puis en bytes
         const jsonString = JSON.stringify(data);

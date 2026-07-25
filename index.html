@@ -2423,6 +2423,139 @@ function escapeHtml(str) {
 }
 
 // ============================================
+// 🆕 ÉTAPE 2 — Stockage des pièces jointes en IndexedDB
+// localStorage est limité (~5-10 Mo par site) et sature vite avec des
+// photos en base64. On stocke désormais les FICHIERS BINAIRES dans
+// IndexedDB (quota bien plus large), et on ne garde dans otStates que
+// des métadonnées + une clé de référence vers IndexedDB.
+// Note : les exports JSON destinés au prestataire réintègrent quand
+// même les données binaires (voir exportSiteJSON / exportPrestataireJSON),
+// car c'est le format d'échange — seul le stockage LOCAL est allégé.
+// ============================================
+const ATTACHMENTS_DB_NAME = 'otPreventifAttachmentsDB';
+const ATTACHMENTS_STORE = 'attachments';
+let _attachmentsDbPromise = null;
+
+function getAttachmentsDb() {
+    if (!_attachmentsDbPromise) {
+        _attachmentsDbPromise = new Promise((resolve, reject) => {
+            const req = indexedDB.open(ATTACHMENTS_DB_NAME, 1);
+            req.onupgradeneeded = () => {
+                if (!req.result.objectStoreNames.contains(ATTACHMENTS_STORE)) {
+                    req.result.createObjectStore(ATTACHMENTS_STORE);
+                }
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+    }
+    return _attachmentsDbPromise;
+}
+
+/** Génère une clé unique pour une pièce jointe (indépendante de son index dans le tableau, qui peut changer). */
+function generateAttachmentKey(otStr) {
+    return 'att_' + otStr + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+}
+
+async function saveAttachmentBlob(key, blob) {
+    const db = await getAttachmentsDb();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(ATTACHMENTS_STORE, 'readwrite');
+        tx.objectStore(ATTACHMENTS_STORE).put(blob, key);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+    });
+}
+
+async function getAttachmentBlob(key) {
+    const db = await getAttachmentsDb();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(ATTACHMENTS_STORE, 'readonly');
+        const req = tx.objectStore(ATTACHMENTS_STORE).get(key);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+async function deleteAttachmentBlob(key) {
+    const db = await getAttachmentsDb();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(ATTACHMENTS_STORE, 'readwrite');
+        tx.objectStore(ATTACHMENTS_STORE).delete(key);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+    });
+}
+
+/** Convertit un Blob en dataURL base64 (pour export JSON ou insertion dans un PDF). */
+function blobToDataURL(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+    });
+}
+
+/** Convertit une dataURL base64 en Blob (pour import JSON → IndexedDB). */
+function dataURLToBlob(dataUrl) {
+    const parts = dataUrl.split(',');
+    const mimeMatch = parts[0].match(/:(.*?);/);
+    const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+    const binary = atob(parts[1]);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+}
+
+/** 🆕 Avant d'exporter un site en JSON (partage / sauvegarde), réintègre les données binaires
+ *  des pièces jointes (actuellement seulement référencées par clé IndexedDB) afin que le fichier
+ *  exporté reste autonome, même si le destinataire n'a pas accès à l'IndexedDB d'origine. */
+async function hydrateBucketAttachmentsForExport(bucket) {
+    if (!bucket || !bucket.otStates) return bucket;
+    const clone = JSON.parse(JSON.stringify(bucket)); // clone profond, sans toucher aux données en mémoire
+    for (const ot of Object.keys(clone.otStates)) {
+        const state = clone.otStates[ot];
+        if (!state.attachments || !state.attachments.length) continue;
+        for (const att of state.attachments) {
+            if (att.key && !att.data) {
+                try {
+                    const blob = await getAttachmentBlob(att.key);
+                    if (blob) att.data = await blobToDataURL(blob);
+                } catch (err) {
+                    console.warn('⚠️ Pièce jointe introuvable pour export :', att.name, err);
+                }
+            }
+        }
+    }
+    return clone;
+}
+
+/** 🆕 Après import d'un site JSON, migre les pièces jointes reçues (en base64) vers IndexedDB
+ *  et ne garde que les métadonnées + clé dans le bucket, pour ne pas alourdir le localStorage. */
+async function dehydrateBucketAttachmentsAfterImport(bucket) {
+    if (!bucket || !bucket.otStates) return bucket;
+    for (const ot of Object.keys(bucket.otStates)) {
+        const state = bucket.otStates[ot];
+        if (!state.attachments || !state.attachments.length) continue;
+        for (const att of state.attachments) {
+            if (att.data && !att.key) {
+                try {
+                    const blob = dataURLToBlob(att.data);
+                    const key = generateAttachmentKey(ot);
+                    await saveAttachmentBlob(key, blob);
+                    att.key = key;
+                    delete att.data;
+                } catch (err) {
+                    console.warn('⚠️ Migration pièce jointe échouée à l\'import :', att.name, err);
+                }
+            }
+        }
+    }
+    return bucket;
+}
+
+// ============================================
 // 🆕 MODE PRESTATAIRE (?role=prestataire)
 // Variante allégée de l'app : masque les outils de pilotage interne
 // (dashboard, exports rapport, réinitialisation, multi-sites) et ne laisse
@@ -3570,7 +3703,7 @@ async function unwrapMaybeEncryptedJSON(parsed) {
 async function exportSiteJSON() {
     if (!activeSiteKey) { showNotification('Aucun site actif à exporter.', 'error'); return; }
     syncActiveSiteIntoLibrary();
-    const bucket = sitesLibrary[activeSiteKey];
+    const bucket = await hydrateBucketAttachmentsForExport(sitesLibrary[activeSiteKey]);
 
     const password = askPasswordForExport();
     if (!password) { showNotification('Export annulé (mot de passe requis).', 'error'); return; }
@@ -3600,7 +3733,9 @@ async function exportAllSitesJSON() {
     if (activeSiteKey && mainHeaderText) syncActiveSiteIntoLibrary();
     const keys = Object.keys(sitesLibrary);
     if (keys.length === 0) { showNotification('Aucun site chargé à exporter.', 'error'); return; }
-    const payload = { __multiSite: true, exportedAt: new Date().toISOString(), sites: sitesLibrary };
+    const hydratedSites = {};
+    for (const k of keys) { hydratedSites[k] = await hydrateBucketAttachmentsForExport(sitesLibrary[k]); }
+    const payload = { __multiSite: true, exportedAt: new Date().toISOString(), sites: hydratedSites };
 
     const password = askPasswordForExport();
     if (!password) { showNotification('Export annulé (mot de passe requis).', 'error'); return; }
@@ -3673,13 +3808,14 @@ function importSiteJSON(event) {
                 }
 
                 const importedKeys = [];
-                Object.keys(parsed.sites).forEach(function(origKey) {
+                for (const origKey of Object.keys(parsed.sites)) {
                     const bucket = parsed.sites[origKey];
-                    if (!bucket || !bucket.planningData || !bucket.checklistData) return;
+                    if (!bucket || !bucket.planningData || !bucket.checklistData) continue;
+                    await dehydrateBucketAttachmentsAfterImport(bucket);
                     const key = slugifySiteName(bucket.label || origKey);
                     sitesLibrary[key] = bucket;
                     importedKeys.push(key);
-                });
+                }
                 if (importedKeys.length === 0) throw new Error('Fichier multi-sites vide ou invalide');
                 refreshSiteSelector();
                 persistSitesIndex();
@@ -3692,6 +3828,7 @@ function importSiteJSON(event) {
 if (parsed && parsed.__archive) {
     const bucket = parsed;
     if (!bucket.planningData || !bucket.checklistData) throw new Error('Fichier d\'archive invalide');
+    await dehydrateBucketAttachmentsAfterImport(bucket);
     const key = bucket.siteKey || slugifySiteName(((bucket.site || '') + ' ' + (bucket.periode || '')) || file.name);
     bucket.label = ((bucket.site || '') + (bucket.periode ? ' ' + bucket.periode : '')).trim() || file.name;
     bucket.mainHeaderText = bucket.label;
@@ -3709,6 +3846,7 @@ if (parsed && parsed.__archive) {
              // Cas normal : fichier d'un seul site (produit par exportSiteJSON)
             const bucket = parsed;
             if (!bucket || !bucket.planningData || !bucket.checklistData) throw new Error('Fichier de site invalide');
+            await dehydrateBucketAttachmentsAfterImport(bucket);
             const key = slugifySiteName(bucket.label || file.name);
 
             // ⚠️ Vérification avant écrasement
@@ -4196,28 +4334,33 @@ if (otStates[otStr].site === undefined) otStates[otStr].site = currentSiteName;
     }, 100);
 }
 
-function handleFileUpload(event) {
+async function handleFileUpload(event) {
     const files = event.target.files;
     if (!files.length) return;
-    Array.from(files).forEach(file => {
-        if (file.size > 5 * 1024 * 1024) { showNotification(file.name + ' trop volumineux (max 5MB)', 'warning'); return; }
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            otStates[currentOT].attachments.push({name: file.name, type: file.type, size: file.size, data: e.target.result, addedAt: new Date().toISOString()});
-            renderAttachments();
+    const otStr = currentOT;
+    for (const file of Array.from(files)) {
+        if (file.size > 5 * 1024 * 1024) { showNotification(file.name + ' trop volumineux (max 5MB)', 'warning'); continue; }
+        try {
+            const key = generateAttachmentKey(otStr);
+            await saveAttachmentBlob(key, file);
+            otStates[otStr].attachments.push({name: file.name, type: file.type, size: file.size, key: key, addedAt: new Date().toISOString()});
             showNotification('✅ ' + file.name + ' ajouté');
-        };
-        reader.readAsDataURL(file);
-    });
+        } catch (err) {
+            console.error('❌ Erreur stockage pièce jointe :', err);
+            showNotification('⚠️ Impossible de stocker ' + file.name, 'error');
+        }
+    }
+    renderAttachments();
     event.target.value = '';
 }
 
-function renderAttachments() {
+async function renderAttachments() {
     const list = document.getElementById('attachmentsList');
     list.innerHTML = '';
     const attachments = (otStates[currentOT] && otStates[currentOT].attachments) || [];
     if (attachments.length === 0) { list.innerHTML = '<p style="color:#999; font-size:11px; font-style:italic;">Aucune pièce jointe</p>'; return; }
-    attachments.forEach((att, idx) => {
+    for (let idx = 0; idx < attachments.length; idx++) {
+        const att = attachments[idx];
         const item = document.createElement('div');
         item.className = 'attachment-item';
         const sizeKB = (att.size / 1024).toFixed(1);
@@ -4226,29 +4369,52 @@ function renderAttachments() {
         let preview = '';
         const nameEscaped = escapeHtml(att.name);
         const typeEscaped = escapeHtml(att.type);
-        if (att.type.startsWith('image/')) preview = '<img src="' + att.data + '" onclick="viewAttachment(' + idx + ')" alt="' + nameEscaped + '">';
+        if (att.type.startsWith('image/')) {
+            preview = '<img data-attkey="' + escapeHtml(att.key) + '" onclick="viewAttachment(' + idx + ')" alt="' + nameEscaped + '">';
+        }
         else if (att.type === 'application/pdf') preview = '<div class="file-icon">PDF</div>';
         else if (att.type.includes('word')) preview = '<div class="file-icon">DOC</div>';
         else if (att.type.includes('excel') || att.type.includes('sheet')) preview = '<div class="file-icon">XLS</div>';
         else preview = '<div class="file-icon">FILE</div>';
         item.innerHTML = '<div class="file-preview">' + preview + '</div><div class="file-info"><div class="file-name" title="' + nameEscaped + '">' + nameEscaped + '</div><div class="file-size">' + sizeText + ' - ' + typeEscaped + '</div></div><div class="file-actions"><button class="btn-action btn-view" onclick="viewAttachment(' + idx + ')" aria-label="Voir la pièce jointe">👁️ Voir</button><button class="btn-action btn-download" onclick="downloadAttachment(' + idx + ')" aria-label="Télécharger">⬇️ DL</button><button class="btn-action btn-delete" onclick="removeAttachment(' + idx + ')" aria-label="Supprimer">🗑️</button></div>';
         list.appendChild(item);
-    });
+        // Charge l'aperçu image de façon asynchrone depuis IndexedDB
+        if (att.type.startsWith('image/') && att.key) {
+            getAttachmentBlob(att.key).then(blob => {
+                if (!blob) return;
+                const imgEl = item.querySelector('img[data-attkey="' + CSS.escape(att.key) + '"]');
+                if (imgEl) imgEl.src = URL.createObjectURL(blob);
+            }).catch(err => console.error('⚠️ Aperçu pièce jointe indisponible :', err));
+        }
+    }
 }
 
-function viewAttachment(idx) {
+async function viewAttachment(idx) {
     const att = otStates[currentOT].attachments[idx];
     if (!att) return;
     const content = document.getElementById('previewContent');
     content.innerHTML = '';
+    let blob = null;
+    if (att.key) {
+        try {
+            blob = await getAttachmentBlob(att.key);
+        } catch (err) {
+            console.error('❌ Erreur lecture pièce jointe :', err);
+        }
+        if (!blob) {
+            showNotification('⚠️ Pièce jointe introuvable (peut-être supprimée du stockage local)', 'error');
+            return;
+        }
+    }
+    const objectUrl = blob ? URL.createObjectURL(blob) : att.data; // att.data = compatibilité avec anciennes données non migrées
     if (att.type.startsWith('image/')) {
         const img = document.createElement('img');
-        img.src = att.data;
+        img.src = objectUrl;
         img.alt = att.name;
         content.appendChild(img);
     } else if (att.type === 'application/pdf') {
         const iframe = document.createElement('iframe');
-        iframe.src = att.data;
+        iframe.src = objectUrl;
         iframe.title = att.name;
         content.appendChild(iframe);
     } else {
@@ -4258,11 +4424,23 @@ function viewAttachment(idx) {
     document.getElementById('previewModal').classList.add('active');
 }
 
-function downloadAttachment(idx) {
+async function downloadAttachment(idx) {
     const att = otStates[currentOT].attachments[idx];
     if (!att) return;
+    let href = att.data; // compatibilité avec anciennes données non migrées
+    if (att.key) {
+        try {
+            const blob = await getAttachmentBlob(att.key);
+            if (!blob) { showNotification('⚠️ Pièce jointe introuvable (peut-être supprimée du stockage local)', 'error'); return; }
+            href = URL.createObjectURL(blob);
+        } catch (err) {
+            console.error('❌ Erreur lecture pièce jointe :', err);
+            showNotification('⚠️ Impossible de récupérer ' + att.name, 'error');
+            return;
+        }
+    }
     const link = document.createElement('a');
-    link.href = att.data;
+    link.href = href;
     link.download = att.name;
     document.body.appendChild(link);
     link.click();
@@ -4270,9 +4448,13 @@ function downloadAttachment(idx) {
     showNotification('Téléchargement : ' + att.name);
 }
 
-function removeAttachment(idx) {
+async function removeAttachment(idx) {
     if (!confirm('Supprimer cette pièce jointe ?')) return;
+    const att = otStates[currentOT].attachments[idx];
     otStates[currentOT].attachments.splice(idx, 1);
+    if (att && att.key) {
+        try { await deleteAttachmentBlob(att.key); } catch (err) { console.warn('⚠️ Nettoyage IndexedDB échoué :', err); }
+    }
     renderAttachments();
     showNotification('Pièce jointe supprimée');
 }
@@ -6156,7 +6338,7 @@ function exportExcel() {
     showNotification('✅ Excel exporté');
 }
 
-function exportChecklistPDF() {
+async function exportChecklistPDF() {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
     const data = checklistData[currentKey];
@@ -6239,18 +6421,24 @@ function exportChecklistPDF() {
             finalY += 5;
         });
         finalY += 5;
-        state.attachments.forEach(att => {
+        for (const att of state.attachments) {
             if (att.type.startsWith('image/')) {
                 if (finalY > 200) { doc.addPage(); finalY = 20; }
                 try {
+                    let imgData = att.data; // compatibilité avec anciennes données non migrées
+                    if (att.key) {
+                        const blob = await getAttachmentBlob(att.key);
+                        if (blob) imgData = await blobToDataURL(blob);
+                    }
+                    if (!imgData) continue;
                     doc.setFont('helvetica', 'bold');
                     doc.text('Image : ' + att.name, 14, finalY); 
                     finalY += 5;
-                    doc.addImage(att.data, 'JPEG', 14, finalY, 80, 60);
+                    doc.addImage(imgData, 'JPEG', 14, finalY, 80, 60);
                     finalY += 65;
                 } catch(e) { console.error('Erreur image PDF:', e); }
             }
-        });
+        }
     }
 console.log('🔍 [DIAG] Début bloc Signature PDF. Mode actuel:', currentSignatureMode);
 console.log('🔍 [DIAG] has electronicSignatureData:', !!electronicSignatureData);

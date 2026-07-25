@@ -2407,6 +2407,22 @@ let annexePageMap = {};
 let chartsInstances = {};
 
 // ============================================
+// 🆕 ÉTAPE 1 — Sécurité : échappement HTML
+// Empêche l'injection de balises/scripts via des données Excel ou saisies
+// utilisateur (nom de site, libellé, commentaire, etc.) injectées dans le DOM.
+// Toujours utiliser escapeHtml() sur toute donnée variable placée dans un
+// template littérale avant affectation à innerHTML.
+// ============================================
+function escapeHtml(str) {
+    return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+// ============================================
 // 🆕 MODE PRESTATAIRE (?role=prestataire)
 // Variante allégée de l'app : masque les outils de pilotage interne
 // (dashboard, exports rapport, réinitialisation, multi-sites) et ne laisse
@@ -2515,7 +2531,7 @@ function renderMobileCardsView() {
             groupDiv.className = 'mobile-equipment-group';
             const headerDiv = document.createElement('div');
             headerDiv.className = 'mobile-group-header';
-            headerDiv.innerHTML = `<div>${row.materiel}</div><div class="group-type">${row.libelle || ''}</div>`;
+            headerDiv.innerHTML = `<div>${escapeHtml(row.materiel)}</div><div class="group-type">${escapeHtml(row.libelle || '')}</div>`;
             groupDiv.appendChild(headerDiv);
             container.appendChild(groupDiv);
         } else if (row.type === 'row' && groupDiv) {
@@ -2531,10 +2547,10 @@ function renderMobileCardsView() {
                     card.dataset.status = 'nc';
                     card.innerHTML = `
                         <div class="mobile-ot-info">
-                            <div class="mobile-ot-number">📭 ${otStr}</div>
-                            <div class="mobile-ot-equip">${row.materiel}</div>
-                            <div class="mobile-ot-equip">${row.libelle || ''}</div>
-                            <div class="mobile-ot-date">📅 ${datePlanning}</div>
+                            <div class="mobile-ot-number">📭 ${escapeHtml(otStr)}</div>
+                            <div class="mobile-ot-equip">${escapeHtml(row.materiel)}</div>
+                            <div class="mobile-ot-equip">${escapeHtml(row.libelle || '')}</div>
+                            <div class="mobile-ot-date">📅 ${escapeHtml(datePlanning)}</div>
                         </div>
                         <div class="mobile-ot-status">
                             <div class="mobile-status-badge nc">Non communiqué</div>
@@ -2551,17 +2567,17 @@ function renderMobileCardsView() {
                     const libelleEscaped = (row.libelle || '').replace(/'/g, "\\'");
                     card.innerHTML = `
                         <div class="mobile-ot-info">
-                            <div class="mobile-ot-number">🔧 ${otStr}</div>
-                            <div class="mobile-ot-equip">${row.materiel}</div>
-                            <div class="mobile-ot-equip">${row.libelle || ''}</div>
-                            <div class="mobile-ot-date">📅 ${datePlanning}</div>
-                            ${state && state.technicien ? '<div class="mobile-ot-date">👷 ' + state.technicien + '</div>' : ''}
+                            <div class="mobile-ot-number">🔧 ${escapeHtml(otStr)}</div>
+                            <div class="mobile-ot-equip">${escapeHtml(row.materiel)}</div>
+                            <div class="mobile-ot-equip">${escapeHtml(row.libelle || '')}</div>
+                            <div class="mobile-ot-date">📅 ${escapeHtml(datePlanning)}</div>
+                            ${state && state.technicien ? '<div class="mobile-ot-date">👷 ' + escapeHtml(state.technicien) + '</div>' : ''}
                         </div>
                         <div class="mobile-ot-status">
                             <div class="mobile-status-badge ${statusClass}">${statusLabel}</div>
                             <button class="mobile-action-btn ${btnClass}" 
                                     onclick="openChecklist(${JSON.stringify(otStr)}, ${JSON.stringify(row.materiel)}, ${JSON.stringify(row.interventionType)}, ${JSON.stringify(libelleEscaped)}, ${JSON.stringify(datePlanning)})"
-                                    aria-label="${state && state.technicien ? 'Modifier' : 'Commencer'} l'OT ${otStr}">
+                                    aria-label="${state && state.technicien ? 'Modifier' : 'Commencer'} l'OT ${escapeHtml(otStr)}">
                                 ${state && state.technicien ? '✏️ Modifier' : '▶️ Commencer'}
                             </button>
                         </div>`;
@@ -2600,7 +2616,7 @@ function renderChecklistMobileCards() {
         card.id = 'mcard-' + idx;
         card.innerHTML = `
             <div class="checklist-card-header">
-                <span class="checklist-card-code">${action.code}</span>
+                <span class="checklist-card-code">${escapeHtml(action.code)}</span>
                 <label class="checklist-card-check" for="mcheck-${idx}">
                     <input type="checkbox" id="mcheck-${idx}" name="mcheck-${idx}" ${isChecked ? 'checked' : ''} 
                            onchange="toggleActionMobile(${idx}, '${action.code}')" 
@@ -2608,12 +2624,12 @@ function renderChecklistMobileCards() {
                     <span>${isChecked ? '✅ Fait' : '⬜ À faire'}</span>
                 </label>
             </div>
-            <div class="checklist-card-description">${action.desc}</div>
+            <div class="checklist-card-description">${escapeHtml(action.desc)}</div>
             <label for="mcomment-${idx}" style="display:none;">Commentaire</label>
             <textarea class="checklist-card-comment" id="mcomment-${idx}" name="mcomment-${idx}"
                       placeholder="💬 Commentaire (anomalie, observation...)" 
                       onchange="saveComment('${action.code}', this.value)" 
-                      aria-label="Commentaire pour cette action">${comment}</textarea>
+                      aria-label="Commentaire pour cette action">${escapeHtml(comment)}</textarea>
             <div>
                 <span class="checklist-card-status ${isChecked ? 'fait' : 'nonfait'}" id="mstatus-${idx}">
                     ${isChecked ? 'FAIT' : 'NON FAIT'}
@@ -4026,20 +4042,20 @@ function checkWorkspaceReady() {
 
 function renderPlanning() {
     const thead = document.getElementById('planningHead');
-    thead.innerHTML = '<tr>' + planningHeaders.map(h => '<th>' + h + '</th>').join('') + '</tr>';
+    thead.innerHTML = '<tr>' + planningHeaders.map(h => '<th>' + escapeHtml(h) + '</th>').join('') + '</tr>';
     const tbody = document.getElementById('planningBody');
     tbody.innerHTML = '';
     planningData.forEach(row => {
         const tr = document.createElement('tr');
         if (row.type === 'header') {
             tr.className = 'row-header';
-            let cells = '<td><strong>' + row.materiel + '</strong></td><td class="libelle"><strong>' + row.libelle + '</strong></td>';
+            let cells = '<td><strong>' + escapeHtml(row.materiel) + '</strong></td><td class="libelle"><strong>' + escapeHtml(row.libelle) + '</strong></td>';
             row.totals.forEach(t => { cells += '<td colspan="2" class="total-date-cell"><strong>' + (t || '') + '</strong></td>'; });
             cells += '<td></td><td class="total-prevu"><strong>' + row.totalPrevu + '</strong></td>';
             tr.innerHTML = cells;
         } else {
             tr.className = 'row-equipment';
-            let cells = '<td>' + row.materiel + '</td><td class="libelle">' + row.libelle + '</td>';
+            let cells = '<td>' + escapeHtml(row.materiel) + '</td><td class="libelle">' + escapeHtml(row.libelle) + '</td>';
             let nbFait = 0;
             row.ots.forEach((ot, otIdx) => {
                 const otStr = String(ot || '').trim();
@@ -4116,7 +4132,7 @@ function openChecklist(otNum, materiel, interventionType, libelle, dateOT) {
     currentSiteName = extractSiteName(mainHeaderText);
     document.getElementById('modalOverlay').classList.add('active');
     document.getElementById('modalTitle').textContent = 'Check-list OT N° ' + otStr;
-    document.getElementById('modalInfo').innerHTML = '<strong>Équipement :</strong> ' + data.equipement + '<br><strong>Intervention :</strong> ' + data.intervention;
+    document.getElementById('modalInfo').innerHTML = '<strong>Équipement :</strong> ' + escapeHtml(data.equipement) + '<br><strong>Intervention :</strong> ' + escapeHtml(data.intervention);
    // 🔐 CORRECTION BUG : Garantir la structure COMPLÈTE de l'OT
 // (fix pour prestataire recevant un fichier avec OT allégés)
 if (!otStates[otStr]) {
@@ -4153,8 +4169,10 @@ if (otStates[otStr].site === undefined) otStates[otStr].site = currentSiteName;
         const tr = document.createElement('tr');
         tr.className = 'action-row ' + (isChecked ? 'checked' : 'unchecked');
         tr.id = 'action-' + idx;
-        const descEscaped = action.desc.replace(/"/g, '&quot;');
-        tr.innerHTML = '<td class="check-cell"><input type="checkbox" id="check-' + idx + '" name="check-' + idx + '" ' + (isChecked ? 'checked' : '') + ' onchange="toggleAction(' + idx + ', \'' + action.code + '\')" aria-label="Marquer comme fait : ' + descEscaped + '"></td><td><label for="check-' + idx + '">' + action.desc + '</label></td><td style="text-align:center;"><code>' + action.code + '</code></td><td><label for="comment-' + idx + '" style="display:none;">Commentaire</label><textarea class="comment-input" id="comment-' + idx + '" name="comment-' + idx + '" placeholder="Commentaire..." onchange="saveComment(\'' + action.code + '\', this.value)" aria-label="Commentaire pour : ' + descEscaped + '">' + comment + '</textarea></td><td class="status-cell" id="status-' + idx + '">' + (isChecked ? '<span style="color:#2e7d32;">FAIT</span>' : '<span style="color:#c62828;">NON FAIT</span>') + '</td>';
+        const descEscaped = escapeHtml(action.desc);
+        const codeEscaped = escapeHtml(action.code);
+        const commentEscaped = escapeHtml(comment);
+        tr.innerHTML = '<td class="check-cell"><input type="checkbox" id="check-' + idx + '" name="check-' + idx + '" ' + (isChecked ? 'checked' : '') + ' onchange="toggleAction(' + idx + ', \'' + action.code + '\')" aria-label="Marquer comme fait : ' + descEscaped + '"></td><td><label for="check-' + idx + '">' + descEscaped + '</label></td><td style="text-align:center;"><code>' + codeEscaped + '</code></td><td><label for="comment-' + idx + '" style="display:none;">Commentaire</label><textarea class="comment-input" id="comment-' + idx + '" name="comment-' + idx + '" placeholder="Commentaire..." onchange="saveComment(\'' + action.code + '\', this.value)" aria-label="Commentaire pour : ' + descEscaped + '">' + commentEscaped + '</textarea></td><td class="status-cell" id="status-' + idx + '">' + (isChecked ? '<span style="color:#2e7d32;">FAIT</span>' : '<span style="color:#c62828;">NON FAIT</span>') + '</td>';
         tbody.appendChild(tr);
     });
     
@@ -4206,12 +4224,14 @@ function renderAttachments() {
         const sizeMB = (att.size / (1024 * 1024)).toFixed(2);
         const sizeText = att.size > 1024 * 1024 ? sizeMB + ' MB' : sizeKB + ' KB';
         let preview = '';
-        if (att.type.startsWith('image/')) preview = '<img src="' + att.data + '" onclick="viewAttachment(' + idx + ')" alt="' + att.name + '">';
+        const nameEscaped = escapeHtml(att.name);
+        const typeEscaped = escapeHtml(att.type);
+        if (att.type.startsWith('image/')) preview = '<img src="' + att.data + '" onclick="viewAttachment(' + idx + ')" alt="' + nameEscaped + '">';
         else if (att.type === 'application/pdf') preview = '<div class="file-icon">PDF</div>';
         else if (att.type.includes('word')) preview = '<div class="file-icon">DOC</div>';
         else if (att.type.includes('excel') || att.type.includes('sheet')) preview = '<div class="file-icon">XLS</div>';
         else preview = '<div class="file-icon">FILE</div>';
-        item.innerHTML = '<div class="file-preview">' + preview + '</div><div class="file-info"><div class="file-name" title="' + att.name + '">' + att.name + '</div><div class="file-size">' + sizeText + ' - ' + att.type + '</div></div><div class="file-actions"><button class="btn-action btn-view" onclick="viewAttachment(' + idx + ')" aria-label="Voir la pièce jointe">👁️ Voir</button><button class="btn-action btn-download" onclick="downloadAttachment(' + idx + ')" aria-label="Télécharger">⬇️ DL</button><button class="btn-action btn-delete" onclick="removeAttachment(' + idx + ')" aria-label="Supprimer">🗑️</button></div>';
+        item.innerHTML = '<div class="file-preview">' + preview + '</div><div class="file-info"><div class="file-name" title="' + nameEscaped + '">' + nameEscaped + '</div><div class="file-size">' + sizeText + ' - ' + typeEscaped + '</div></div><div class="file-actions"><button class="btn-action btn-view" onclick="viewAttachment(' + idx + ')" aria-label="Voir la pièce jointe">👁️ Voir</button><button class="btn-action btn-download" onclick="downloadAttachment(' + idx + ')" aria-label="Télécharger">⬇️ DL</button><button class="btn-action btn-delete" onclick="removeAttachment(' + idx + ')" aria-label="Supprimer">🗑️</button></div>';
         list.appendChild(item);
     });
 }

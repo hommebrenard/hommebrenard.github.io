@@ -2422,6 +2422,14 @@ function escapeHtml(str) {
         .replace(/'/g, '&#39;');
 }
 
+// 🆕 Correction bug : JSON.stringify() produit des guillemets doubles qui cassent
+// un attribut HTML lui-même délimité par des guillemets doubles (ex: onclick="...").
+// jsonAttr() encode ces guillemets en &quot; pour que le navigateur les redécode
+// correctement avant d'exécuter le JavaScript de l'attribut.
+function jsonAttr(value) {
+    return JSON.stringify(value).replace(/"/g, '&quot;');
+}
+
 // ============================================
 // 🆕 ÉTAPE 2 — Stockage des pièces jointes en IndexedDB
 // localStorage est limité (~5-10 Mo par site) et sature vite avec des
@@ -2709,7 +2717,7 @@ function renderMobileCardsView() {
                         <div class="mobile-ot-status">
                             <div class="mobile-status-badge ${statusClass}">${statusLabel}</div>
                             <button class="mobile-action-btn ${btnClass}" 
-                                    onclick="openChecklist(${JSON.stringify(otStr)}, ${JSON.stringify(row.materiel)}, ${JSON.stringify(row.interventionType)}, ${JSON.stringify(libelleEscaped)}, ${JSON.stringify(datePlanning)})"
+                                    onclick="openChecklist(${jsonAttr(otStr)}, ${jsonAttr(row.materiel)}, ${jsonAttr(row.interventionType)}, ${jsonAttr(libelleEscaped)}, ${jsonAttr(datePlanning)})"
                                     aria-label="${state && state.technicien ? 'Modifier' : 'Commencer'} l'OT ${escapeHtml(otStr)}">
                                 ${state && state.technicien ? '✏️ Modifier' : '▶️ Commencer'}
                             </button>

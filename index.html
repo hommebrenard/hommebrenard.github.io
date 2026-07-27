@@ -1976,7 +1976,7 @@ body.mode-prestataire .internal-only {
         <button class="btn btn-warning" id="btnSave" onclick="saveToLocalStorage()" disabled>💾 Sauvegarder</button>
         <button class="btn btn-secondary" onclick="loadFromLocalStorage()">🔄 Recharger</button>
         <button class="btn btn-primary" id="btnOpenDataIO" onclick="openDataIOModal()">🔁 Échanger des données</button>
-        <button class="btn btn-danger internal-only" id="btnResetAll" onclick="resetAll()">🗑️ Réinitialiser</button>
+        <button class="btn btn-danger" id="btnResetAll" onclick="resetAll()">🗑️ Réinitialiser</button>
 
         <!-- Champs fichiers réels, déclenchés depuis les cartes de la modale d'échange -->
         <div style="display:none;">
@@ -2596,6 +2596,11 @@ if (isPrestataireMode) {
         if (toolbarTitle) {
             toolbarTitle.style.display = 'block';
             toolbarTitle.textContent = '🔧 SAISIE PRESTATAIRE';
+        }
+        const btnResetAll = document.getElementById('btnResetAll');
+        if (btnResetAll) {
+            btnResetAll.textContent = '🗑️ Effacer avant nouveau site';
+            btnResetAll.title = 'Efface le site en cours avant de charger un nouveau fichier reçu de l\'admin';
         }
     });
 }
@@ -3775,6 +3780,56 @@ function countTraitedOT(bucket) {
     }).length;
 }
 
+/** 🆕 Fusionne les otStates lors d'un import : un OT déjà traité localement (technicien renseigné)
+ *  n'est JAMAIS écrasé par une version vide/non traitée venant du fichier importé. Ça permet de
+ *  recharger un planning mis à jour par l'admin sans perdre la saisie déjà faite par le prestataire. */
+function mergeOtStatesPreservingProgress(existingOtStates, incomingOtStates) {
+    const merged = Object.assign({}, incomingOtStates || {});
+    if (existingOtStates) {
+        Object.keys(existingOtStates).forEach(function(ot) {
+            const existingState = existingOtStates[ot];
+            const incomingState = merged[ot];
+            if (existingState && existingState.technicien && (!incomingState || !incomingState.technicien)) {
+                merged[ot] = existingState;
+            }
+        });
+    }
+    return merged;
+}
+
+/** 🆕 Modale de choix affichée UNIQUEMENT côté admin (jamais en mode prestataire, pour rester simple
+ *  et sûr) quand un import va rencontrer des OT déjà traités. Retourne une Promise résolue en
+ *  'merge' | 'overwrite' | 'cancel'. */
+function askImportConflictChoice(messageHtml) {
+    return new Promise(function(resolve) {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay active';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        overlay.innerHTML =
+            '<div class="modal" style="max-width:480px;">' +
+                '<div class="modal-header"><div><h2 style="margin:0; font-size:16px;">⚠️ Conflit d\'import</h2></div></div>' +
+                '<div style="padding:20px;">' +
+                    '<p style="margin-top:0;">' + messageHtml + '</p>' +
+                    '<p>Comment voulez-vous continuer ?</p>' +
+                    '<div style="display:flex; flex-direction:column; gap:10px; margin-top:16px;">' +
+                        '<button type="button" class="btn btn-primary" id="conflictMergeBtn">🔗 Fusionner (conserver les OT déjà traités)</button>' +
+                        '<button type="button" class="btn btn-danger" id="conflictOverwriteBtn">🗑️ Écraser tout (repartir du fichier importé)</button>' +
+                        '<button type="button" class="btn btn-secondary" id="conflictCancelBtn">Annuler l\'import</button>' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
+        document.body.appendChild(overlay);
+        function cleanup(result) {
+            document.body.removeChild(overlay);
+            resolve(result);
+        }
+        overlay.querySelector('#conflictMergeBtn').addEventListener('click', function() { cleanup('merge'); });
+        overlay.querySelector('#conflictOverwriteBtn').addEventListener('click', function() { cleanup('overwrite'); });
+        overlay.querySelector('#conflictCancelBtn').addEventListener('click', function() { cleanup('cancel'); });
+    });
+}
+
 function importSiteJSON(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -3804,14 +3859,20 @@ function importSiteJSON(event) {
                         conflicts.push('• ' + (existing.label || key) + ' (' + existingCount + ' OT déjà traité(s))');
                     }
                 });
+                let multiSiteChoice = null; // 'merge' | 'overwrite' | null (pas de conflit, ou mode prestataire)
                 if (conflicts.length > 0) {
-                    const msg = '⚠️ ' + conflicts.length + ' site(s) déjà chargé(s) et déjà traité(s) vont être REMPLACÉS par ce fichier :\n\n'
-                        + conflicts.join('\n')
-                        + '\n\nLeurs OT déjà traités seront perdus si ce fichier ne les reprend pas. Continuer quand même ?';
-                    if (!window.confirm(msg)) {
-                        showNotification('Import annulé.', 'error');
-                        event.target.value = '';
-                        return;
+                    if (isPrestataireMode) {
+                        multiSiteChoice = 'merge'; // fusion automatique, sans demander, côté prestataire
+                    } else {
+                        const msg = conflicts.length + ' site(s) déjà chargé(s) contiennent des OT traités :<br><br>'
+                            + escapeHtml(conflicts.join('\n')).replace(/\n/g, '<br>');
+                        const choice = await askImportConflictChoice(msg);
+                        if (choice === 'cancel') {
+                            showNotification('Import annulé.', 'error');
+                            event.target.value = '';
+                            return;
+                        }
+                        multiSiteChoice = choice; // 'merge' ou 'overwrite', appliqué à tous les sites du lot
                     }
                 }
 
@@ -3821,6 +3882,11 @@ function importSiteJSON(event) {
                     if (!bucket || !bucket.planningData || !bucket.checklistData) continue;
                     await dehydrateBucketAttachmentsAfterImport(bucket);
                     const key = slugifySiteName(bucket.label || origKey);
+                    const existingBucket = sitesLibrary[key];
+                    if (existingBucket && multiSiteChoice === 'merge') {
+                        bucket.otStates = mergeOtStatesPreservingProgress(existingBucket.otStates, bucket.otStates);
+                    }
+                    // multiSiteChoice === 'overwrite' (ou pas de conflit) : bucket.otStates reste tel qu'importé
                     sitesLibrary[key] = bucket;
                     importedKeys.push(key);
                 }
@@ -3861,11 +3927,21 @@ if (parsed && parsed.__archive) {
             const existing = sitesLibrary[key];
             const existingCount = countTraitedOT(existing);
             if (existing && existingCount > 0) {
-                const msg = '⚠️ Le site "' + (existing.label || key) + '" contient déjà ' + existingCount + ' OT traité(s).\n\nL\'importer va REMPLACER ce site. Ces OT seront perdus si ce fichier ne les reprend pas. Continuer ?';
-                if (!window.confirm(msg)) {
-                    showNotification('Import annulé.', 'error');
-                    event.target.value = '';
-                    return;
+                if (isPrestataireMode) {
+                    // Côté prestataire : on reste simple et sûr, fusion automatique sans demander.
+                    bucket.otStates = mergeOtStatesPreservingProgress(existing.otStates, bucket.otStates);
+                } else {
+                    const msg = 'Le site "' + escapeHtml(existing.label || key) + '" contient déjà <strong>' + existingCount + '</strong> OT traité(s).';
+                    const choice = await askImportConflictChoice(msg);
+                    if (choice === 'cancel') {
+                        showNotification('Import annulé.', 'error');
+                        event.target.value = '';
+                        return;
+                    }
+                    if (choice === 'merge') {
+                        bucket.otStates = mergeOtStatesPreservingProgress(existing.otStates, bucket.otStates);
+                    }
+                    // choice === 'overwrite' : on ne touche à rien, bucket.otStates reste tel qu'importé (écrasement total)
                 }
             }
 
@@ -6280,6 +6356,13 @@ function resetAll() {
     });
     localStorage.removeItem('otSitesIndex_v2');
     localStorage.removeItem('otPreventifData');
+
+    // 🆕 Nettoie aussi les pièces jointes stockées en IndexedDB (photos/PDF des OT),
+    // sinon elles restent orphelines et occupent de l'espace indéfiniment.
+    getAttachmentsDb().then(function(db) {
+        const tx = db.transaction(ATTACHMENTS_STORE, 'readwrite');
+        tx.objectStore(ATTACHMENTS_STORE).clear();
+    }).catch(function(err) { console.warn('⚠️ Nettoyage IndexedDB échoué :', err); });
 
     sitesLibrary = {};
     activeSiteKey = null;

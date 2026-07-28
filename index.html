@@ -2609,20 +2609,20 @@ function renderChecklistMobileCards() {
         card.id = 'mcard-' + idx;
         card.innerHTML = `
             <div class="checklist-card-header">
-                <span class="checklist-card-code">${action.code}</span>
+                <span class="checklist-card-code">${escapeHtml(action.code)}</span>
                 <label class="checklist-card-check" for="mcheck-${idx}">
                     <input type="checkbox" id="mcheck-${idx}" name="mcheck-${idx}" ${isChecked ? 'checked' : ''} 
-                           onchange="toggleActionMobile(${idx}, '${action.code}')" 
+                           onchange="toggleActionMobile(${idx}, ${escapeAttr(JSON.stringify(action.code))})" 
                            aria-label="Marquer cette action comme faite">
                     <span>${isChecked ? '✅ Fait' : '⬜ À faire'}</span>
                 </label>
             </div>
-            <div class="checklist-card-description">${action.desc}</div>
+            <div class="checklist-card-description">${escapeHtml(action.desc)}</div>
             <label for="mcomment-${idx}" style="display:none;">Commentaire</label>
             <textarea class="checklist-card-comment" id="mcomment-${idx}" name="mcomment-${idx}"
                       placeholder="💬 Commentaire (anomalie, observation...)" 
-                      onchange="saveComment('${action.code}', this.value)" 
-                      aria-label="Commentaire pour cette action">${comment}</textarea>
+                      onchange="saveComment(${escapeAttr(JSON.stringify(action.code))}, this.value)" 
+                      aria-label="Commentaire pour cette action">${escapeHtml(comment)}</textarea>
             <div>
                 <span class="checklist-card-status ${isChecked ? 'fait' : 'nonfait'}" id="mstatus-${idx}">
                     ${isChecked ? 'FAIT' : 'NON FAIT'}
@@ -4051,20 +4051,20 @@ function checkWorkspaceReady() {
 
 function renderPlanning() {
     const thead = document.getElementById('planningHead');
-    thead.innerHTML = '<tr>' + planningHeaders.map(h => '<th>' + h + '</th>').join('') + '</tr>';
+    thead.innerHTML = '<tr>' + planningHeaders.map(h => '<th>' + escapeHtml(h) + '</th>').join('') + '</tr>';
     const tbody = document.getElementById('planningBody');
     tbody.innerHTML = '';
     planningData.forEach(row => {
         const tr = document.createElement('tr');
         if (row.type === 'header') {
             tr.className = 'row-header';
-            let cells = '<td><strong>' + row.materiel + '</strong></td><td class="libelle"><strong>' + row.libelle + '</strong></td>';
-            row.totals.forEach(t => { cells += '<td colspan="2" class="total-date-cell"><strong>' + (t || '') + '</strong></td>'; });
-            cells += '<td></td><td class="total-prevu"><strong>' + row.totalPrevu + '</strong></td>';
+            let cells = '<td><strong>' + escapeHtml(row.materiel) + '</strong></td><td class="libelle"><strong>' + escapeHtml(row.libelle) + '</strong></td>';
+            row.totals.forEach(t => { cells += '<td colspan="2" class="total-date-cell"><strong>' + escapeHtml(t || '') + '</strong></td>'; });
+            cells += '<td></td><td class="total-prevu"><strong>' + escapeHtml(row.totalPrevu) + '</strong></td>';
             tr.innerHTML = cells;
         } else {
             tr.className = 'row-equipment';
-            let cells = '<td>' + row.materiel + '</td><td class="libelle">' + row.libelle + '</td>';
+            let cells = '<td>' + escapeHtml(row.materiel) + '</td><td class="libelle">' + escapeHtml(row.libelle) + '</td>';
             let nbFait = 0;
             row.ots.forEach((ot, otIdx) => {
                 const otStr = String(ot || '').trim();
@@ -4081,7 +4081,7 @@ function renderPlanning() {
                     cells += '<td>' + etatBadge + '</td>';
                 }
             });
-            cells += '<td class="nombre-fait">' + (nbFait || '') + '</td><td class="total-prevu">' + row.totalPrevu + '</td>';
+            cells += '<td class="nombre-fait">' + (nbFait || '') + '</td><td class="total-prevu">' + escapeHtml(row.totalPrevu) + '</td>';
             tr.innerHTML = cells;
         }
         tbody.appendChild(tr);
@@ -5597,10 +5597,10 @@ const hashHex = await generateSignatureHashSHA256(techName, now.getTime(), sigId
         box.innerHTML = `
             <div class="esig-inner">
                 <div class="esig-content">
-                    <div class="esig-name">${techName}</div>
-                    <div class="esig-info">Signé le ${dateStr}</div>
-                    <div class="esig-date">${timeStr}</div>
-                    ${electronicSignatureData && electronicSignatureData.scannedSignature ? '<div class="esig-scan-preview"><img src="' + electronicSignatureData.scannedSignature + '" alt="Signature scannée"></div>' : ''}
+                    <div class="esig-name">${escapeHtml(techName)}</div>
+                    <div class="esig-info">Signé le ${escapeHtml(dateStr)}</div>
+                    <div class="esig-date">${escapeHtml(timeStr)}</div>
+                    ${electronicSignatureData && electronicSignatureData.scannedSignature ? '<div class="esig-scan-preview"><img src="' + escapeAttr(electronicSignatureData.scannedSignature) + '" alt="Signature scannée"></div>' : ''}
                 </div>
             </div>
         `;
@@ -5657,10 +5657,10 @@ function restoreElectronicSignatureDisplay(data) {
         box.innerHTML = `
             <div class="esig-inner">
                 <div class="esig-content">
-                    <div class="esig-name">${data.name}</div>
-                    <div class="esig-info">Signé le ${data.date}</div>
-                    <div class="esig-date">${data.time}</div>
-                    ${data.scannedSignature ? '<div class="esig-scan-preview"><img src="' + data.scannedSignature + '" alt="Signature scannée"></div>' : ''}
+                    <div class="esig-name">${escapeHtml(data.name || '')}</div>
+                    <div class="esig-info">Signé le ${escapeHtml(data.date || '')}</div>
+                    <div class="esig-date">${escapeHtml(data.time || '')}</div>
+                    ${data.scannedSignature ? '<div class="esig-scan-preview"><img src="' + escapeAttr(data.scannedSignature) + '" alt="Signature scannée"></div>' : ''}
                 </div>
             </div>
         `;

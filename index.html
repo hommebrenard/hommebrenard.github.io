@@ -1976,7 +1976,7 @@ body.mode-prestataire .internal-only {
         <button class="btn btn-warning" id="btnSave" onclick="saveToLocalStorage()" disabled>💾 Sauvegarder</button>
         <button class="btn btn-secondary" onclick="loadFromLocalStorage()">🔄 Recharger</button>
         <button class="btn btn-primary" id="btnOpenDataIO" onclick="openDataIOModal()">🔁 Échanger des données</button>
-        <button class="btn btn-danger" id="btnResetAll" onclick="resetAll()">🗑️ Réinitialiser</button>
+        <button class="btn btn-danger internal-only" id="btnResetAll" onclick="resetAll()">🗑️ Réinitialiser</button>
 
         <!-- Champs fichiers réels, déclenchés depuis les cartes de la modale d'échange -->
         <div style="display:none;">
@@ -2407,163 +2407,6 @@ let annexePageMap = {};
 let chartsInstances = {};
 
 // ============================================
-// 🆕 ÉTAPE 1 — Sécurité : échappement HTML
-// Empêche l'injection de balises/scripts via des données Excel ou saisies
-// utilisateur (nom de site, libellé, commentaire, etc.) injectées dans le DOM.
-// Toujours utiliser escapeHtml() sur toute donnée variable placée dans un
-// template littérale avant affectation à innerHTML.
-// ============================================
-function escapeHtml(str) {
-    return String(str ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
-
-// 🆕 Correction bug : JSON.stringify() produit des guillemets doubles qui cassent
-// un attribut HTML lui-même délimité par des guillemets doubles (ex: onclick="...").
-// jsonAttr() encode ces guillemets en &quot; pour que le navigateur les redécode
-// correctement avant d'exécuter le JavaScript de l'attribut.
-function jsonAttr(value) {
-    return JSON.stringify(value).replace(/"/g, '&quot;');
-}
-
-// ============================================
-// 🆕 ÉTAPE 2 — Stockage des pièces jointes en IndexedDB
-// localStorage est limité (~5-10 Mo par site) et sature vite avec des
-// photos en base64. On stocke désormais les FICHIERS BINAIRES dans
-// IndexedDB (quota bien plus large), et on ne garde dans otStates que
-// des métadonnées + une clé de référence vers IndexedDB.
-// Note : les exports JSON destinés au prestataire réintègrent quand
-// même les données binaires (voir exportSiteJSON / exportPrestataireJSON),
-// car c'est le format d'échange — seul le stockage LOCAL est allégé.
-// ============================================
-const ATTACHMENTS_DB_NAME = 'otPreventifAttachmentsDB';
-const ATTACHMENTS_STORE = 'attachments';
-let _attachmentsDbPromise = null;
-
-function getAttachmentsDb() {
-    if (!_attachmentsDbPromise) {
-        _attachmentsDbPromise = new Promise((resolve, reject) => {
-            const req = indexedDB.open(ATTACHMENTS_DB_NAME, 1);
-            req.onupgradeneeded = () => {
-                if (!req.result.objectStoreNames.contains(ATTACHMENTS_STORE)) {
-                    req.result.createObjectStore(ATTACHMENTS_STORE);
-                }
-            };
-            req.onsuccess = () => resolve(req.result);
-            req.onerror = () => reject(req.error);
-        });
-    }
-    return _attachmentsDbPromise;
-}
-
-/** Génère une clé unique pour une pièce jointe (indépendante de son index dans le tableau, qui peut changer). */
-function generateAttachmentKey(otStr) {
-    return 'att_' + otStr + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
-}
-
-async function saveAttachmentBlob(key, blob) {
-    const db = await getAttachmentsDb();
-    return new Promise((resolve, reject) => {
-        const tx = db.transaction(ATTACHMENTS_STORE, 'readwrite');
-        tx.objectStore(ATTACHMENTS_STORE).put(blob, key);
-        tx.oncomplete = () => resolve(true);
-        tx.onerror = () => reject(tx.error);
-    });
-}
-
-async function getAttachmentBlob(key) {
-    const db = await getAttachmentsDb();
-    return new Promise((resolve, reject) => {
-        const tx = db.transaction(ATTACHMENTS_STORE, 'readonly');
-        const req = tx.objectStore(ATTACHMENTS_STORE).get(key);
-        req.onsuccess = () => resolve(req.result || null);
-        req.onerror = () => reject(req.error);
-    });
-}
-
-async function deleteAttachmentBlob(key) {
-    const db = await getAttachmentsDb();
-    return new Promise((resolve, reject) => {
-        const tx = db.transaction(ATTACHMENTS_STORE, 'readwrite');
-        tx.objectStore(ATTACHMENTS_STORE).delete(key);
-        tx.oncomplete = () => resolve(true);
-        tx.onerror = () => reject(tx.error);
-    });
-}
-
-/** Convertit un Blob en dataURL base64 (pour export JSON ou insertion dans un PDF). */
-function blobToDataURL(blob) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(blob);
-    });
-}
-
-/** Convertit une dataURL base64 en Blob (pour import JSON → IndexedDB). */
-function dataURLToBlob(dataUrl) {
-    const parts = dataUrl.split(',');
-    const mimeMatch = parts[0].match(/:(.*?);/);
-    const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
-    const binary = atob(parts[1]);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    return new Blob([bytes], { type: mime });
-}
-
-/** 🆕 Avant d'exporter un site en JSON (partage / sauvegarde), réintègre les données binaires
- *  des pièces jointes (actuellement seulement référencées par clé IndexedDB) afin que le fichier
- *  exporté reste autonome, même si le destinataire n'a pas accès à l'IndexedDB d'origine. */
-async function hydrateBucketAttachmentsForExport(bucket) {
-    if (!bucket || !bucket.otStates) return bucket;
-    const clone = JSON.parse(JSON.stringify(bucket)); // clone profond, sans toucher aux données en mémoire
-    for (const ot of Object.keys(clone.otStates)) {
-        const state = clone.otStates[ot];
-        if (!state.attachments || !state.attachments.length) continue;
-        for (const att of state.attachments) {
-            if (att.key && !att.data) {
-                try {
-                    const blob = await getAttachmentBlob(att.key);
-                    if (blob) att.data = await blobToDataURL(blob);
-                } catch (err) {
-                    console.warn('⚠️ Pièce jointe introuvable pour export :', att.name, err);
-                }
-            }
-        }
-    }
-    return clone;
-}
-
-/** 🆕 Après import d'un site JSON, migre les pièces jointes reçues (en base64) vers IndexedDB
- *  et ne garde que les métadonnées + clé dans le bucket, pour ne pas alourdir le localStorage. */
-async function dehydrateBucketAttachmentsAfterImport(bucket) {
-    if (!bucket || !bucket.otStates) return bucket;
-    for (const ot of Object.keys(bucket.otStates)) {
-        const state = bucket.otStates[ot];
-        if (!state.attachments || !state.attachments.length) continue;
-        for (const att of state.attachments) {
-            if (att.data && !att.key) {
-                try {
-                    const blob = dataURLToBlob(att.data);
-                    const key = generateAttachmentKey(ot);
-                    await saveAttachmentBlob(key, blob);
-                    att.key = key;
-                    delete att.data;
-                } catch (err) {
-                    console.warn('⚠️ Migration pièce jointe échouée à l\'import :', att.name, err);
-                }
-            }
-        }
-    }
-    return bucket;
-}
-
-// ============================================
 // 🆕 MODE PRESTATAIRE (?role=prestataire)
 // Variante allégée de l'app : masque les outils de pilotage interne
 // (dashboard, exports rapport, réinitialisation, multi-sites) et ne laisse
@@ -2596,11 +2439,6 @@ if (isPrestataireMode) {
         if (toolbarTitle) {
             toolbarTitle.style.display = 'block';
             toolbarTitle.textContent = '🔧 SAISIE PRESTATAIRE';
-        }
-        const btnResetAll = document.getElementById('btnResetAll');
-        if (btnResetAll) {
-            btnResetAll.textContent = '🗑️ Effacer avant nouveau site';
-            btnResetAll.title = 'Efface le site en cours avant de charger un nouveau fichier reçu de l\'admin';
         }
     });
 }
@@ -2722,8 +2560,8 @@ function renderMobileCardsView() {
                         <div class="mobile-ot-status">
                             <div class="mobile-status-badge ${statusClass}">${statusLabel}</div>
                             <button class="mobile-action-btn ${btnClass}" 
-                                    onclick="openChecklist(${jsonAttr(otStr)}, ${jsonAttr(row.materiel)}, ${jsonAttr(row.interventionType)}, ${jsonAttr(libelleEscaped)}, ${jsonAttr(datePlanning)})"
-                                    aria-label="${state && state.technicien ? 'Modifier' : 'Commencer'} l'OT ${escapeHtml(otStr)}">
+                                    onclick="openChecklist(${escapeAttr(JSON.stringify(otStr))}, ${escapeAttr(JSON.stringify(row.materiel))}, ${escapeAttr(JSON.stringify(row.interventionType))}, ${escapeAttr(JSON.stringify(libelleEscaped))}, ${escapeAttr(JSON.stringify(datePlanning))})"
+                                    aria-label="${state && state.technicien ? 'Modifier' : 'Commencer'} l'OT ${escapeAttr(otStr)}">
                                 ${state && state.technicien ? '✏️ Modifier' : '▶️ Commencer'}
                             </button>
                         </div>`;
@@ -2762,7 +2600,7 @@ function renderChecklistMobileCards() {
         card.id = 'mcard-' + idx;
         card.innerHTML = `
             <div class="checklist-card-header">
-                <span class="checklist-card-code">${escapeHtml(action.code)}</span>
+                <span class="checklist-card-code">${action.code}</span>
                 <label class="checklist-card-check" for="mcheck-${idx}">
                     <input type="checkbox" id="mcheck-${idx}" name="mcheck-${idx}" ${isChecked ? 'checked' : ''} 
                            onchange="toggleActionMobile(${idx}, '${action.code}')" 
@@ -2770,12 +2608,12 @@ function renderChecklistMobileCards() {
                     <span>${isChecked ? '✅ Fait' : '⬜ À faire'}</span>
                 </label>
             </div>
-            <div class="checklist-card-description">${escapeHtml(action.desc)}</div>
+            <div class="checklist-card-description">${action.desc}</div>
             <label for="mcomment-${idx}" style="display:none;">Commentaire</label>
             <textarea class="checklist-card-comment" id="mcomment-${idx}" name="mcomment-${idx}"
                       placeholder="💬 Commentaire (anomalie, observation...)" 
                       onchange="saveComment('${action.code}', this.value)" 
-                      aria-label="Commentaire pour cette action">${escapeHtml(comment)}</textarea>
+                      aria-label="Commentaire pour cette action">${comment}</textarea>
             <div>
                 <span class="checklist-card-status ${isChecked ? 'fait' : 'nonfait'}" id="mstatus-${idx}">
                     ${isChecked ? 'FAIT' : 'NON FAIT'}
@@ -2867,6 +2705,22 @@ function escapeHtml(str) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+}
+
+/** 🔒 Échappe une chaîne pour une insertion sûre à l'INTÉRIEUR d'un attribut HTML entre guillemets doubles
+ *  (ex: onclick="maFonction(${escapeAttr(JSON.stringify(valeur))})").
+ *  Indispensable même quand la valeur passe par JSON.stringify() : JSON.stringify échappe les guillemets
+ *  pour la syntaxe JS (\"), mais ce caractère \" reste un guillemet HTML littéral une fois inséré dans
+ *  l'attribut — il referme prématurément l'attribut et permet d'injecter du HTML/JS arbitraire
+ *  (ex: une cellule Excel contenant `">​<img src=x onerror=alert(1)>`). L'échappement HTML des
+ *  entités (&quot; etc.) est décodé par le navigateur AVANT le parsing JS de l'attribut, donc la
+ *  syntaxe JSON reste valide tout en empêchant l'échappement du contexte HTML. */
+function escapeAttr(str) {
+    return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
 }
 
 function getCleanTitle(headerText) {
@@ -3577,7 +3431,7 @@ function refreshSiteSelector() {
         const current = siteFilterSel.value;
         const siteNames = [...new Set(allKeys.map(k => parsedByKey[k].site))].sort();
         siteFilterSel.innerHTML = '<option value="">🏢 Tous les sites</option>' +
-            siteNames.map(s => `<option value="${s.replace(/"/g, '&quot;')}">${s}</option>`).join('');
+            siteNames.map(s => `<option value="${escapeAttr(s)}">${escapeHtml(s)}</option>`).join('');
         siteFilterSel.value = siteNames.includes(current) ? current : '';
     }
 
@@ -3609,7 +3463,7 @@ function refreshSiteSelector() {
         filteredKeys.map(k => {
             const b = sitesLibrary[k];
             const ready = (b.planningData && b.checklistData) ? '✅' : '⏳';
-            return `<option value="${k}">${ready} ${b.label}</option>`;
+            return `<option value="${escapeAttr(k)}">${ready} ${escapeHtml(b.label)}</option>`;
         }).join('');
     // Force explicitement la valeur affichée (ne dépend pas du comportement par défaut du navigateur)
     sel.value = (activeSiteKey && sitesLibrary[activeSiteKey] && filteredKeys.includes(activeSiteKey)) ? activeSiteKey : '';
@@ -3716,7 +3570,7 @@ async function unwrapMaybeEncryptedJSON(parsed) {
 async function exportSiteJSON() {
     if (!activeSiteKey) { showNotification('Aucun site actif à exporter.', 'error'); return; }
     syncActiveSiteIntoLibrary();
-    const bucket = await hydrateBucketAttachmentsForExport(sitesLibrary[activeSiteKey]);
+    const bucket = sitesLibrary[activeSiteKey];
 
     const password = askPasswordForExport();
     if (!password) { showNotification('Export annulé (mot de passe requis).', 'error'); return; }
@@ -3746,9 +3600,7 @@ async function exportAllSitesJSON() {
     if (activeSiteKey && mainHeaderText) syncActiveSiteIntoLibrary();
     const keys = Object.keys(sitesLibrary);
     if (keys.length === 0) { showNotification('Aucun site chargé à exporter.', 'error'); return; }
-    const hydratedSites = {};
-    for (const k of keys) { hydratedSites[k] = await hydrateBucketAttachmentsForExport(sitesLibrary[k]); }
-    const payload = { __multiSite: true, exportedAt: new Date().toISOString(), sites: hydratedSites };
+    const payload = { __multiSite: true, exportedAt: new Date().toISOString(), sites: sitesLibrary };
 
     const password = askPasswordForExport();
     if (!password) { showNotification('Export annulé (mot de passe requis).', 'error'); return; }
@@ -3780,56 +3632,6 @@ function countTraitedOT(bucket) {
     }).length;
 }
 
-/** 🆕 Fusionne les otStates lors d'un import : un OT déjà traité localement (technicien renseigné)
- *  n'est JAMAIS écrasé par une version vide/non traitée venant du fichier importé. Ça permet de
- *  recharger un planning mis à jour par l'admin sans perdre la saisie déjà faite par le prestataire. */
-function mergeOtStatesPreservingProgress(existingOtStates, incomingOtStates) {
-    const merged = Object.assign({}, incomingOtStates || {});
-    if (existingOtStates) {
-        Object.keys(existingOtStates).forEach(function(ot) {
-            const existingState = existingOtStates[ot];
-            const incomingState = merged[ot];
-            if (existingState && existingState.technicien && (!incomingState || !incomingState.technicien)) {
-                merged[ot] = existingState;
-            }
-        });
-    }
-    return merged;
-}
-
-/** 🆕 Modale de choix affichée UNIQUEMENT côté admin (jamais en mode prestataire, pour rester simple
- *  et sûr) quand un import va rencontrer des OT déjà traités. Retourne une Promise résolue en
- *  'merge' | 'overwrite' | 'cancel'. */
-function askImportConflictChoice(messageHtml) {
-    return new Promise(function(resolve) {
-        const overlay = document.createElement('div');
-        overlay.className = 'modal-overlay active';
-        overlay.setAttribute('role', 'dialog');
-        overlay.setAttribute('aria-modal', 'true');
-        overlay.innerHTML =
-            '<div class="modal" style="max-width:480px;">' +
-                '<div class="modal-header"><div><h2 style="margin:0; font-size:16px;">⚠️ Conflit d\'import</h2></div></div>' +
-                '<div style="padding:20px;">' +
-                    '<p style="margin-top:0;">' + messageHtml + '</p>' +
-                    '<p>Comment voulez-vous continuer ?</p>' +
-                    '<div style="display:flex; flex-direction:column; gap:10px; margin-top:16px;">' +
-                        '<button type="button" class="btn btn-primary" id="conflictMergeBtn">🔗 Fusionner (conserver les OT déjà traités)</button>' +
-                        '<button type="button" class="btn btn-danger" id="conflictOverwriteBtn">🗑️ Écraser tout (repartir du fichier importé)</button>' +
-                        '<button type="button" class="btn btn-secondary" id="conflictCancelBtn">Annuler l\'import</button>' +
-                    '</div>' +
-                '</div>' +
-            '</div>';
-        document.body.appendChild(overlay);
-        function cleanup(result) {
-            document.body.removeChild(overlay);
-            resolve(result);
-        }
-        overlay.querySelector('#conflictMergeBtn').addEventListener('click', function() { cleanup('merge'); });
-        overlay.querySelector('#conflictOverwriteBtn').addEventListener('click', function() { cleanup('overwrite'); });
-        overlay.querySelector('#conflictCancelBtn').addEventListener('click', function() { cleanup('cancel'); });
-    });
-}
-
 function importSiteJSON(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -3859,37 +3661,25 @@ function importSiteJSON(event) {
                         conflicts.push('• ' + (existing.label || key) + ' (' + existingCount + ' OT déjà traité(s))');
                     }
                 });
-                let multiSiteChoice = null; // 'merge' | 'overwrite' | null (pas de conflit, ou mode prestataire)
                 if (conflicts.length > 0) {
-                    if (isPrestataireMode) {
-                        multiSiteChoice = 'merge'; // fusion automatique, sans demander, côté prestataire
-                    } else {
-                        const msg = conflicts.length + ' site(s) déjà chargé(s) contiennent des OT traités :<br><br>'
-                            + escapeHtml(conflicts.join('\n')).replace(/\n/g, '<br>');
-                        const choice = await askImportConflictChoice(msg);
-                        if (choice === 'cancel') {
-                            showNotification('Import annulé.', 'error');
-                            event.target.value = '';
-                            return;
-                        }
-                        multiSiteChoice = choice; // 'merge' ou 'overwrite', appliqué à tous les sites du lot
+                    const msg = '⚠️ ' + conflicts.length + ' site(s) déjà chargé(s) et déjà traité(s) vont être REMPLACÉS par ce fichier :\n\n'
+                        + conflicts.join('\n')
+                        + '\n\nLeurs OT déjà traités seront perdus si ce fichier ne les reprend pas. Continuer quand même ?';
+                    if (!window.confirm(msg)) {
+                        showNotification('Import annulé.', 'error');
+                        event.target.value = '';
+                        return;
                     }
                 }
 
                 const importedKeys = [];
-                for (const origKey of Object.keys(parsed.sites)) {
+                Object.keys(parsed.sites).forEach(function(origKey) {
                     const bucket = parsed.sites[origKey];
-                    if (!bucket || !bucket.planningData || !bucket.checklistData) continue;
-                    await dehydrateBucketAttachmentsAfterImport(bucket);
+                    if (!bucket || !bucket.planningData || !bucket.checklistData) return;
                     const key = slugifySiteName(bucket.label || origKey);
-                    const existingBucket = sitesLibrary[key];
-                    if (existingBucket && multiSiteChoice === 'merge') {
-                        bucket.otStates = mergeOtStatesPreservingProgress(existingBucket.otStates, bucket.otStates);
-                    }
-                    // multiSiteChoice === 'overwrite' (ou pas de conflit) : bucket.otStates reste tel qu'importé
                     sitesLibrary[key] = bucket;
                     importedKeys.push(key);
-                }
+                });
                 if (importedKeys.length === 0) throw new Error('Fichier multi-sites vide ou invalide');
                 refreshSiteSelector();
                 persistSitesIndex();
@@ -3902,7 +3692,6 @@ function importSiteJSON(event) {
 if (parsed && parsed.__archive) {
     const bucket = parsed;
     if (!bucket.planningData || !bucket.checklistData) throw new Error('Fichier d\'archive invalide');
-    await dehydrateBucketAttachmentsAfterImport(bucket);
     const key = bucket.siteKey || slugifySiteName(((bucket.site || '') + ' ' + (bucket.periode || '')) || file.name);
     bucket.label = ((bucket.site || '') + (bucket.periode ? ' ' + bucket.periode : '')).trim() || file.name;
     bucket.mainHeaderText = bucket.label;
@@ -3920,28 +3709,17 @@ if (parsed && parsed.__archive) {
              // Cas normal : fichier d'un seul site (produit par exportSiteJSON)
             const bucket = parsed;
             if (!bucket || !bucket.planningData || !bucket.checklistData) throw new Error('Fichier de site invalide');
-            await dehydrateBucketAttachmentsAfterImport(bucket);
             const key = slugifySiteName(bucket.label || file.name);
 
             // ⚠️ Vérification avant écrasement
             const existing = sitesLibrary[key];
             const existingCount = countTraitedOT(existing);
             if (existing && existingCount > 0) {
-                if (isPrestataireMode) {
-                    // Côté prestataire : on reste simple et sûr, fusion automatique sans demander.
-                    bucket.otStates = mergeOtStatesPreservingProgress(existing.otStates, bucket.otStates);
-                } else {
-                    const msg = 'Le site "' + escapeHtml(existing.label || key) + '" contient déjà <strong>' + existingCount + '</strong> OT traité(s).';
-                    const choice = await askImportConflictChoice(msg);
-                    if (choice === 'cancel') {
-                        showNotification('Import annulé.', 'error');
-                        event.target.value = '';
-                        return;
-                    }
-                    if (choice === 'merge') {
-                        bucket.otStates = mergeOtStatesPreservingProgress(existing.otStates, bucket.otStates);
-                    }
-                    // choice === 'overwrite' : on ne touche à rien, bucket.otStates reste tel qu'importé (écrasement total)
+                const msg = '⚠️ Le site "' + (existing.label || key) + '" contient déjà ' + existingCount + ' OT traité(s).\n\nL\'importer va REMPLACER ce site. Ces OT seront perdus si ce fichier ne les reprend pas. Continuer ?';
+                if (!window.confirm(msg)) {
+                    showNotification('Import annulé.', 'error');
+                    event.target.value = '';
+                    return;
                 }
             }
 
@@ -4264,20 +4042,20 @@ function checkWorkspaceReady() {
 
 function renderPlanning() {
     const thead = document.getElementById('planningHead');
-    thead.innerHTML = '<tr>' + planningHeaders.map(h => '<th>' + escapeHtml(h) + '</th>').join('') + '</tr>';
+    thead.innerHTML = '<tr>' + planningHeaders.map(h => '<th>' + h + '</th>').join('') + '</tr>';
     const tbody = document.getElementById('planningBody');
     tbody.innerHTML = '';
     planningData.forEach(row => {
         const tr = document.createElement('tr');
         if (row.type === 'header') {
             tr.className = 'row-header';
-            let cells = '<td><strong>' + escapeHtml(row.materiel) + '</strong></td><td class="libelle"><strong>' + escapeHtml(row.libelle) + '</strong></td>';
+            let cells = '<td><strong>' + row.materiel + '</strong></td><td class="libelle"><strong>' + row.libelle + '</strong></td>';
             row.totals.forEach(t => { cells += '<td colspan="2" class="total-date-cell"><strong>' + (t || '') + '</strong></td>'; });
             cells += '<td></td><td class="total-prevu"><strong>' + row.totalPrevu + '</strong></td>';
             tr.innerHTML = cells;
         } else {
             tr.className = 'row-equipment';
-            let cells = '<td>' + escapeHtml(row.materiel) + '</td><td class="libelle">' + escapeHtml(row.libelle) + '</td>';
+            let cells = '<td>' + row.materiel + '</td><td class="libelle">' + row.libelle + '</td>';
             let nbFait = 0;
             row.ots.forEach((ot, otIdx) => {
                 const otStr = String(ot || '').trim();
@@ -4391,10 +4169,8 @@ if (otStates[otStr].site === undefined) otStates[otStr].site = currentSiteName;
         const tr = document.createElement('tr');
         tr.className = 'action-row ' + (isChecked ? 'checked' : 'unchecked');
         tr.id = 'action-' + idx;
-        const descEscaped = escapeHtml(action.desc);
-        const codeEscaped = escapeHtml(action.code);
-        const commentEscaped = escapeHtml(comment);
-        tr.innerHTML = '<td class="check-cell"><input type="checkbox" id="check-' + idx + '" name="check-' + idx + '" ' + (isChecked ? 'checked' : '') + ' onchange="toggleAction(' + idx + ', \'' + action.code + '\')" aria-label="Marquer comme fait : ' + descEscaped + '"></td><td><label for="check-' + idx + '">' + descEscaped + '</label></td><td style="text-align:center;"><code>' + codeEscaped + '</code></td><td><label for="comment-' + idx + '" style="display:none;">Commentaire</label><textarea class="comment-input" id="comment-' + idx + '" name="comment-' + idx + '" placeholder="Commentaire..." onchange="saveComment(\'' + action.code + '\', this.value)" aria-label="Commentaire pour : ' + descEscaped + '">' + commentEscaped + '</textarea></td><td class="status-cell" id="status-' + idx + '">' + (isChecked ? '<span style="color:#2e7d32;">FAIT</span>' : '<span style="color:#c62828;">NON FAIT</span>') + '</td>';
+        const descEscaped = escapeAttr(action.desc);
+        tr.innerHTML = '<td class="check-cell"><input type="checkbox" id="check-' + idx + '" name="check-' + idx + '" ' + (isChecked ? 'checked' : '') + ' onchange="toggleAction(' + idx + ', ' + escapeAttr(JSON.stringify(action.code)) + ')" aria-label="Marquer comme fait : ' + descEscaped + '"></td><td><label for="check-' + idx + '">' + escapeHtml(action.desc) + '</label></td><td style="text-align:center;"><code>' + escapeHtml(action.code) + '</code></td><td><label for="comment-' + idx + '" style="display:none;">Commentaire</label><textarea class="comment-input" id="comment-' + idx + '" name="comment-' + idx + '" placeholder="Commentaire..." onchange="saveComment(' + escapeAttr(JSON.stringify(action.code)) + ', this.value)" aria-label="Commentaire pour : ' + descEscaped + '">' + escapeHtml(comment) + '</textarea></td><td class="status-cell" id="status-' + idx + '">' + (isChecked ? '<span style="color:#2e7d32;">FAIT</span>' : '<span style="color:#c62828;">NON FAIT</span>') + '</td>';
         tbody.appendChild(tr);
     });
     
@@ -4418,87 +4194,57 @@ if (otStates[otStr].site === undefined) otStates[otStr].site = currentSiteName;
     }, 100);
 }
 
-async function handleFileUpload(event) {
+function handleFileUpload(event) {
     const files = event.target.files;
     if (!files.length) return;
-    const otStr = currentOT;
-    for (const file of Array.from(files)) {
-        if (file.size > 5 * 1024 * 1024) { showNotification(file.name + ' trop volumineux (max 5MB)', 'warning'); continue; }
-        try {
-            const key = generateAttachmentKey(otStr);
-            await saveAttachmentBlob(key, file);
-            otStates[otStr].attachments.push({name: file.name, type: file.type, size: file.size, key: key, addedAt: new Date().toISOString()});
+    Array.from(files).forEach(file => {
+        if (file.size > 5 * 1024 * 1024) { showNotification(file.name + ' trop volumineux (max 5MB)', 'warning'); return; }
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            otStates[currentOT].attachments.push({name: file.name, type: file.type, size: file.size, data: e.target.result, addedAt: new Date().toISOString()});
+            renderAttachments();
             showNotification('✅ ' + file.name + ' ajouté');
-        } catch (err) {
-            console.error('❌ Erreur stockage pièce jointe :', err);
-            showNotification('⚠️ Impossible de stocker ' + file.name, 'error');
-        }
-    }
-    renderAttachments();
+        };
+        reader.readAsDataURL(file);
+    });
     event.target.value = '';
 }
 
-async function renderAttachments() {
+function renderAttachments() {
     const list = document.getElementById('attachmentsList');
     list.innerHTML = '';
     const attachments = (otStates[currentOT] && otStates[currentOT].attachments) || [];
     if (attachments.length === 0) { list.innerHTML = '<p style="color:#999; font-size:11px; font-style:italic;">Aucune pièce jointe</p>'; return; }
-    for (let idx = 0; idx < attachments.length; idx++) {
-        const att = attachments[idx];
+    attachments.forEach((att, idx) => {
         const item = document.createElement('div');
         item.className = 'attachment-item';
         const sizeKB = (att.size / 1024).toFixed(1);
         const sizeMB = (att.size / (1024 * 1024)).toFixed(2);
         const sizeText = att.size > 1024 * 1024 ? sizeMB + ' MB' : sizeKB + ' KB';
         let preview = '';
-        const nameEscaped = escapeHtml(att.name);
-        const typeEscaped = escapeHtml(att.type);
-        if (att.type.startsWith('image/')) {
-            preview = '<img data-attkey="' + escapeHtml(att.key) + '" onclick="viewAttachment(' + idx + ')" alt="' + nameEscaped + '">';
-        }
+        if (att.type.startsWith('image/')) preview = '<img src="' + att.data + '" onclick="viewAttachment(' + idx + ')" alt="' + escapeAttr(att.name) + '">';
         else if (att.type === 'application/pdf') preview = '<div class="file-icon">PDF</div>';
         else if (att.type.includes('word')) preview = '<div class="file-icon">DOC</div>';
         else if (att.type.includes('excel') || att.type.includes('sheet')) preview = '<div class="file-icon">XLS</div>';
         else preview = '<div class="file-icon">FILE</div>';
-        item.innerHTML = '<div class="file-preview">' + preview + '</div><div class="file-info"><div class="file-name" title="' + nameEscaped + '">' + nameEscaped + '</div><div class="file-size">' + sizeText + ' - ' + typeEscaped + '</div></div><div class="file-actions"><button class="btn-action btn-view" onclick="viewAttachment(' + idx + ')" aria-label="Voir la pièce jointe">👁️ Voir</button><button class="btn-action btn-download" onclick="downloadAttachment(' + idx + ')" aria-label="Télécharger">⬇️ DL</button><button class="btn-action btn-delete" onclick="removeAttachment(' + idx + ')" aria-label="Supprimer">🗑️</button></div>';
+        item.innerHTML = '<div class="file-preview">' + preview + '</div><div class="file-info"><div class="file-name" title="' + escapeAttr(att.name) + '">' + escapeHtml(att.name) + '</div><div class="file-size">' + sizeText + ' - ' + escapeHtml(att.type) + '</div></div><div class="file-actions"><button class="btn-action btn-view" onclick="viewAttachment(' + idx + ')" aria-label="Voir la pièce jointe">👁️ Voir</button><button class="btn-action btn-download" onclick="downloadAttachment(' + idx + ')" aria-label="Télécharger">⬇️ DL</button><button class="btn-action btn-delete" onclick="removeAttachment(' + idx + ')" aria-label="Supprimer">🗑️</button></div>';
         list.appendChild(item);
-        // Charge l'aperçu image de façon asynchrone depuis IndexedDB
-        if (att.type.startsWith('image/') && att.key) {
-            getAttachmentBlob(att.key).then(blob => {
-                if (!blob) return;
-                const imgEl = item.querySelector('img[data-attkey="' + CSS.escape(att.key) + '"]');
-                if (imgEl) imgEl.src = URL.createObjectURL(blob);
-            }).catch(err => console.error('⚠️ Aperçu pièce jointe indisponible :', err));
-        }
-    }
+    });
 }
 
-async function viewAttachment(idx) {
+function viewAttachment(idx) {
     const att = otStates[currentOT].attachments[idx];
     if (!att) return;
     const content = document.getElementById('previewContent');
     content.innerHTML = '';
-    let blob = null;
-    if (att.key) {
-        try {
-            blob = await getAttachmentBlob(att.key);
-        } catch (err) {
-            console.error('❌ Erreur lecture pièce jointe :', err);
-        }
-        if (!blob) {
-            showNotification('⚠️ Pièce jointe introuvable (peut-être supprimée du stockage local)', 'error');
-            return;
-        }
-    }
-    const objectUrl = blob ? URL.createObjectURL(blob) : att.data; // att.data = compatibilité avec anciennes données non migrées
     if (att.type.startsWith('image/')) {
         const img = document.createElement('img');
-        img.src = objectUrl;
+        img.src = att.data;
         img.alt = att.name;
         content.appendChild(img);
     } else if (att.type === 'application/pdf') {
         const iframe = document.createElement('iframe');
-        iframe.src = objectUrl;
+        iframe.src = att.data;
         iframe.title = att.name;
         content.appendChild(iframe);
     } else {
@@ -4508,23 +4254,11 @@ async function viewAttachment(idx) {
     document.getElementById('previewModal').classList.add('active');
 }
 
-async function downloadAttachment(idx) {
+function downloadAttachment(idx) {
     const att = otStates[currentOT].attachments[idx];
     if (!att) return;
-    let href = att.data; // compatibilité avec anciennes données non migrées
-    if (att.key) {
-        try {
-            const blob = await getAttachmentBlob(att.key);
-            if (!blob) { showNotification('⚠️ Pièce jointe introuvable (peut-être supprimée du stockage local)', 'error'); return; }
-            href = URL.createObjectURL(blob);
-        } catch (err) {
-            console.error('❌ Erreur lecture pièce jointe :', err);
-            showNotification('⚠️ Impossible de récupérer ' + att.name, 'error');
-            return;
-        }
-    }
     const link = document.createElement('a');
-    link.href = href;
+    link.href = att.data;
     link.download = att.name;
     document.body.appendChild(link);
     link.click();
@@ -4532,13 +4266,9 @@ async function downloadAttachment(idx) {
     showNotification('Téléchargement : ' + att.name);
 }
 
-async function removeAttachment(idx) {
+function removeAttachment(idx) {
     if (!confirm('Supprimer cette pièce jointe ?')) return;
-    const att = otStates[currentOT].attachments[idx];
     otStates[currentOT].attachments.splice(idx, 1);
-    if (att && att.key) {
-        try { await deleteAttachmentBlob(att.key); } catch (err) { console.warn('⚠️ Nettoyage IndexedDB échoué :', err); }
-    }
     renderAttachments();
     showNotification('Pièce jointe supprimée');
 }
@@ -4945,16 +4675,30 @@ async function generateEncryptionKey() {
  * @param {CryptoKey} key - Clé de chiffrement
  * @returns {Promise<string>} Données chiffrées en base64
  */
+/** 🔧 Convertit un Uint8Array en base64 SANS passer par String.fromCharCode.apply(null, bigArray),
+ *  qui provoque "Maximum call stack size exceeded" dès que le tableau dépasse quelques dizaines
+ *  de milliers d'octets (limite du nombre d'arguments qu'on peut "spreader" dans un appel de fonction).
+ *  On traite les données par blocs (chunks) de 8 Ko pour rester toujours sous cette limite. */
+function uint8ArrayToBase64(bytes) {
+    let binary = '';
+    const chunkSize = 0x2000; // 8192 octets par bloc
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.subarray(i, i + chunkSize);
+        binary += String.fromCharCode.apply(null, chunk);
+    }
+    return btoa(binary);
+}
+
 async function encryptData(data, key) {
     try {
         // Convertir les données en JSON puis en bytes
         const jsonString = JSON.stringify(data);
         const encoder = new TextEncoder();
         const dataBytes = encoder.encode(jsonString);
-
+        
         // Générer un IV (Initialization Vector) aléatoire
         const iv = crypto.getRandomValues(new Uint8Array(12));
-
+        
         // Chiffrer avec AES-GCM
         const encryptedBuffer = await crypto.subtle.encrypt(
             {
@@ -4964,22 +4708,15 @@ async function encryptData(data, key) {
             key,
             dataBytes
         );
-
+        
         // Combiner IV + données chiffrées
         const encryptedArray = new Uint8Array(encryptedBuffer);
         const combined = new Uint8Array(iv.length + encryptedArray.length);
         combined.set(iv, 0);
         combined.set(encryptedArray, iv.length);
-
-        // ✅ Convertir en base64 par chunks (évite le stack overflow)
-        let binary = '';
-        const chunkSize = 8192;
-        for (let i = 0; i < combined.length; i += chunkSize) {
-            const chunk = combined.subarray(i, i + chunkSize);
-            binary += String.fromCharCode.apply(null, chunk);
-        }
-        return btoa(binary);
-
+        
+        // Convertir en base64 pour stockage/transport
+        return uint8ArrayToBase64(combined);
     } catch (error) {
         console.error('❌ Erreur chiffrement:', error);
         throw new Error('Chiffrement impossible : ' + error.message);
@@ -5095,13 +4832,7 @@ async function encryptWithPassword(data, password) {
         combined.set(iv, salt.length);
         combined.set(encryptedArray, salt.length + iv.length);
         
-       let binary = '';
-        const chunkSize = 8192;
-        for (let i = 0; i < combined.length; i += chunkSize) {
-            const chunk = combined.subarray(i, i + chunkSize);
-            binary += String.fromCharCode.apply(null, chunk);
-        }
-        return btoa(binary);
+        return uint8ArrayToBase64(combined);
     } catch (error) {
         console.error('❌ Erreur chiffrement avec mot de passe:', error);
         throw new Error('Chiffrement impossible : ' + error.message);
@@ -6168,15 +5899,15 @@ function initElectronicSignatureButtons() {
                     
                     // Infos à gauche
                     html += '<div style="flex:1; min-width:250px;">';
-                    html += '<div style="font-size:16px; font-weight:700; margin-bottom:5px;">📋 OT N° ' + otNum + '</div>';
-                    html += '<div style="font-size:12px; opacity:0.95; margin-top:5px;">🏭 <strong>Équipement :</strong> ' + ot.equipement + '</div>';
-                    html += '<div style="font-size:12px; opacity:0.95; margin-top:3px;">🔧 <strong>Intervention :</strong> ' + ot.intervention + '</div>';
-                    html += '<div style="font-size:12px; opacity:0.95; margin-top:5px;">📅 ' + ot.date + '  |  👷 ' + ot.technicien + '</div>';
+                    html += '<div style="font-size:16px; font-weight:700; margin-bottom:5px;">📋 OT N° ' + escapeHtml(otNum) + '</div>';
+                    html += '<div style="font-size:12px; opacity:0.95; margin-top:5px;">🏭 <strong>Équipement :</strong> ' + escapeHtml(ot.equipement) + '</div>';
+                    html += '<div style="font-size:12px; opacity:0.95; margin-top:3px;">🔧 <strong>Intervention :</strong> ' + escapeHtml(ot.intervention) + '</div>';
+                    html += '<div style="font-size:12px; opacity:0.95; margin-top:5px;">📅 ' + escapeHtml(ot.date) + '  |  👷 ' + escapeHtml(ot.technicien) + '</div>';
                     html += '</div>';
                     
                     // Bouton "Ouvrir fiche" à droite
                     html += '<div>';
-                    window.anomaliesOTData[ot.otNumber] = ot;html += '<button onclick="closeAnomaliesModal(); openOTFromAnomaly(\'' + ot.otNumber + '\')" style="padding:8px 16px; background:white; color:#4f46e5;border:none; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer; box-shadow:0 2px 4px rgba(0,0,0,0.1); white-space:nowrap;">🔧 Ouvrir fiche</button>'; 
+                    window.anomaliesOTData[ot.otNumber] = ot;html += '<button onclick="closeAnomaliesModal(); openOTFromAnomaly(' + escapeAttr(JSON.stringify(ot.otNumber)) + ')" style="padding:8px 16px; background:white; color:#4f46e5;border:none; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer; box-shadow:0 2px 4px rgba(0,0,0,0.1); white-space:nowrap;">🔧 Ouvrir fiche</button>'; 
                     html += '</div>';
                     
                     html += '</div>';
@@ -6187,9 +5918,9 @@ function initElectronicSignatureButtons() {
                     
                     ot.anomalies.forEach((a, idx) => {
                         html += '<div style="background:#fef2f2; border-left:4px solid #dc2626; padding:12px 15px; margin-bottom:8px; border-radius:0 6px 6px 0;">';
-                        html += '<div style="font-size:12px; color:#7f1d1d; font-weight:600; margin-bottom:5px;">Anomalie ' + (idx + 1) + ' - Code : ' + a.code + '</div>';
-                        html += '<div style="font-size:13px; color:#374151; margin-bottom:5px;"><strong>Action :</strong> ' + a.action + '</div>';
-                        html += '<div style="font-size:13px; color:#dc2626;"><strong>Constat :</strong> ' + a.constat + '</div>';
+                        html += '<div style="font-size:12px; color:#7f1d1d; font-weight:600; margin-bottom:5px;">Anomalie ' + (idx + 1) + ' - Code : ' + escapeHtml(a.code) + '</div>';
+                        html += '<div style="font-size:13px; color:#374151; margin-bottom:5px;"><strong>Action :</strong> ' + escapeHtml(a.action) + '</div>';
+                        html += '<div style="font-size:13px; color:#dc2626;"><strong>Constat :</strong> ' + escapeHtml(a.constat) + '</div>';
                         html += '</div>';
                     });
                     
@@ -6357,13 +6088,6 @@ function resetAll() {
     localStorage.removeItem('otSitesIndex_v2');
     localStorage.removeItem('otPreventifData');
 
-    // 🆕 Nettoie aussi les pièces jointes stockées en IndexedDB (photos/PDF des OT),
-    // sinon elles restent orphelines et occupent de l'espace indéfiniment.
-    getAttachmentsDb().then(function(db) {
-        const tx = db.transaction(ATTACHMENTS_STORE, 'readwrite');
-        tx.objectStore(ATTACHMENTS_STORE).clear();
-    }).catch(function(err) { console.warn('⚠️ Nettoyage IndexedDB échoué :', err); });
-
     sitesLibrary = {};
     activeSiteKey = null;
     planningData = []; checklistData = {}; planningHeaders = []; otStates = {};
@@ -6429,7 +6153,7 @@ function exportExcel() {
     showNotification('✅ Excel exporté');
 }
 
-async function exportChecklistPDF() {
+function exportChecklistPDF() {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
     const data = checklistData[currentKey];
@@ -6512,24 +6236,18 @@ async function exportChecklistPDF() {
             finalY += 5;
         });
         finalY += 5;
-        for (const att of state.attachments) {
+        state.attachments.forEach(att => {
             if (att.type.startsWith('image/')) {
                 if (finalY > 200) { doc.addPage(); finalY = 20; }
                 try {
-                    let imgData = att.data; // compatibilité avec anciennes données non migrées
-                    if (att.key) {
-                        const blob = await getAttachmentBlob(att.key);
-                        if (blob) imgData = await blobToDataURL(blob);
-                    }
-                    if (!imgData) continue;
                     doc.setFont('helvetica', 'bold');
                     doc.text('Image : ' + att.name, 14, finalY); 
                     finalY += 5;
-                    doc.addImage(imgData, 'JPEG', 14, finalY, 80, 60);
+                    doc.addImage(att.data, 'JPEG', 14, finalY, 80, 60);
                     finalY += 65;
                 } catch(e) { console.error('Erreur image PDF:', e); }
             }
-        }
+        });
     }
 console.log('🔍 [DIAG] Début bloc Signature PDF. Mode actuel:', currentSignatureMode);
 console.log('🔍 [DIAG] has electronicSignatureData:', !!electronicSignatureData);
@@ -7401,12 +7119,12 @@ function renderKanban() {
         const cardsHtml = cards.length
             ? cards.map(c => {
                 const libelleEscaped = (c.libelle || '').replace(/'/g, "\\'");
-                const clickable = col.key === 'nc' ? 'showNCMessage()' : `openChecklist('${c.ot}','${c.materiel}','${c.interventionType}','${libelleEscaped}','${c.date}')`;
+                const clickable = col.key === 'nc' ? 'showNCMessage()' : `openChecklist(${escapeAttr(JSON.stringify(c.ot))},${escapeAttr(JSON.stringify(c.materiel))},${escapeAttr(JSON.stringify(c.interventionType))},${escapeAttr(JSON.stringify(libelleEscaped))},${escapeAttr(JSON.stringify(c.date))})`;
                 return `<div class="kb-card ${col.cls}" onclick="${clickable}">
-                    <div class="kb-card-ot">🔧 ${c.ot}</div>
-                    <div class="kb-card-materiel">${c.materiel}</div>
-                    <div class="kb-card-libelle">${c.libelle}</div>
-                    <div class="kb-card-date">📅 ${c.date || '-'}</div>
+                    <div class="kb-card-ot">🔧 ${escapeHtml(c.ot)}</div>
+                    <div class="kb-card-materiel">${escapeHtml(c.materiel)}</div>
+                    <div class="kb-card-libelle">${escapeHtml(c.libelle)}</div>
+                    <div class="kb-card-date">📅 ${escapeHtml(c.date || '-')}</div>
                 </div>`;
             }).join('')
             : '<div class="kb-empty">Aucun OT</div>';
@@ -7648,7 +7366,7 @@ function renderDashboard() {
                 <tbody>
                     ${Object.entries(kpis.techniciens).sort((a,b) => b[1].total - a[1].total).map(([nom, data]) => {
                         const taux = data.total > 0 ? Math.round((data.fait / data.total) * 100) : 0;
-                        return `<tr><td><strong>${nom}</strong></td><td>${data.total}</td><td><span class="badge badge-success">${data.fait}</span></td><td><span class="badge badge-warning">${data.partiel}</span></td><td><span class="badge badge-danger">${data.nonFait}</span></td><td>${data.anomalies > 0 ? '<span class="badge badge-danger">' + data.anomalies + '</span>' : '<span style="color:#999">0</span>'}</td><td><div class="mini-progress"><div class="mini-progress-fill" style="width:${taux}%; background: ${taux >= 90 ? '#4caf50' : taux >= 70 ? '#ff9800' : '#f44336'}"></div></div><strong>${taux}%</strong></td></tr>`;
+                        return `<tr><td><strong>${escapeHtml(nom)}</strong></td><td>${data.total}</td><td><span class="badge badge-success">${data.fait}</span></td><td><span class="badge badge-warning">${data.partiel}</span></td><td><span class="badge badge-danger">${data.nonFait}</span></td><td>${data.anomalies > 0 ? '<span class="badge badge-danger">' + data.anomalies + '</span>' : '<span style="color:#999">0</span>'}</td><td><div class="mini-progress"><div class="mini-progress-fill" style="width:${taux}%; background: ${taux >= 90 ? '#4caf50' : taux >= 70 ? '#ff9800' : '#f44336'}"></div></div><strong>${taux}%</strong></td></tr>`;
                     }).join('')}
                 </tbody>
             </table>

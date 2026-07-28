@@ -2350,6 +2350,15 @@ body.mode-prestataire .internal-only {
         <canvas id="signaturePad" class="signature-pad" width="500" height="120" aria-label="Zone de signature manuscrite"></canvas>
     </div>
 </div>
+
+<div class="admin-validation-zone internal-only" id="adminValidationZone" style="margin-top:14px; padding:12px; border:2px dashed #1f3864; border-radius:8px;">
+    <label style="font-weight:bold; color:#1f3864;">✅ Validation administrative :</label>
+    <p style="font-size:0.85em; color:#555; margin:4px 0 8px;">Tant que l'OT n'est pas validé par l'admin, le PDF exporté portera un filigrane "BROUILLON".</p>
+    <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+        <input type="checkbox" id="chkValidationAdmin" onchange="toggleValidationAdmin(this.checked)" aria-label="Marquer cet OT comme validé par l'admin">
+        <span id="validationAdminLabel">Non validé (BROUILLON)</span>
+    </label>
+</div>
 </div>
 <div class="modal-footer">
           <div class="progress-info">
@@ -4148,6 +4157,10 @@ if (otStates[otStr].dateDebut === undefined) otStates[otStr].dateDebut = '';
 if (otStates[otStr].dateFin === undefined) otStates[otStr].dateFin = '';
 if (otStates[otStr].signature === undefined) otStates[otStr].signature = '';
 if (otStates[otStr].site === undefined) otStates[otStr].site = currentSiteName;
+if (otStates[otStr].validationAdmin === undefined) otStates[otStr].validationAdmin = false;
+const chkValidationAdmin = document.getElementById('chkValidationAdmin');
+if (chkValidationAdmin) chkValidationAdmin.checked = !!otStates[otStr].validationAdmin;
+updateValidationAdminLabel(otStates[otStr].validationAdmin);
     document.getElementById('site').value = otStates[otStr].site || currentSiteName;
     document.getElementById('techName').value = otStates[otStr].technicien || '';
     const datePrevueAuto = planningDateToDatetime(dateOT);
@@ -6153,6 +6166,57 @@ function exportExcel() {
     showNotification('✅ Excel exporté');
 }
 
+/**
+ * 🆕 Bascule le statut de validation administrative de l'OT courant.
+ * Un OT non validé par l'admin verra ses PDF exportés marqués "BROUILLON".
+ */
+function toggleValidationAdmin(checked) {
+    if (!currentOT || !otStates[currentOT]) return;
+    otStates[currentOT].validationAdmin = !!checked;
+    updateValidationAdminLabel(!!checked);
+    showNotification(checked ? '✅ OT marqué comme validé par l\'admin' : '📝 OT repassé en brouillon (non validé)');
+}
+
+function updateValidationAdminLabel(isValide) {
+    const lbl = document.getElementById('validationAdminLabel');
+    if (!lbl) return;
+    lbl.textContent = isValide ? 'Validé par l\'admin' : 'Non validé (BROUILLON)';
+    lbl.style.color = isValide ? '#2e7d32' : '#c62828';
+    lbl.style.fontWeight = 'bold';
+}
+
+/**
+ * 🆕 Ajoute un filigrane "BROUILLON" en diagonale sur toutes les pages du document PDF.
+ * Utilisé pour les OT qui n'ont pas encore été validés par l'admin (otStates[x].validationAdmin === false).
+ * À appeler juste avant doc.save(), une fois que toutes les pages ont été générées.
+ */
+function addBrouillonWatermark(doc) {
+    try {
+        const pageCount = doc.internal.getNumberOfPages();
+        const pageW = doc.internal.pageSize.getWidth();
+        const pageH = doc.internal.pageSize.getHeight();
+        for (let p = 1; p <= pageCount; p++) {
+            doc.setPage(p);
+            doc.saveGraphicsState();
+            if (typeof doc.setGState === 'function' && doc.GState) {
+                doc.setGState(new doc.GState({ opacity: 0.18 }));
+            }
+            doc.setTextColor(200, 0, 0);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(60);
+            doc.text('BROUILLON', pageW / 2, pageH / 2, {
+                align: 'center',
+                angle: 45
+            });
+            doc.restoreGraphicsState();
+            doc.setTextColor(0);
+        }
+        doc.setPage(pageCount);
+    } catch (eWatermark) {
+        console.error('❌ Erreur lors de l\'application du filigrane BROUILLON:', eWatermark);
+    }
+}
+
 function exportChecklistPDF() {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
@@ -6361,6 +6425,11 @@ if (!doc || typeof doc.save !== 'function') {
 
 const pdfFilename = 'OT_' + currentOT + '_' + new Date().toISOString().slice(0,10) + '.pdf';
 console.log('🔍 [DIAG] Nom fichier:', pdfFilename);
+
+// 🆕 Filigrane BROUILLON tant que l'OT n'a pas été validé par l'admin
+if (!state.validationAdmin) {
+    addBrouillonWatermark(doc);
+}
 
 try {
     doc.save(pdfFilename);

@@ -1976,6 +1976,7 @@ body.mode-prestataire .internal-only {
         <button class="btn btn-warning" id="btnSave" onclick="saveToLocalStorage()" disabled>💾 Sauvegarder</button>
         <button class="btn btn-secondary" onclick="loadFromLocalStorage()">🔄 Recharger</button>
         <button class="btn btn-primary" id="btnOpenDataIO" onclick="openDataIOModal()">🔁 Échanger des données</button>
+        <button class="btn btn-danger" id="btnResetSiteActif" onclick="resetSiteActif()">🗑️ Effacer mes données (site actif)</button>
         <button class="btn btn-danger internal-only" id="btnResetAll" onclick="resetAll()">🗑️ Réinitialiser</button>
 
         <!-- Champs fichiers réels, déclenchés depuis les cartes de la modale d'échange -->
@@ -6116,6 +6117,56 @@ updateHeaderInfos();
         document.getElementById('toolbarButtons').classList.remove('active');
         showNotification('✅ Données rechargées');
     } catch (err) { showNotification('Erreur : ' + err.message, 'error'); }
+}
+
+/**
+ * 🆕 Réinitialise UNIQUEMENT le site actif (contrairement à resetAll() qui efface tous les sites).
+ * Pensé pour le mode prestataire : il n'a pas de raison d'accéder au bouton "Réinitialiser" global
+ * (internal-only) mais doit pouvoir repartir de zéro sur SON site en cours sans risquer d'effacer
+ * les données des autres sites.
+ */
+function resetSiteActif() {
+    if (!activeSiteKey && Object.keys(sitesLibrary).length === 0) {
+        showNotification('⚠️ Aucun site chargé à effacer');
+        return;
+    }
+    const nomSite = (activeSiteKey && sitesLibrary[activeSiteKey] && sitesLibrary[activeSiteKey].nomSite) || activeSiteKey || 'le site actif';
+    if (!confirm('Effacer les données de "' + nomSite + '" ? Cette action est irréversible. Les autres sites éventuellement chargés ne sont pas affectés.')) return;
+
+    if (activeSiteKey) {
+        localStorage.removeItem('otSiteData_v2_' + activeSiteKey);
+        delete sitesLibrary[activeSiteKey];
+    }
+    activeSiteKey = null;
+    planningData = []; checklistData = {}; planningHeaders = []; otStates = {};
+    planningLoaded = false; checklistLoaded = false; mainHeaderText = '';
+    refreshSiteSelector();
+
+    const planningStatusEl = document.getElementById('planningStatus');
+    if (planningStatusEl) { planningStatusEl.textContent = 'Non chargé'; planningStatusEl.className = 'status-empty'; }
+    const checklistStatusEl = document.getElementById('checklistStatus');
+    if (checklistStatusEl) { checklistStatusEl.textContent = 'Non chargé'; checklistStatusEl.className = 'status-empty'; }
+    const fileStatusEl = document.getElementById('fileStatus');
+    if (fileStatusEl) fileStatusEl.classList.remove('loaded');
+
+    const welcomeScreenEl = document.getElementById('welcomeScreen');
+    if (welcomeScreenEl) welcomeScreenEl.classList.remove('hidden');
+    const workspaceEl = document.getElementById('workspace');
+    if (workspaceEl) workspaceEl.classList.add('hidden');
+    const btnExportExcelEl = document.getElementById('btnExportExcel');
+    if (btnExportExcelEl) btnExportExcelEl.classList.add('disabled');
+    const btnExportPDFEl = document.getElementById('btnExportPDF');
+    if (btnExportPDFEl) btnExportPDFEl.classList.add('disabled');
+    const btnSaveEl = document.getElementById('btnSave');
+    if (btnSaveEl) btnSaveEl.disabled = true;
+    const btnDashboardEl = document.getElementById('btnDashboard');
+    if (btnDashboardEl) btnDashboardEl.disabled = true;
+    const planningFileEl = document.getElementById('planningFile');
+    if (planningFileEl) planningFileEl.value = '';
+    const checklistFileEl = document.getElementById('checklistFile');
+    if (checklistFileEl) checklistFileEl.value = '';
+
+    showNotification('✅ Données du site effacées');
 }
 
 function resetAll() {

@@ -5362,7 +5362,13 @@ async function saveEncrypted(key, data) {
             return true;
         } catch (fallbackError) {
             console.error('❌ Fallback échoué:', fallbackError);
-            return false;
+            // 🔒 IMPORTANT : on relève l'erreur au lieu de retourner silencieusement false.
+            // Tous les appelants (saveToLocalStorage, persistActiveSiteToLocalStorage, ...)
+            // ont un try/catch qui suppose que l'échec se manifeste par une exception
+            // (notamment pour détecter QuotaExceededError). Sans ce throw, l'appelant
+            // continue comme si la sauvegarde avait réussi et peut même afficher un
+            // message de succès trompeur alors que les données n'ont pas été enregistrées.
+            throw fallbackError;
         }
     }
 }

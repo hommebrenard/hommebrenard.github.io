@@ -3729,12 +3729,26 @@ if (parsed && parsed.__archive) {
             const existing = sitesLibrary[key];
             const existingCount = countTraitedOT(existing);
             if (existing && existingCount > 0) {
-                const msg = '⚠️ Le site "' + (existing.label || key) + '" contient déjà ' + existingCount + ' OT traité(s).\n\nL\'importer va REMPLACER ce site. Ces OT seront perdus si ce fichier ne les reprend pas. Continuer ?';
+                const msg = '⚠️ Le site "' + (existing.label || key) + '" contient déjà ' + existingCount + ' OT traité(s), '
+                    + 'dont certaines validations administratives.\n\nL\'importer va REMPLACER ce site. Ces OT et validations seront perdus si ce fichier ne les reprend pas. Continuer ?';
                 if (!window.confirm(msg)) {
                     showNotification('Import annulé.', 'error');
                     event.target.value = '';
                     return;
                 }
+            }
+
+            // 🔒 Ce fichier peut provenir d'un prestataire (carte "Site (partage)" non réservée à
+            // l'admin). Comme pour le retour prestataire dédié, on protège les validations admin
+            // déjà enregistrées localement : le fichier importé ne peut jamais les écraser.
+            if (existing && existing.otStates && bucket.otStates) {
+                Object.keys(existing.otStates).forEach(function(otKey) {
+                    if (bucket.otStates[otKey] && existing.otStates[otKey] && existing.otStates[otKey].validationAdmin !== undefined) {
+                        // La valeur locale (posée uniquement via la case à cocher admin dans l'UI)
+                        // prime TOUJOURS sur celle du fichier importé, dans les deux sens.
+                        bucket.otStates[otKey].validationAdmin = existing.otStates[otKey].validationAdmin;
+                    }
+                });
             }
 
             sitesLibrary[key] = bucket;
@@ -3893,8 +3907,19 @@ function importRetourPrestataireJSON(event) {
                     return; // ⚠️ pas d'écrasement automatique : à arbitrer manuellement
                 }
 
-                bucket.otStates[ot] = Object.assign({}, local, incomingState, {
+                // 🔒 Le fichier retour prestataire ne doit JAMAIS pouvoir modifier des champs
+                // réservés à l'admin (ex: validationAdmin), même si son contenu en contient un
+                // (édition manuelle, bug côté prestataire, etc.). On neutralise ces champs avant
+                // fusion, puis on réapplique explicitement la valeur locale ensuite par sécurité.
+                const CHAMPS_RESERVES_ADMIN = ['validationAdmin'];
+                const incomingStateSecurise = Object.assign({}, incomingState);
+                CHAMPS_RESERVES_ADMIN.forEach(champ => { delete incomingStateSecurise[champ]; });
+
+                bucket.otStates[ot] = Object.assign({}, local, incomingStateSecurise, {
                     statutSync: 'recu', dateRetourPrestataire: now, modifiePar: 'prestataire'
+                });
+                CHAMPS_RESERVES_ADMIN.forEach(champ => {
+                    bucket.otStates[ot][champ] = (local && local[champ] !== undefined) ? local[champ] : false;
                 });
                 fusionnes++;
             });
@@ -4248,7 +4273,7 @@ function renderAttachments() {
         const sizeMB = (att.size / (1024 * 1024)).toFixed(2);
         const sizeText = att.size > 1024 * 1024 ? sizeMB + ' MB' : sizeKB + ' KB';
         let preview = '';
-        if (att.type.startsWith('image/')) preview = '<img src="' + att.data + '" onclick="viewAttachment(' + idx + ')" alt="' + escapeAttr(att.name) + '">';
+        if (att.type.startsWith('image/') && typeof att.data === 'string' && att.data.startsWith('data:image/')) preview = '<img src="' + escapeAttr(att.data) + '" onclick="viewAttachment(' + idx + ')" alt="' + escapeAttr(att.name) + '">';
         else if (att.type === 'application/pdf') preview = '<div class="file-icon">PDF</div>';
         else if (att.type.includes('word')) preview = '<div class="file-icon">DOC</div>';
         else if (att.type.includes('excel') || att.type.includes('sheet')) preview = '<div class="file-icon">XLS</div>';

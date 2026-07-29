@@ -2326,6 +2326,9 @@ body.mode-prestataire .internal-only {
             
    <div class="signature-zone">
     <label style="font-weight:bold; color:#e65100;">✍️ Signature du Technicien :</label>
+    <p class="signature-legal-note" style="font-size:0.8em; color:#666; font-style:italic; margin:4px 0 8px; padding:6px 8px; background:#fff8e1; border-left:3px solid #f9a825; border-radius:3px;">
+        ⚠️ Cette signature électronique (nom saisi, tracé manuscrit ou image importée) sert à la <strong>traçabilité interne</strong> de l'intervention. Elle ne constitue pas une signature électronique certifiée/qualifiée au sens de la loi 53-05 et n'a pas la même valeur probante qu'une signature manuscrite sur un document contractuel officiel. Pour toute validation contractuelle ou litige, se référer aux documents signés selon les procédures légales en vigueur.
+    </p>
 
     <input type="hidden" id="signatureType" name="signatureType" value="electronic">
     <input type="hidden" id="signatureElectronicData" name="signatureElectronicData" value="">
@@ -2354,6 +2357,7 @@ body.mode-prestataire .internal-only {
 <div class="admin-validation-zone internal-only" id="adminValidationZone" style="margin-top:14px; padding:12px; border:2px dashed #1f3864; border-radius:8px;">
     <label style="font-weight:bold; color:#1f3864;">✅ Validation administrative :</label>
     <p style="font-size:0.85em; color:#555; margin:4px 0 8px;">Tant que l'OT n'est pas validé par l'admin, le PDF exporté portera un filigrane "BROUILLON".</p>
+    <p id="validationAdminHint" style="display:none; font-size:0.8em; color:#c62828; margin:0 0 8px;">🔒 Disponible uniquement après la signature du prestataire (ordre logique : le prestataire atteste d'abord, l'admin valide ensuite).</p>
     <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
         <input type="checkbox" id="chkValidationAdmin" onchange="toggleValidationAdmin(this.checked)" aria-label="Marquer cet OT comme validé par l'admin">
         <span id="validationAdminLabel">Non validé (BROUILLON)</span>
@@ -4159,7 +4163,15 @@ if (otStates[otStr].signature === undefined) otStates[otStr].signature = '';
 if (otStates[otStr].site === undefined) otStates[otStr].site = currentSiteName;
 if (otStates[otStr].validationAdmin === undefined) otStates[otStr].validationAdmin = false;
 const chkValidationAdmin = document.getElementById('chkValidationAdmin');
-if (chkValidationAdmin) chkValidationAdmin.checked = !!otStates[otStr].validationAdmin;
+const aDejaSigne = !!(otStates[otStr].electronicSignatureData);
+if (chkValidationAdmin) {
+    chkValidationAdmin.checked = !!otStates[otStr].validationAdmin;
+    chkValidationAdmin.disabled = !aDejaSigne;
+}
+const validationAdminHint = document.getElementById('validationAdminHint');
+if (validationAdminHint) {
+    validationAdminHint.style.display = aDejaSigne ? 'none' : 'block';
+}
 updateValidationAdminLabel(otStates[otStr].validationAdmin);
     document.getElementById('site').value = otStates[otStr].site || currentSiteName;
     document.getElementById('techName').value = otStates[otStr].technicien || '';
@@ -5612,6 +5624,12 @@ const hashHex = await generateSignatureHashSHA256(techName, now.getTime(), sigId
     if (btnEsign) btnEsign.style.display = 'none';
     if (btnEsignReset) btnEsignReset.style.display = 'inline-flex';
 
+    // 🆕 Le prestataire vient de signer : la validation admin devient disponible
+    const chkValidationAdminLive = document.getElementById('chkValidationAdmin');
+    if (chkValidationAdminLive) chkValidationAdminLive.disabled = false;
+    const validationAdminHintLive = document.getElementById('validationAdminHint');
+    if (validationAdminHintLive) validationAdminHintLive.style.display = 'none';
+
     console.log('✅ Signature électronique générée :', electronicSignatureData);
 }
 
@@ -5638,6 +5656,19 @@ function resetElectronicSignature() {
     const btnEsignReset = document.getElementById('btnEsignReset');
     if (btnEsign) btnEsign.style.display = 'inline-flex';
     if (btnEsignReset) btnEsignReset.style.display = 'none';
+
+    // 🆕 La signature du prestataire vient d'être effacée : on reverrouille la validation admin
+    if (currentOT && otStates[currentOT]) {
+        otStates[currentOT].validationAdmin = false;
+    }
+    const chkValidationAdminReset = document.getElementById('chkValidationAdmin');
+    if (chkValidationAdminReset) {
+        chkValidationAdminReset.checked = false;
+        chkValidationAdminReset.disabled = true;
+    }
+    const validationAdminHintReset = document.getElementById('validationAdminHint');
+    if (validationAdminHintReset) validationAdminHintReset.style.display = 'block';
+    updateValidationAdminLabel(false);
 
     console.log('🔄 Signature électronique effacée');
 }
@@ -6172,6 +6203,13 @@ function exportExcel() {
  */
 function toggleValidationAdmin(checked) {
     if (!currentOT || !otStates[currentOT]) return;
+    if (checked && !otStates[currentOT].electronicSignatureData) {
+        // 🔒 Garde-fou : impossible de valider un OT que le prestataire n'a pas encore signé
+        const chk = document.getElementById('chkValidationAdmin');
+        if (chk) chk.checked = false;
+        showNotification('⚠️ Le prestataire doit signer avant que l\'OT puisse être validé par l\'admin');
+        return;
+    }
     otStates[currentOT].validationAdmin = !!checked;
     updateValidationAdminLabel(!!checked);
     showNotification(checked ? '✅ OT marqué comme validé par l\'admin' : '📝 OT repassé en brouillon (non validé)');
@@ -6190,13 +6228,16 @@ function updateValidationAdminLabel(isValide) {
  * Utilisé pour les OT qui n'ont pas encore été validés par l'admin (otStates[x].validationAdmin === false).
  * À appeler juste avant doc.save(), une fois que toutes les pages ont été générées.
  */
-function addBrouillonWatermark(doc) {
+function addBrouillonWatermark(doc, pageNumbers) {
     try {
-        const pageCount = doc.internal.getNumberOfPages();
+        const totalPages = doc.internal.getNumberOfPages();
+        const pagesToStamp = (Array.isArray(pageNumbers) && pageNumbers.length > 0)
+            ? [...new Set(pageNumbers)].filter(p => p >= 1 && p <= totalPages)
+            : Array.from({ length: totalPages }, (_, i) => i + 1);
         const pageW = doc.internal.pageSize.getWidth();
         const pageH = doc.internal.pageSize.getHeight();
-        for (let p = 1; p <= pageCount; p++) {
-            doc.setPage(p);
+        for (let p = 0; p < pagesToStamp.length; p++) {
+            doc.setPage(pagesToStamp[p]);
             doc.saveGraphicsState();
             if (typeof doc.setGState === 'function' && doc.GState) {
                 doc.setGState(new doc.GState({ opacity: 0.18 }));
@@ -6211,7 +6252,7 @@ function addBrouillonWatermark(doc) {
             doc.restoreGraphicsState();
             doc.setTextColor(0);
         }
-        doc.setPage(pageCount);
+        doc.setPage(totalPages);
     } catch (eWatermark) {
         console.error('❌ Erreur lors de l\'application du filigrane BROUILLON:', eWatermark);
     }
@@ -6506,6 +6547,7 @@ planningData.forEach(row => {
     
     // ÉTAPE 3 : Tableau principal des OT
     const rows = [];
+    let anyOTNonValideAdmin = false; // 🆕 utilisé pour le filigrane BROUILLON des pages de sommaire
     planningData.forEach(row => {
         if (row.type === 'row') {
             row.ots.forEach((ot, otIdx) => {
@@ -6517,6 +6559,7 @@ planningData.forEach(row => {
                               'NC', datePlanning, '-', '-', 'OT non communique - A planifier']);
                 } else {
                     const s = otStates[otStr] || {};
+                    if (s.technicien && !s.validationAdmin) anyOTNonValideAdmin = true;
                     const annexeNum = annexePageMap[otStr] || 0;
                     const observations = getObservationCourte(otStr, annexeNum);
                     rows.push([
@@ -6899,8 +6942,10 @@ planningData.forEach(row => {
         doc.text('Sommaire des annexes', pageWidth/2, pageHeight - 8, {align: 'center'});
         
         // ===== PAGES D'ANNEXES INDIVIDUELLES =====
+        const annexePageStarts = []; // 🆕 { otNum, startPage } pour déterminer les plages de pages par OT (filigrane BROUILLON)
         annexesData.forEach((annexe) => {
             doc.addPage();
+            annexePageStarts.push({ otNum: annexe.otNum, startPage: doc.internal.getNumberOfPages() });
             
             // En-tête annexe
             doc.setFillColor(112, 48, 160);
@@ -7029,6 +7074,25 @@ planningData.forEach(row => {
         });
     }
     
+    // 🆕 FILIGRANE BROUILLON : sommaire (si au moins un OT traité n'est pas validé admin)
+    //    + pages d'annexes correspondant à un OT non validé admin
+    const totalPagesFinal = doc.internal.getNumberOfPages();
+    const pagesAFiligraner = [];
+    const firstAnnexePage = annexePageStarts.length > 0 ? annexePageStarts[0].startPage : (totalPagesFinal + 1);
+    if (anyOTNonValideAdmin) {
+        for (let p = 1; p < firstAnnexePage; p++) pagesAFiligraner.push(p);
+    }
+    annexePageStarts.forEach((entry, idx) => {
+        const endPage = (idx + 1 < annexePageStarts.length) ? annexePageStarts[idx + 1].startPage - 1 : totalPagesFinal;
+        const otState = otStates[entry.otNum];
+        if (!otState || !otState.validationAdmin) {
+            for (let p = entry.startPage; p <= endPage; p++) pagesAFiligraner.push(p);
+        }
+    });
+    if (pagesAFiligraner.length > 0) {
+        addBrouillonWatermark(doc, pagesAFiligraner);
+    }
+
     // SAUVEGARDE
     doc.save('Rapport_OT_' + new Date().toISOString().slice(0,10) + '.pdf');
     showNotification('✅ Rapport PDF généré' + 

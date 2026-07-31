@@ -3581,6 +3581,86 @@ async function unwrapMaybeEncryptedJSON(parsed) {
     }
 }
 
+/**
+ * 🆕 Prépare une COPIE des otStates avec les pièces jointes "réhydratées" (leur donnée
+ * base64 récupérée depuis IndexedDB) pour produire un fichier JSON autonome, exploitable
+ * tel quel par une autre installation de l'application (ex: le prestataire).
+ * Ne modifie JAMAIS les otStates réels en mémoire (qui doivent rester légers).
+ */
+async function rehydraterPiecesJointesPourExport(siteKey, otStatesSource) {
+    const copie = {};
+    for (const otKey of Object.keys(otStatesSource || {})) {
+        const otState = otStatesSource[otKey] || {};
+        const otCopie = Object.assign({}, otState);
+        if (Array.isArray(otState.attachments) && otState.attachments.length > 0) {
+            otCopie.attachments = [];
+            for (const att of otState.attachments) {
+                const attCopie = Object.assign({}, att);
+                if (attCopie.attachmentId && attCopie.data === undefined) {
+                    try {
+                        attCopie.data = await getAttachmentBlob(siteKey, otKey, attCopie.attachmentId);
+                    } catch (e) {
+                        console.warn('⚠️ Pièce jointe illisible pour export (ignorée) :', att.name, e);
+                        attCopie.data = null;
+                    }
+                }
+                otCopie.attachments.push(attCopie);
+            }
+        }
+        copie[otKey] = otCopie;
+    }
+    return copie;
+}
+
+/**
+ * 🆕 À l'import d'un fichier contenant des pièces jointes avec leur donnée base64 encore
+ * présente (reçues d'une autre installation), on les enregistre en IndexedDB LOCALE puis
+ * on retire ce champ lourd de otStatesObj — pour que le localStorage local reste léger.
+ * Réutilise l'attachmentId fourni si présent (cohérence), sinon en génère un nouveau.
+ * Idempotent : ignore les pièces jointes qui n'ont pas de champ `data` (déjà migrées).
+ */
+async function persisterPiecesJointesRecues(siteKey, otStatesObj) {
+    for (const otKey of Object.keys(otStatesObj || {})) {
+        const otState = otStatesObj[otKey];
+        if (!otState || !Array.isArray(otState.attachments)) continue;
+        for (const att of otState.attachments) {
+            if (att && typeof att.data === 'string' && att.data) {
+                const id = att.attachmentId || ('att_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8));
+                try {
+                    await saveAttachmentBlob(siteKey, otKey, id, att.data);
+                    att.attachmentId = id;
+                    delete att.data;
+                } catch (e) {
+                    console.warn('⚠️ Pièce jointe reçue non stockée en IndexedDB (conservée en base64 dans otStates) :', att.name, e);
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 🆕 Variante de persisterPiecesJointesRecues() pour la liste (tableau, pas objet par OT)
+ * des OT en quarantaine "hors planning". Mêmes garanties : idempotent, réutilise
+ * l'attachmentId existant si présent.
+ */
+async function persisterPiecesJointesHorsPlanning(siteKey, otsHorsPlanningArray) {
+    for (const item of (otsHorsPlanningArray || [])) {
+        if (!item || !Array.isArray(item.attachments)) continue;
+        for (const att of item.attachments) {
+            if (att && typeof att.data === 'string' && att.data) {
+                const id = att.attachmentId || ('att_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8));
+                try {
+                    await saveAttachmentBlob(siteKey, item.numOT, id, att.data);
+                    att.attachmentId = id;
+                    delete att.data;
+                } catch (e) {
+                    console.warn('⚠️ Pièce jointe hors planning non stockée en IndexedDB :', att.name, e);
+                }
+            }
+        }
+    }
+}
+
 async function exportSiteJSON() {
     if (!activeSiteKey) { showNotification('Aucun site actif à exporter.', 'error'); return; }
     syncActiveSiteIntoLibrary();
@@ -3589,9 +3669,19 @@ async function exportSiteJSON() {
     const password = askPasswordForExport();
     if (!password) { showNotification('Export annulé (mot de passe requis).', 'error'); return; }
 
+    // 🆕 Réhydrate les pièces jointes (données IndexedDB) dans une COPIE, pour que le fichier
+    // exporté soit autonome — sans jamais alourdir le bucket réel gardé en mémoire/localStorage.
+    let bucketPourExport = bucket;
+    try {
+        const otStatesRehydrates = await rehydraterPiecesJointesPourExport(activeSiteKey, bucket.otStates);
+        bucketPourExport = Object.assign({}, bucket, { otStates: otStatesRehydrates });
+    } catch (e) {
+        console.warn('⚠️ Réhydratation des pièces jointes échouée, export sans les pièces jointes binaires :', e);
+    }
+
     let fileContent;
     try {
-        fileContent = await buildEncryptedJSONPayload(bucket, password);
+        fileContent = await buildEncryptedJSONPayload(bucketPourExport, password);
     } catch (err) {
         showNotification('❌ Erreur lors du chiffrement : ' + err.message, 'error');
         return;
@@ -3752,6 +3842,13 @@ if (parsed && parsed.__archive) {
             }
 
             sitesLibrary[key] = bucket;
+            // 🆕 Les pièces jointes arrivées avec leur donnée base64 sont stockées en IndexedDB
+            // locale, puis ce champ lourd est retiré de otStates (reste léger en localStorage).
+            try {
+                await persisterPiecesJointesRecues(key, bucket.otStates);
+            } catch (e) {
+                console.warn('⚠️ Persistance IndexedDB des pièces jointes reçues échouée :', e);
+            }
             refreshSiteSelector();
             persistSitesIndex();
             activateSite(key);
@@ -3892,7 +3989,8 @@ function importRetourPrestataireJSON(event) {
                 if (!isKnown) {
                     bucket.otsHorsPlanning.push({
                         numOT: ot, etat: incomingState.status, technicien: incomingState.technicien,
-                        commentaires: incomingState.commentaires, dateSignalement: now, statutValidation: 'a_valider'
+                        commentaires: incomingState.commentaires, attachments: incomingState.attachments || [],
+                        dateSignalement: now, statutValidation: 'a_valider'
                     });
                     horsPlanning++;
                     return;
@@ -3925,6 +4023,14 @@ function importRetourPrestataireJSON(event) {
             });
 
             bucket.historique.push({ action: 'retour_prestataire', date: now, nbFusionnes: fusionnes, nbConflits: conflits.length, nbHorsPlanning: horsPlanning });
+            // 🆕 Les pièces jointes reçues du prestataire (avec leur donnée base64) sont
+            // stockées en IndexedDB locale ; otStates ne garde que les métadonnées.
+            try {
+                await persisterPiecesJointesRecues(key, bucket.otStates);
+                await persisterPiecesJointesHorsPlanning(key, bucket.otsHorsPlanning);
+            } catch (e) {
+                console.warn('⚠️ Persistance IndexedDB des pièces jointes du retour prestataire échouée :', e);
+            }
             sitesLibrary[key] = bucket;
             if (key === activeSiteKey) { otStates = bucket.otStates; renderPlanning(); updateHeaderInfos(); }
             persistActiveSiteToLocalStorage();
@@ -3962,6 +4068,11 @@ function reviewOTsHorsPlanning() {
             otStates[item.numOT].status = item.etat || 'NF';
             otStates[item.numOT].technicien = item.technicien || 'Prestataire';
             otStates[item.numOT].modifiePar = 'prestataire';
+            // 🆕 Les pièces jointes déclarées avec cet OT hors planning (déjà en IndexedDB
+            // depuis la réception) sont désormais rattachées à l'OT une fois validé.
+            if (Array.isArray(item.attachments) && item.attachments.length > 0) {
+                otStates[item.numOT].attachments = (otStates[item.numOT].attachments || []).concat(item.attachments);
+            }
             bucket.historique = bucket.historique || [];
             bucket.historique.push({ action: 'ot_hors_planning_valide', date: new Date().toISOString(), numOT: item.numOT });
         } else if (choix === 'rejeter') {
@@ -4245,57 +4356,214 @@ updateValidationAdminLabel(otStates[otStr].validationAdmin);
     }, 100);
 }
 
+/**
+ * 🆕 Couche IndexedDB pour les pièces jointes (étape 1 : fonctions de base).
+ * Objectif : sortir le base64 lourd des pièces jointes du localStorage (qui a un quota
+ * de quelques Mo) et le stocker dans IndexedDB (quota bien plus large, généralement
+ * plusieurs centaines de Mo voire plus selon le navigateur).
+ * otStates[...].attachments continue de porter les métadonnées (name, type, size, attachmentId)
+ * mais plus le champ `data` lui-même — celui-ci vit uniquement dans ce store IDB.
+ */
+const ATTACHMENTS_DB_NAME = 'otAttachmentsDB';
+const ATTACHMENTS_DB_VERSION = 1;
+const ATTACHMENTS_STORE_NAME = 'blobs';
+let _attachmentsDbPromise = null;
+
+/** Construit une clé composite unique : site + OT + id de la pièce jointe (évite toute collision entre sites/OT). */
+function buildAttachmentKey(siteKey, otNum, attachmentId) {
+    return String(siteKey || '') + '::' + String(otNum || '') + '::' + String(attachmentId || '');
+}
+
+/** Ouvre (ou crée) la base IndexedDB dédiée aux pièces jointes. Réutilise la connexion entre appels. */
+function openAttachmentsDB() {
+    if (_attachmentsDbPromise) return _attachmentsDbPromise;
+    _attachmentsDbPromise = new Promise((resolve, reject) => {
+        if (!window.indexedDB) {
+            reject(new Error('IndexedDB non disponible dans ce navigateur'));
+            return;
+        }
+        const request = indexedDB.open(ATTACHMENTS_DB_NAME, ATTACHMENTS_DB_VERSION);
+        request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains(ATTACHMENTS_STORE_NAME)) {
+                db.createObjectStore(ATTACHMENTS_STORE_NAME);
+            }
+        };
+        request.onsuccess = (event) => resolve(event.target.result);
+        request.onerror = (event) => reject(event.target.error || new Error('Erreur ouverture IndexedDB'));
+    });
+    return _attachmentsDbPromise;
+}
+
+/** Enregistre le contenu (base64) d'une pièce jointe dans IndexedDB. */
+async function saveAttachmentBlob(siteKey, otNum, attachmentId, base64Data) {
+    const db = await openAttachmentsDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(ATTACHMENTS_STORE_NAME, 'readwrite');
+        const store = tx.objectStore(ATTACHMENTS_STORE_NAME);
+        const key = buildAttachmentKey(siteKey, otNum, attachmentId);
+        const req = store.put(base64Data, key);
+        req.onsuccess = () => resolve(true);
+        req.onerror = (event) => reject(event.target.error || new Error('Erreur écriture IndexedDB'));
+    });
+}
+
+/** Récupère le contenu (base64) d'une pièce jointe. Retourne null si absente. */
+async function getAttachmentBlob(siteKey, otNum, attachmentId) {
+    const db = await openAttachmentsDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(ATTACHMENTS_STORE_NAME, 'readonly');
+        const store = tx.objectStore(ATTACHMENTS_STORE_NAME);
+        const key = buildAttachmentKey(siteKey, otNum, attachmentId);
+        const req = store.get(key);
+        req.onsuccess = (event) => resolve(event.target.result !== undefined ? event.target.result : null);
+        req.onerror = (event) => reject(event.target.error || new Error('Erreur lecture IndexedDB'));
+    });
+}
+
+/** Supprime une pièce jointe précise. */
+async function deleteAttachmentBlob(siteKey, otNum, attachmentId) {
+    const db = await openAttachmentsDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(ATTACHMENTS_STORE_NAME, 'readwrite');
+        const store = tx.objectStore(ATTACHMENTS_STORE_NAME);
+        const key = buildAttachmentKey(siteKey, otNum, attachmentId);
+        const req = store.delete(key);
+        req.onsuccess = () => resolve(true);
+        req.onerror = (event) => reject(event.target.error || new Error('Erreur suppression IndexedDB'));
+    });
+}
+
+/** Supprime toutes les pièces jointes d'un OT donné (ex: quand l'OT est réinitialisé). */
+async function deleteAttachmentsForOT(siteKey, otNum, attachmentIds) {
+    for (const id of (attachmentIds || [])) {
+        try { await deleteAttachmentBlob(siteKey, otNum, id); } catch (e) { console.warn('⚠️ Suppression IDB échouée pour', id, e); }
+    }
+}
+
+/** Supprime toutes les pièces jointes d'un site entier (ex: reset du site actif). Parcourt le store par préfixe de clé. */
+async function deleteAttachmentsForSite(siteKey) {
+    const db = await openAttachmentsDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(ATTACHMENTS_STORE_NAME, 'readwrite');
+        const store = tx.objectStore(ATTACHMENTS_STORE_NAME);
+        const prefix = String(siteKey || '') + '::';
+        const req = store.openCursor();
+        req.onsuccess = (event) => {
+            const cursor = event.target.result;
+            if (cursor) {
+                if (String(cursor.key).startsWith(prefix)) cursor.delete();
+                cursor.continue();
+            } else {
+                resolve(true);
+            }
+        };
+        req.onerror = (event) => reject(event.target.error || new Error('Erreur nettoyage IndexedDB'));
+    });
+}
+
+/**
+ * 🆕 Récupère le contenu (base64) d'une pièce jointe, en le lisant depuis IndexedDB.
+ * Gère aussi la migration automatique : si la pièce jointe est encore au format
+ * "ancien" (att.data directement dans otStates, sans attachmentId), on la bascule
+ * silencieusement vers IndexedDB et on retire le gros base64 de otStates.
+ */
+async function getAttachmentData(att) {
+    if (!att) return null;
+    if (att.attachmentId) {
+        try {
+            return await getAttachmentBlob(activeSiteKey, currentOT, att.attachmentId);
+        } catch (e) {
+            console.error('❌ Erreur lecture pièce jointe IndexedDB:', e);
+            return null;
+        }
+    }
+    // Format legacy : la donnée est encore directement dans otStates -> migration à la volée
+    if (att.data) {
+        const newId = 'att_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        try {
+            await saveAttachmentBlob(activeSiteKey, currentOT, newId, att.data);
+            const dataCopy = att.data;
+            att.attachmentId = newId;
+            delete att.data;
+            console.log('✅ Pièce jointe migrée vers IndexedDB:', att.name);
+            return dataCopy;
+        } catch (e) {
+            console.warn('⚠️ Migration IndexedDB échouée, conservation du format legacy:', e);
+            return att.data;
+        }
+    }
+    return null;
+}
+
 function handleFileUpload(event) {
     const files = event.target.files;
     if (!files.length) return;
     Array.from(files).forEach(file => {
         if (file.size > 5 * 1024 * 1024) { showNotification(file.name + ' trop volumineux (max 5MB)', 'warning'); return; }
         const reader = new FileReader();
-        reader.onload = function(e) {
-            otStates[currentOT].attachments.push({name: file.name, type: file.type, size: file.size, data: e.target.result, addedAt: new Date().toISOString()});
-            renderAttachments();
-            showNotification('✅ ' + file.name + ' ajouté');
+        reader.onload = async function(e) {
+            const attachmentId = 'att_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+            try {
+                await saveAttachmentBlob(activeSiteKey, currentOT, attachmentId, e.target.result);
+                otStates[currentOT].attachments.push({attachmentId: attachmentId, name: file.name, type: file.type, size: file.size, addedAt: new Date().toISOString()});
+                await renderAttachments();
+                showNotification('✅ ' + file.name + ' ajouté');
+            } catch (err) {
+                console.error('❌ Erreur enregistrement pièce jointe (IndexedDB):', err);
+                showNotification('❌ Erreur lors de l\'enregistrement de ' + file.name, 'error');
+            }
         };
         reader.readAsDataURL(file);
     });
     event.target.value = '';
 }
 
-function renderAttachments() {
+async function renderAttachments() {
     const list = document.getElementById('attachmentsList');
     list.innerHTML = '';
     const attachments = (otStates[currentOT] && otStates[currentOT].attachments) || [];
     if (attachments.length === 0) { list.innerHTML = '<p style="color:#999; font-size:11px; font-style:italic;">Aucune pièce jointe</p>'; return; }
-    attachments.forEach((att, idx) => {
+    for (let idx = 0; idx < attachments.length; idx++) {
+        const att = attachments[idx];
         const item = document.createElement('div');
         item.className = 'attachment-item';
         const sizeKB = (att.size / 1024).toFixed(1);
         const sizeMB = (att.size / (1024 * 1024)).toFixed(2);
         const sizeText = att.size > 1024 * 1024 ? sizeMB + ' MB' : sizeKB + ' KB';
         let preview = '';
-        if (att.type.startsWith('image/') && typeof att.data === 'string' && att.data.startsWith('data:image/')) preview = '<img src="' + escapeAttr(att.data) + '" onclick="viewAttachment(' + idx + ')" alt="' + escapeAttr(att.name) + '">';
-        else if (att.type === 'application/pdf') preview = '<div class="file-icon">PDF</div>';
-        else if (att.type.includes('word')) preview = '<div class="file-icon">DOC</div>';
-        else if (att.type.includes('excel') || att.type.includes('sheet')) preview = '<div class="file-icon">XLS</div>';
-        else preview = '<div class="file-icon">FILE</div>';
+        if (att.type.startsWith('image/')) {
+            const data = await getAttachmentData(att);
+            if (typeof data === 'string' && data.startsWith('data:image/')) {
+                preview = '<img src="' + escapeAttr(data) + '" onclick="viewAttachment(' + idx + ')" alt="' + escapeAttr(att.name) + '">';
+            }
+        }
+        if (!preview) {
+            if (att.type === 'application/pdf') preview = '<div class="file-icon">PDF</div>';
+            else if (att.type.includes('word')) preview = '<div class="file-icon">DOC</div>';
+            else if (att.type.includes('excel') || att.type.includes('sheet')) preview = '<div class="file-icon">XLS</div>';
+            else preview = '<div class="file-icon">FILE</div>';
+        }
         item.innerHTML = '<div class="file-preview">' + preview + '</div><div class="file-info"><div class="file-name" title="' + escapeAttr(att.name) + '">' + escapeHtml(att.name) + '</div><div class="file-size">' + sizeText + ' - ' + escapeHtml(att.type) + '</div></div><div class="file-actions"><button class="btn-action btn-view" onclick="viewAttachment(' + idx + ')" aria-label="Voir la pièce jointe">👁️ Voir</button><button class="btn-action btn-download" onclick="downloadAttachment(' + idx + ')" aria-label="Télécharger">⬇️ DL</button><button class="btn-action btn-delete" onclick="removeAttachment(' + idx + ')" aria-label="Supprimer">🗑️</button></div>';
         list.appendChild(item);
-    });
+    }
 }
 
-function viewAttachment(idx) {
+async function viewAttachment(idx) {
     const att = otStates[currentOT].attachments[idx];
     if (!att) return;
     const content = document.getElementById('previewContent');
     content.innerHTML = '';
+    const data = await getAttachmentData(att);
+    if (!data) { showNotification('❌ Pièce jointe introuvable ou illisible', 'error'); return; }
     if (att.type.startsWith('image/')) {
         const img = document.createElement('img');
-        img.src = att.data;
+        img.src = data;
         img.alt = att.name;
         content.appendChild(img);
     } else if (att.type === 'application/pdf') {
         const iframe = document.createElement('iframe');
-        iframe.src = att.data;
+        iframe.src = data;
         iframe.title = att.name;
         content.appendChild(iframe);
     } else {
@@ -4305,11 +4573,13 @@ function viewAttachment(idx) {
     document.getElementById('previewModal').classList.add('active');
 }
 
-function downloadAttachment(idx) {
+async function downloadAttachment(idx) {
     const att = otStates[currentOT].attachments[idx];
     if (!att) return;
+    const data = await getAttachmentData(att);
+    if (!data) { showNotification('❌ Pièce jointe introuvable ou illisible', 'error'); return; }
     const link = document.createElement('a');
-    link.href = att.data;
+    link.href = data;
     link.download = att.name;
     document.body.appendChild(link);
     link.click();
@@ -4317,10 +4587,15 @@ function downloadAttachment(idx) {
     showNotification('Téléchargement : ' + att.name);
 }
 
-function removeAttachment(idx) {
+async function removeAttachment(idx) {
     if (!confirm('Supprimer cette pièce jointe ?')) return;
+    const att = otStates[currentOT].attachments[idx];
     otStates[currentOT].attachments.splice(idx, 1);
-    renderAttachments();
+    if (att && att.attachmentId) {
+        try { await deleteAttachmentBlob(activeSiteKey, currentOT, att.attachmentId); }
+        catch (e) { console.warn('⚠️ Suppression IndexedDB échouée (fichier déjà orphelin) :', e); }
+    }
+    await renderAttachments();
     showNotification('Pièce jointe supprimée');
 }
 

@@ -2079,6 +2079,7 @@ function gmSidebarNavigate(id, btnEl) {
             <button class="close-btn" onclick="closeEquipementsModal()" aria-label="Fermer">✕</button>
         </div>
         <div class="modal-body">
+            <div id="gmEquipReconcileBanner"></div>
             <div id="gmEquipEmptyState" style="display:none; text-align:center; padding:30px; color:#6b7280;">
                 Aucun équipement à afficher — chargez d'abord un planning pour le site actif.
             </div>
@@ -2101,6 +2102,7 @@ function gmSidebarNavigate(id, btnEl) {
    Aucun nouveau stockage, aucune écriture. */
 var gmEquipementsIndex = {};
 var gmSelectedEquipement = null;
+var gmAssociatePanelOpen = false; // état d'affichage du panneau "associer à un équipement existant"
 
 function gmBuildEquipementsIndex() {
     const index = {};
@@ -2119,8 +2121,74 @@ function gmBuildEquipementsIndex() {
     });
     Object.values(index).forEach(function(eq) {
         eq.interventions.sort(function(a, b) { return a.date > b.date ? 1 : (a.date < b.date ? -1 : 0); });
+        // 🆕 Lien vers le registre interne stable (répond au changement de prestataire/contrat)
+        const entry = gmRegistryFindByCode(eq.materiel);
+        eq.registryId = entry ? entry.id : null;
+        eq.registryNom = entry ? entry.nom : null;
     });
     return index;
+}
+
+/* ============================================
+   🆕 Registre d'équipements stable (Phase B1)
+   Objectif : découpler l'identité d'un équipement du code fourni par le
+   prestataire du moment. Si le prestataire ou le contrat change et que les
+   codes du planning changent, on associe le nouveau code au même équipement
+   interne au lieu de perdre l'historique.
+   Persisté via equipementsRegistry, qui voyage avec le site (sauvegarde,
+   changement de site, export/import JSON) au même titre que otStates.
+   ============================================ */
+function gmGenerateRegistryId() {
+    return 'eq_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function gmRegistryFindByCode(code) {
+    const entries = Object.values(equipementsRegistry || {});
+    for (let i = 0; i < entries.length; i++) {
+        if (entries[i].aliases && entries[i].aliases.indexOf(code) !== -1) return entries[i];
+    }
+    return null;
+}
+
+function gmRegistryPersist() {
+    try { syncActiveSiteIntoLibrary(); } catch (e) { console.warn('⚠️ Registre équipements : persistance impossible', e); }
+}
+
+function gmRegistryCreateFromCode(code, defaultNom) {
+    const nom = prompt('Nom stable pour ce nouvel équipement interne :\n(restera valable même si le code du prestataire change)', defaultNom || code);
+    if (!nom || !nom.trim()) return;
+    const id = gmGenerateRegistryId();
+    equipementsRegistry[id] = {
+        id: id, nom: nom.trim(), libelle: defaultNom || '', aliases: [code],
+        criticite: '', categorie: '', localisation: '', notes: '',
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    };
+    gmRegistryPersist();
+    showNotification('✅ Équipement interne créé : ' + nom.trim());
+    gmAssociatePanelOpen = false;
+    gmEquipementsIndex = gmBuildEquipementsIndex();
+    gmRenderEquipementsList(document.getElementById('gmEquipSearch') ? document.getElementById('gmEquipSearch').value : '');
+    gmSelectEquipement(gmSelectedEquipement);
+}
+
+function gmRegistryAssociateSelected(code) {
+    const sel = document.getElementById('gmAssociateSelect');
+    if (!sel || !sel.value) { showNotification('Choisissez un équipement dans la liste.', 'warning'); return; }
+    const id = sel.value;
+    if (!equipementsRegistry[id]) return;
+    if (equipementsRegistry[id].aliases.indexOf(code) === -1) equipementsRegistry[id].aliases.push(code);
+    equipementsRegistry[id].updatedAt = new Date().toISOString();
+    gmRegistryPersist();
+    showNotification('🔗 Code associé à : ' + equipementsRegistry[id].nom);
+    gmAssociatePanelOpen = false;
+    gmEquipementsIndex = gmBuildEquipementsIndex();
+    gmRenderEquipementsList(document.getElementById('gmEquipSearch') ? document.getElementById('gmEquipSearch').value : '');
+    gmSelectEquipement(gmSelectedEquipement);
+}
+
+function gmToggleAssociatePanel() {
+    gmAssociatePanelOpen = !gmAssociatePanelOpen;
+    gmSelectEquipement(gmSelectedEquipement);
 }
 
 function gmStatusBadge(status) {
@@ -2146,13 +2214,35 @@ function gmRenderEquipementsList(filter) {
     }
     listEl.innerHTML = items.map(function(eq) {
         const isActive = gmSelectedEquipement === eq.materiel;
+        const linkBadge = eq.registryId
+            ? '<span style="font-size:10px; color:#059669;">🔗 lié</span>'
+            : '<span style="font-size:10px; color:#d97706;">⚠️ non lié</span>';
         return '<button type="button" onclick="gmSelectEquipement(' + escapeAttr(JSON.stringify(eq.materiel)) + ')" ' +
             'style="display:block; width:100%; text-align:left; padding:8px 10px; margin-bottom:4px; border:none; border-radius:8px; cursor:pointer; ' +
             'background:' + (isActive ? '#eff6ff' : 'transparent') + '; color:' + (isActive ? '#2563eb' : '#374151') + ';">' +
-            '<div style="font-size:12px; font-weight:600;">' + escapeHtml(eq.materiel) + '</div>' +
+            '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+                '<div style="font-size:12px; font-weight:600;">' + escapeHtml(eq.materiel) + '</div>' + linkBadge +
+            '</div>' +
             '<div style="font-size:11px; color:#9ca3af;">' + escapeHtml(eq.libelle || '') + ' · ' + eq.interventions.length + ' intervention(s)</div>' +
             '</button>';
     }).join('');
+}
+
+function gmRenderAssociatePanel(code) {
+    const entries = Object.values(equipementsRegistry || {}).sort(function(a, b) { return a.nom.localeCompare(b.nom); });
+    if (entries.length === 0) {
+        return '<div style="margin-top:8px; font-size:12px; color:#9ca3af;">Aucun équipement interne existant pour l\'instant — créez-en un d\'abord.</div>';
+    }
+    const options = entries.map(function(e) {
+        return '<option value="' + escapeAttr(e.id) + '">' + escapeHtml(e.nom) + '</option>';
+    }).join('');
+    return '<div style="margin-top:10px; display:flex; gap:8px; align-items:center;">' +
+        '<select id="gmAssociateSelect" style="flex:1; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;">' +
+            '<option value="">— Choisir —</option>' + options +
+        '</select>' +
+        '<button type="button" onclick="gmRegistryAssociateSelected(' + escapeAttr(JSON.stringify(code)) + ')" ' +
+            'style="padding:6px 10px; border:none; background:#2563eb; color:#fff; border-radius:6px; cursor:pointer; font-size:12px;">Confirmer</button>' +
+        '</div>';
 }
 
 function gmSelectEquipement(materiel) {
@@ -2174,10 +2264,35 @@ function gmSelectEquipement(materiel) {
 
     const nbFait = eq.interventions.filter(function(iv) { return iv.status === 'F'; }).length;
 
+    // 🆕 Bloc "Identité stable" — cœur de la réconciliation (Phase B1)
+    let identiteHtml;
+    if (eq.registryId) {
+        const entry = equipementsRegistry[eq.registryId] || {};
+        identiteHtml =
+            '<div style="background:#ecfdf5; border:1px solid #a7f3d0; border-radius:8px; padding:10px 12px; margin-bottom:14px; font-size:12px;">' +
+            '🔗 <strong>Identité stable :</strong> ' + escapeHtml(entry.nom || '') +
+            '<div style="color:#6b7280; margin-top:2px;">Alias connus : ' + escapeHtml((entry.aliases || []).join(', ')) + '</div>' +
+            '</div>';
+    } else {
+        identiteHtml =
+            '<div style="background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:10px 12px; margin-bottom:14px; font-size:12px;">' +
+            '⚠️ Ce code n\'est pas encore lié à un équipement interne stable. En cas de changement de prestataire/contrat, ' +
+            'un code différent pour ce même équipement casserait son historique s\'il n\'est pas associé ici.' +
+            '<div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">' +
+                '<button type="button" onclick="gmRegistryCreateFromCode(' + escapeAttr(JSON.stringify(eq.materiel)) + ', ' + escapeAttr(JSON.stringify(eq.libelle || '')) + ')" ' +
+                    'style="padding:6px 10px; border:1px solid #059669; background:#fff; color:#059669; border-radius:6px; cursor:pointer; font-size:12px;">➕ Créer un nouvel équipement</button>' +
+                '<button type="button" onclick="gmToggleAssociatePanel()" ' +
+                    'style="padding:6px 10px; border:1px solid #2563eb; background:#fff; color:#2563eb; border-radius:6px; cursor:pointer; font-size:12px;">🔗 Associer à un équipement existant</button>' +
+            '</div>' +
+            (gmAssociatePanelOpen ? gmRenderAssociatePanel(eq.materiel) : '') +
+            '</div>';
+    }
+
     detailEl.innerHTML =
         '<h3 style="margin:0 0 4px;">' + escapeHtml(eq.materiel) + '</h3>' +
         '<div style="color:#6b7280; font-size:13px; margin-bottom:4px;">' + escapeHtml(eq.libelle || '') + '</div>' +
         '<div style="color:#9ca3af; font-size:12px; margin-bottom:14px;">' + escapeHtml(eq.interventionType || '') + '</div>' +
+        identiteHtml +
         '<div style="display:flex; gap:16px; margin-bottom:14px;">' +
             '<div><strong>' + eq.interventions.length + '</strong><div style="font-size:11px; color:#9ca3af;">Interventions planifiées</div></div>' +
             '<div><strong>' + nbFait + '</strong><div style="font-size:11px; color:#9ca3af;">Réalisées</div></div>' +
@@ -2196,11 +2311,22 @@ function gmSelectEquipement(materiel) {
 function openEquipementsModal() {
     gmEquipementsIndex = gmBuildEquipementsIndex();
     gmSelectedEquipement = null;
+    gmAssociatePanelOpen = false;
     const hasEquip = Object.keys(gmEquipementsIndex).length > 0;
     const emptyEl = document.getElementById('gmEquipEmptyState');
     const contentEl = document.getElementById('gmEquipContent');
     if (emptyEl) emptyEl.style.display = hasEquip ? 'none' : 'block';
+    if (emptyEl && !hasEquip) emptyEl.textContent = "Aucun équipement à afficher — chargez d'abord un planning pour le site actif.";
     if (contentEl) contentEl.style.display = hasEquip ? 'flex' : 'none';
+    const bannerEl = document.getElementById('gmEquipReconcileBanner');
+    if (bannerEl) {
+        const nbNonLies = Object.values(gmEquipementsIndex).filter(function(eq) { return !eq.registryId; }).length;
+        bannerEl.innerHTML = (hasEquip && nbNonLies > 0)
+            ? '<div style="background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:8px 12px; margin-bottom:12px; font-size:12px; color:#92400e;">' +
+              '⚠️ ' + nbNonLies + ' code(s) équipement non encore lié(s) à une identité stable. Sélectionnez-les dans la liste pour les créer/associer.' +
+              '</div>'
+            : '';
+    }
     const searchEl = document.getElementById('gmEquipSearch');
     if (searchEl) searchEl.value = '';
     gmRenderEquipementsList('');
@@ -2660,6 +2786,7 @@ let planningData = [];
 let checklistData = {};
 let planningHeaders = [];
 let otStates = {};
+let equipementsRegistry = {}; // 🆕 { idInterne: { id, nom, libelle, aliases:[codes prestataire], criticite, categorie, localisation, notes, createdAt, updatedAt } }
 let currentOT = null;
 let currentKey = null;
 let currentOTDate = null;
@@ -3548,6 +3675,7 @@ function syncActiveSiteIntoLibrary() {
     sitesLibrary[key] = {
         label: formatSiteLabel(mainHeaderText),
         planningData, planningHeaders, checklistData, otStates,
+        equipementsRegistry: (typeof equipementsRegistry !== 'undefined' ? equipementsRegistry : {}),
         dateColumns: (window.dateColumns || []),
         mainHeaderText,
         savedAt: new Date().toISOString()
@@ -3755,6 +3883,7 @@ refreshSiteSelector();
     planningHeaders = bucket.planningHeaders;
     checklistData = bucket.checklistData;
     otStates = bucket.otStates || {};
+    equipementsRegistry = bucket.equipementsRegistry || {};
     window.dateColumns = bucket.dateColumns || [];
     mainHeaderText = bucket.mainHeaderText;
     currentSiteName = bucket.label;
@@ -6636,7 +6765,7 @@ function closeModal() {
 async function saveToLocalStorage(silent = false) {
     if (!planningLoaded) { showNotification('Chargez d\'abord vos fichiers', 'warning'); return; }
     try {
-        const dataToSave = {planningData, checklistData, planningHeaders, otStates, planningLoaded, checklistLoaded, mainHeaderText, dateColumns: window.dateColumns, savedAt: new Date().toISOString()};
+        const dataToSave = {planningData, checklistData, planningHeaders, otStates, equipementsRegistry, planningLoaded, checklistLoaded, mainHeaderText, dateColumns: window.dateColumns, savedAt: new Date().toISOString()};
         // 🔐 Sauvegarde CHIFFRÉE
         await saveEncrypted('otPreventifData', dataToSave);
         syncActiveSiteIntoLibrary();
@@ -6656,6 +6785,7 @@ async function loadFromLocalStorage() {
         checklistData = data.checklistData || {};
         planningHeaders = data.planningHeaders || [];
         otStates = data.otStates || {};
+        equipementsRegistry = data.equipementsRegistry || {};
         planningLoaded = data.planningLoaded || false;
         checklistLoaded = data.checklistLoaded || false;
         mainHeaderText = data.mainHeaderText || '';
@@ -6695,7 +6825,7 @@ function resetSiteActif() {
         delete sitesLibrary[activeSiteKey];
     }
     activeSiteKey = null;
-    planningData = []; checklistData = {}; planningHeaders = []; otStates = {};
+    planningData = []; checklistData = {}; planningHeaders = []; otStates = {}; equipementsRegistry = {};
     planningLoaded = false; checklistLoaded = false; mainHeaderText = '';
     refreshSiteSelector();
 
@@ -6742,7 +6872,7 @@ function resetAll() {
 
     sitesLibrary = {};
     activeSiteKey = null;
-    planningData = []; checklistData = {}; planningHeaders = []; otStates = {};
+    planningData = []; checklistData = {}; planningHeaders = []; otStates = {}; equipementsRegistry = {};
     planningLoaded = false; checklistLoaded = false; mainHeaderText = '';
     refreshSiteSelector();
     document.getElementById('planningStatus').textContent = 'Non chargé';

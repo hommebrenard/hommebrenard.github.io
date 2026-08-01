@@ -2042,6 +2042,10 @@ body.mode-prestataire .internal-only {
                 onclick="gmSidebarNavigate('data', this); openDataIOModal();">
             <span class="gm-sidebar-item-icon">🔁</span> Échanger des données
         </button>
+        <button type="button" class="gm-sidebar-item" id="gmNavEquip"
+                onclick="gmSidebarNavigate('equip', this); openEquipementsModal();">
+            <span class="gm-sidebar-item-icon">🏭</span> Équipements
+        </button>
     </div>
 
     <div class="gm-sidebar-section">
@@ -2060,6 +2064,152 @@ body.mode-prestataire .internal-only {
 function gmSidebarNavigate(id, btnEl) {
     document.querySelectorAll('.gm-sidebar-item').forEach(function(el) { el.classList.remove('active'); });
     if (btnEl) btnEl.classList.add('active');
+}
+</script>
+
+<!-- 🆕 Module Équipements — Phase A (lecture seule). Ne lit que planningData/otStates
+     déjà en mémoire, n'écrit rien, ne modifie aucune fonction existante. -->
+<div class="modal-overlay" id="equipementsModalOverlay" role="dialog" aria-modal="true" aria-labelledby="equipementsModalTitle">
+    <div class="modal" style="max-width: 1000px;">
+        <div class="modal-header">
+            <div>
+                <h2 id="equipementsModalTitle">🏭 Équipements</h2>
+                <div class="info">Fiche par équipement et historique de ses interventions</div>
+            </div>
+            <button class="close-btn" onclick="closeEquipementsModal()" aria-label="Fermer">✕</button>
+        </div>
+        <div class="modal-body">
+            <div id="gmEquipEmptyState" style="display:none; text-align:center; padding:30px; color:#6b7280;">
+                Aucun équipement à afficher — chargez d'abord un planning pour le site actif.
+            </div>
+            <div id="gmEquipContent" style="display:flex; gap:16px; min-height:400px;">
+                <div style="width:280px; flex-shrink:0; border-right:1px solid #e5e7eb; padding-right:12px; overflow-y:auto; max-height:60vh;">
+                    <input type="text" id="gmEquipSearch" placeholder="🔎 Rechercher un équipement..."
+                           oninput="gmRenderEquipementsList(this.value)"
+                           style="width:100%; padding:8px 10px; margin-bottom:10px; border:1px solid #d1d5db; border-radius:8px; font-size:13px;">
+                    <div id="gmEquipList"></div>
+                </div>
+                <div style="flex:1; overflow-y:auto; max-height:60vh;" id="gmEquipDetail">
+                    <div style="color:#9ca3af; padding:20px;">Sélectionnez un équipement dans la liste.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+/* 🆕 Index équipements : reconstruit à chaque ouverture à partir des données déjà chargées.
+   Aucun nouveau stockage, aucune écriture. */
+var gmEquipementsIndex = {};
+var gmSelectedEquipement = null;
+
+function gmBuildEquipementsIndex() {
+    const index = {};
+    (typeof planningData !== 'undefined' ? planningData : []).forEach(function(row) {
+        if (row.type !== 'row') return;
+        const key = row.materiel;
+        if (!index[key]) {
+            index[key] = { materiel: row.materiel, libelle: row.libelle, interventionType: row.interventionType, interventions: [] };
+        }
+        (row.ots || []).forEach(function(otNum, idx) {
+            if (!otNum) return;
+            const date = (window.dateColumns && window.dateColumns[idx]) || '';
+            const state = (typeof otStates !== 'undefined' && otStates[otNum]) ? otStates[otNum] : {};
+            index[key].interventions.push({ ot: otNum, date: date, status: state.status || '', technicien: state.technicien || '' });
+        });
+    });
+    Object.values(index).forEach(function(eq) {
+        eq.interventions.sort(function(a, b) { return a.date > b.date ? 1 : (a.date < b.date ? -1 : 0); });
+    });
+    return index;
+}
+
+function gmStatusBadge(status) {
+    if (status === 'F') return '<span class="badge badge-success">Fait</span>';
+    if (status === 'NF') return '<span class="badge badge-danger">Non fait</span>';
+    if (status === 'P') return '<span class="badge badge-warning">Partiel</span>';
+    if (status === 'NC') return '<span class="badge" style="background:#e5e7eb; color:#6b7280;">Non communiqué</span>';
+    return '<span class="badge" style="background:#f3f4f6; color:#9ca3af;">En attente</span>';
+}
+
+function gmRenderEquipementsList(filter) {
+    const listEl = document.getElementById('gmEquipList');
+    if (!listEl) return;
+    const q = (filter || '').toLowerCase().trim();
+    const items = Object.values(gmEquipementsIndex).filter(function(eq) {
+        if (!q) return true;
+        return (eq.materiel + ' ' + eq.libelle).toLowerCase().indexOf(q) !== -1;
+    }).sort(function(a, b) { return a.materiel.localeCompare(b.materiel); });
+
+    if (items.length === 0) {
+        listEl.innerHTML = '<div style="color:#9ca3af; font-size:13px; padding:10px;">Aucun résultat.</div>';
+        return;
+    }
+    listEl.innerHTML = items.map(function(eq) {
+        const isActive = gmSelectedEquipement === eq.materiel;
+        return '<button type="button" onclick="gmSelectEquipement(' + escapeAttr(JSON.stringify(eq.materiel)) + ')" ' +
+            'style="display:block; width:100%; text-align:left; padding:8px 10px; margin-bottom:4px; border:none; border-radius:8px; cursor:pointer; ' +
+            'background:' + (isActive ? '#eff6ff' : 'transparent') + '; color:' + (isActive ? '#2563eb' : '#374151') + ';">' +
+            '<div style="font-size:12px; font-weight:600;">' + escapeHtml(eq.materiel) + '</div>' +
+            '<div style="font-size:11px; color:#9ca3af;">' + escapeHtml(eq.libelle || '') + ' · ' + eq.interventions.length + ' intervention(s)</div>' +
+            '</button>';
+    }).join('');
+}
+
+function gmSelectEquipement(materiel) {
+    gmSelectedEquipement = materiel;
+    gmRenderEquipementsList(document.getElementById('gmEquipSearch') ? document.getElementById('gmEquipSearch').value : '');
+    const eq = gmEquipementsIndex[materiel];
+    const detailEl = document.getElementById('gmEquipDetail');
+    if (!detailEl) return;
+    if (!eq) { detailEl.innerHTML = '<div style="color:#9ca3af; padding:20px;">Équipement introuvable.</div>'; return; }
+
+    const rows = eq.interventions.map(function(iv) {
+        return '<tr>' +
+            '<td style="padding:6px 8px; font-size:12px;">' + escapeHtml(iv.date || '-') + '</td>' +
+            '<td style="padding:6px 8px; font-size:12px;">' + escapeHtml(iv.ot || '-') + '</td>' +
+            '<td style="padding:6px 8px;">' + gmStatusBadge(iv.status) + '</td>' +
+            '<td style="padding:6px 8px; font-size:12px;">' + escapeHtml(iv.technicien || '-') + '</td>' +
+            '</tr>';
+    }).join('');
+
+    const nbFait = eq.interventions.filter(function(iv) { return iv.status === 'F'; }).length;
+
+    detailEl.innerHTML =
+        '<h3 style="margin:0 0 4px;">' + escapeHtml(eq.materiel) + '</h3>' +
+        '<div style="color:#6b7280; font-size:13px; margin-bottom:4px;">' + escapeHtml(eq.libelle || '') + '</div>' +
+        '<div style="color:#9ca3af; font-size:12px; margin-bottom:14px;">' + escapeHtml(eq.interventionType || '') + '</div>' +
+        '<div style="display:flex; gap:16px; margin-bottom:14px;">' +
+            '<div><strong>' + eq.interventions.length + '</strong><div style="font-size:11px; color:#9ca3af;">Interventions planifiées</div></div>' +
+            '<div><strong>' + nbFait + '</strong><div style="font-size:11px; color:#9ca3af;">Réalisées</div></div>' +
+        '</div>' +
+        '<h4 style="margin:0 0 8px; font-size:13px;">Historique</h4>' +
+        (eq.interventions.length === 0
+            ? '<div style="color:#9ca3af; font-size:13px;">Aucune intervention enregistrée.</div>'
+            : '<table style="width:100%; border-collapse:collapse;"><thead><tr style="text-align:left; border-bottom:1px solid #e5e7eb;">' +
+              '<th style="padding:6px 8px; font-size:11px; color:#9ca3af;">DATE</th>' +
+              '<th style="padding:6px 8px; font-size:11px; color:#9ca3af;">OT</th>' +
+              '<th style="padding:6px 8px; font-size:11px; color:#9ca3af;">STATUT</th>' +
+              '<th style="padding:6px 8px; font-size:11px; color:#9ca3af;">TECHNICIEN</th>' +
+              '</tr></thead><tbody>' + rows + '</tbody></table>');
+}
+
+function openEquipementsModal() {
+    gmEquipementsIndex = gmBuildEquipementsIndex();
+    gmSelectedEquipement = null;
+    const hasEquip = Object.keys(gmEquipementsIndex).length > 0;
+    const emptyEl = document.getElementById('gmEquipEmptyState');
+    const contentEl = document.getElementById('gmEquipContent');
+    if (emptyEl) emptyEl.style.display = hasEquip ? 'none' : 'block';
+    if (contentEl) contentEl.style.display = hasEquip ? 'flex' : 'none';
+    const searchEl = document.getElementById('gmEquipSearch');
+    if (searchEl) searchEl.value = '';
+    gmRenderEquipementsList('');
+    const detailEl = document.getElementById('gmEquipDetail');
+    if (detailEl) detailEl.innerHTML = '<div style="color:#9ca3af; padding:20px;">Sélectionnez un équipement dans la liste.</div>';
+    document.getElementById('equipementsModalOverlay').classList.add('active');
+}
+function closeEquipementsModal() {
+    document.getElementById('equipementsModalOverlay').classList.remove('active');
 }
 </script>
 

@@ -2000,6 +2000,13 @@ body { padding-left: 280px; }
     .gm-sidebar { display: none; }
     body { padding-left: 20px; }
 }
+
+/* 🆕 Sur desktop, la sidebar remplace ces 2 boutons devenus redondants dans la toolbar.
+   Règle CSS uniquement (aucun HTML supprimé) : réversible en 1 clic, et ils restent
+   visibles/fonctionnels sur mobile tant que la sidebar mobile n'existe pas. */
+@media (min-width: 901px) {
+    #btnDashboard, #btnOpenDataIO { display: none; }
+}
 </style>
 </head>
 <body>

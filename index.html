@@ -1952,6 +1952,54 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
 @media (max-width: 480px) {
     .kb-board { grid-template-columns: 1fr; }
 }
+
+/* ============================================
+   SIDEBAR — bloc additif, isolé (préfixe gm-)
+   N'affecte aucune règle existante de l'appli.
+   ============================================ */
+body { padding-left: 280px; }
+
+.gm-sidebar {
+    position: fixed; top: 0; left: 0; width: 260px; height: 100vh;
+    background: #ffffff; border-right: 1px solid #e5e7eb; z-index: 500;
+    display: flex; flex-direction: column; overflow-y: auto;
+    font-family: 'Segoe UI', Arial, sans-serif;
+}
+.gm-sidebar-brand {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 16px 16px 14px; border: none; background: none; cursor: pointer;
+    border-bottom: 1px solid #f3f4f6; text-align: left;
+}
+.gm-sidebar-brand-icon {
+    width: 32px; height: 32px; border-radius: 8px; background: #1f3864; color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0;
+}
+.gm-sidebar-brand-text { display: flex; flex-direction: column; line-height: 1.25; }
+.gm-sidebar-brand-text strong { font-size: 13px; color: #111827; }
+.gm-sidebar-brand-text small { font-size: 11px; color: #6b7280; }
+.gm-sidebar-section { padding: 14px 12px 4px; }
+.gm-sidebar-section-label {
+    font-size: 11px; font-weight: 700; color: #9ca3af; text-transform: uppercase;
+    letter-spacing: 0.4px; padding: 0 8px 6px;
+}
+.gm-sidebar-item {
+    width: 100%; display: flex; align-items: center; gap: 10px;
+    padding: 9px 10px; margin-bottom: 2px; border: none; background: none;
+    border-radius: 8px; font-size: 13px; color: #374151; cursor: pointer;
+    text-align: left; transition: background 0.12s, color 0.12s;
+}
+.gm-sidebar-item:hover { background: #f3f4f6; color: #111827; }
+.gm-sidebar-item.active { background: #eff6ff; color: #2563eb; font-weight: 600; }
+.gm-sidebar-item-icon { font-size: 15px; flex-shrink: 0; }
+.gm-sidebar-footer {
+    margin-top: auto; padding: 12px; border-top: 1px solid #f3f4f6;
+    font-size: 11px; color: #9ca3af;
+}
+
+@media (max-width: 900px) {
+    .gm-sidebar { display: none; }
+    body { padding-left: 20px; }
+}
 </style>
 </head>
 <body>
@@ -1962,6 +2010,52 @@ body.mode-prestataire .internal-only {
     display: none !important;
 }
 </style>
+
+<!-- 🆕 Sidebar — bloc additif, isolé (préfixe gm-). N'appelle que des fonctions déjà existantes. -->
+<aside class="gm-sidebar" id="gmSidebar">
+    <button class="gm-sidebar-brand" onclick="gmSidebarNavigate('ot', document.getElementById('gmNavOT')); switchMainView('tableau');">
+        <span class="gm-sidebar-brand-icon">🔧</span>
+        <span class="gm-sidebar-brand-text">
+            <strong>GMAO Maintenance</strong>
+            <small>Centre de configuration</small>
+        </span>
+    </button>
+
+    <div class="gm-sidebar-section">
+        <div class="gm-sidebar-section-label">Travail</div>
+        <button type="button" class="gm-sidebar-item active" id="gmNavOT"
+                onclick="gmSidebarNavigate('ot', this); switchMainView('tableau');">
+            <span class="gm-sidebar-item-icon">📋</span> Ordres de travail
+        </button>
+    </div>
+
+    <div class="gm-sidebar-section">
+        <div class="gm-sidebar-section-label">Gérer</div>
+        <button type="button" class="gm-sidebar-item" id="gmNavData"
+                onclick="gmSidebarNavigate('data', this); openDataIOModal();">
+            <span class="gm-sidebar-item-icon">🔁</span> Échanger des données
+        </button>
+    </div>
+
+    <div class="gm-sidebar-section">
+        <div class="gm-sidebar-section-label">Optimiser</div>
+        <button type="button" class="gm-sidebar-item internal-only" id="gmNavKPI"
+                onclick="gmSidebarNavigate('kpi', this); openDashboard();">
+            <span class="gm-sidebar-item-icon">📊</span> Tableau de bord KPI
+        </button>
+    </div>
+
+    <div class="gm-sidebar-footer">GMAO Maintenance</div>
+</aside>
+<script>
+/* 🆕 Navigation visuelle de la sidebar : ne fait qu'activer/désactiver la classe .active.
+   Toute la logique métier reste dans les fonctions existantes appelées en onclick ci-dessus. */
+function gmSidebarNavigate(id, btnEl) {
+    document.querySelectorAll('.gm-sidebar-item').forEach(function(el) { el.classList.remove('active'); });
+    if (btnEl) btnEl.classList.add('active');
+}
+</script>
+
 <div class="toolbar">
     <button class="menu-toggle" onclick="toggleMobileMenu()" 
             aria-label="Ouvrir le menu" aria-expanded="false" id="menuToggleBtn">☰</button>

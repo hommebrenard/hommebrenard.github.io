@@ -2103,6 +2103,7 @@ function gmSidebarNavigate(id, btnEl) {
 var gmEquipementsIndex = {};
 var gmSelectedEquipement = null;
 var gmAssociatePanelOpen = false; // état d'affichage du panneau "associer à un équipement existant"
+var gmActiveTab = 'fiche'; // 🆕 onglet actif du détail équipement : 'fiche' | 'historique' | 'photos'
 
 function gmBuildEquipementsIndex() {
     const index = {};
@@ -2150,8 +2151,73 @@ function gmRegistryFindByCode(code) {
     return null;
 }
 
+/* ============================================
+   🆕 Portée du registre : SITE PHYSIQUE, pas site+mois.
+   activeSiteKey combine site ET mois (ex: "SITE X MAI 2026"). Le registre
+   d'équipements doit survivre au changement de mois, donc il est stocké
+   sous une clé basée uniquement sur le nom du site (parseSiteKey retire le mois).
+   ============================================ */
+function gmPhysicalSiteKey() {
+    const source = activeSiteKey || mainHeaderText || '';
+    const parsed = (typeof parseSiteKey === 'function') ? parseSiteKey(source) : { site: source };
+    return slugifySiteName(parsed.site || source);
+}
+
+function gmEquipRegistryStorageKey() {
+    return 'gmEquipRegistry_v1_' + gmPhysicalSiteKey();
+}
+
+/** Charge le registre du site physique actif depuis son propre espace de stockage
+ *  (indépendant du mois chargé), chiffré via le même mécanisme que le reste de l'appli. */
+async function gmLoadEquipRegistry() {
+    try {
+        const data = await loadEncrypted(gmEquipRegistryStorageKey());
+        equipementsRegistry = data || {};
+    } catch (e) {
+        console.warn('⚠️ Registre équipements : chargement impossible', e);
+        equipementsRegistry = equipementsRegistry || {};
+    }
+}
+
+async function gmSaveEquipRegistry() {
+    try {
+        await saveEncrypted(gmEquipRegistryStorageKey(), equipementsRegistry);
+        return true;
+    } catch (e) {
+        console.warn('⚠️ Registre équipements : sauvegarde impossible', e);
+        return false;
+    }
+}
+
 function gmRegistryPersist() {
-    try { syncActiveSiteIntoLibrary(); } catch (e) { console.warn('⚠️ Registre équipements : persistance impossible', e); }
+    gmSaveEquipRegistry().catch(function(e) { console.warn('⚠️ Registre équipements : persistance impossible', e); });
+}
+
+/* 🆕 Journal cumulatif : ajoute au registre les interventions du mois actuellement chargé,
+   sans écraser celles déjà enregistrées lors de mois précédents. Dédoublonné par n° d'OT. */
+function gmMergeInterventionsIntoRegistry() {
+    (planningData || []).forEach(function(row) {
+        if (row.type !== 'row') return;
+        const entry = gmRegistryFindByCode(row.materiel);
+        if (!entry) return; // équipement pas encore lié : rien à cumuler
+        if (!entry.historique) entry.historique = [];
+        const existingOts = new Set(entry.historique.map(function(iv) { return iv.ot; }));
+        (row.ots || []).forEach(function(otNum, idx) {
+            if (!otNum || existingOts.has(otNum)) return;
+            const date = (window.dateColumns && window.dateColumns[idx]) || '';
+            const state = (typeof otStates !== 'undefined' && otStates[otNum]) ? otStates[otNum] : {};
+            entry.historique.push({
+                ot: otNum, date: date, status: state.status || '', technicien: state.technicien || '',
+                periode: (activeSiteKey && parseSiteKey) ? parseSiteKey(activeSiteKey).monthYear : ''
+            });
+            existingOts.add(otNum);
+        });
+        // Rafraîchit aussi le statut des OT déjà connus (au cas où le technicien complète l'OT après coup)
+        entry.historique.forEach(function(iv) {
+            const state = (typeof otStates !== 'undefined' && otStates[iv.ot]) ? otStates[iv.ot] : null;
+            if (state) { iv.status = state.status || iv.status; iv.technicien = state.technicien || iv.technicien; }
+        });
+    });
 }
 
 function gmRegistryCreateFromCode(code, defaultNom) {
@@ -2161,8 +2227,10 @@ function gmRegistryCreateFromCode(code, defaultNom) {
     equipementsRegistry[id] = {
         id: id, nom: nom.trim(), libelle: defaultNom || '', aliases: [code],
         criticite: '', categorie: '', localisation: '', notes: '',
+        historique: [], photos: [],
         createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
     };
+    gmMergeInterventionsIntoRegistry();
     gmRegistryPersist();
     showNotification('✅ Équipement interne créé : ' + nom.trim());
     gmAssociatePanelOpen = false;
@@ -2178,6 +2246,7 @@ function gmRegistryAssociateSelected(code) {
     if (!equipementsRegistry[id]) return;
     if (equipementsRegistry[id].aliases.indexOf(code) === -1) equipementsRegistry[id].aliases.push(code);
     equipementsRegistry[id].updatedAt = new Date().toISOString();
+    gmMergeInterventionsIntoRegistry();
     gmRegistryPersist();
     showNotification('🔗 Code associé à : ' + equipementsRegistry[id].nom);
     gmAssociatePanelOpen = false;
@@ -2208,6 +2277,110 @@ function gmSaveFicheEquipement(id) {
     gmRegistryPersist();
     showNotification('✅ Fiche équipement enregistrée.');
     gmSelectEquipement(gmSelectedEquipement);
+}
+
+/* ============================================
+   🆕 Photos d'équipement — réutilise la même base IndexedDB que les pièces jointes OT
+   (openAttachmentsDB / store "blobs"), avec un préfixe de clé "equip::" qui ne peut
+   jamais entrer en collision avec les clés "siteKey::otNum::attachmentId" existantes.
+   Seules les métadonnées (id, nom, date) sont dans equipementsRegistry ; le contenu
+   base64, potentiellement lourd, reste uniquement dans IndexedDB.
+   ============================================ */
+function gmPhotoIdbKey(registryId, photoId) {
+    return 'equip::' + String(registryId) + '::' + String(photoId);
+}
+
+async function gmSavePhotoBlob(registryId, photoId, base64Data) {
+    const db = await openAttachmentsDB();
+    return new Promise(function(resolve, reject) {
+        const tx = db.transaction(ATTACHMENTS_STORE_NAME, 'readwrite');
+        const store = tx.objectStore(ATTACHMENTS_STORE_NAME);
+        const req = store.put(base64Data, gmPhotoIdbKey(registryId, photoId));
+        req.onsuccess = function() { resolve(true); };
+        req.onerror = function(e) { reject(e.target.error || new Error('Erreur écriture photo')); };
+    });
+}
+
+async function gmGetPhotoBlob(registryId, photoId) {
+    const db = await openAttachmentsDB();
+    return new Promise(function(resolve, reject) {
+        const tx = db.transaction(ATTACHMENTS_STORE_NAME, 'readonly');
+        const store = tx.objectStore(ATTACHMENTS_STORE_NAME);
+        const req = store.get(gmPhotoIdbKey(registryId, photoId));
+        req.onsuccess = function(e) { resolve(e.target.result !== undefined ? e.target.result : null); };
+        req.onerror = function(e) { reject(e.target.error || new Error('Erreur lecture photo')); };
+    });
+}
+
+async function gmDeletePhotoBlob(registryId, photoId) {
+    const db = await openAttachmentsDB();
+    return new Promise(function(resolve, reject) {
+        const tx = db.transaction(ATTACHMENTS_STORE_NAME, 'readwrite');
+        const store = tx.objectStore(ATTACHMENTS_STORE_NAME);
+        const req = store.delete(gmPhotoIdbKey(registryId, photoId));
+        req.onsuccess = function() { resolve(true); };
+        req.onerror = function(e) { reject(e.target.error || new Error('Erreur suppression photo')); };
+    });
+}
+
+const GM_PHOTO_MAX_SIZE = 5 * 1024 * 1024; // 5 Mo, cohérent avec les pièces jointes OT
+
+async function gmUploadPhoto(registryId, inputEl) {
+    const file = inputEl.files && inputEl.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { showNotification('⚠️ Seules les images sont acceptées.', 'error'); return; }
+    if (file.size > GM_PHOTO_MAX_SIZE) { showNotification('⚠️ Photo trop lourde (max 5 Mo).', 'error'); return; }
+
+    const reader = new FileReader();
+    reader.onerror = function() { showNotification('❌ Erreur de lecture du fichier.', 'error'); };
+    reader.onload = async function() {
+        try {
+            const base64Data = reader.result;
+            const photoId = 'p_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+            await gmSavePhotoBlob(registryId, photoId, base64Data);
+            if (!equipementsRegistry[registryId].photos) equipementsRegistry[registryId].photos = [];
+            equipementsRegistry[registryId].photos.push({ id: photoId, nom: file.name, addedAt: new Date().toISOString() });
+            equipementsRegistry[registryId].updatedAt = new Date().toISOString();
+            gmRegistryPersist();
+            showNotification('✅ Photo ajoutée.');
+            gmSelectEquipement(gmSelectedEquipement);
+        } catch (e) {
+            console.error('❌ Erreur ajout photo équipement:', e);
+            showNotification('❌ Erreur lors de l\'ajout de la photo.', 'error');
+        }
+    };
+    reader.readAsDataURL(file);
+    inputEl.value = '';
+}
+
+async function gmDeletePhoto(registryId, photoId) {
+    if (!confirm('Supprimer cette photo ?')) return;
+    try {
+        await gmDeletePhotoBlob(registryId, photoId);
+        const entry = equipementsRegistry[registryId];
+        if (entry && entry.photos) entry.photos = entry.photos.filter(function(p) { return p.id !== photoId; });
+        if (entry) entry.updatedAt = new Date().toISOString();
+        gmRegistryPersist();
+        showNotification('🗑️ Photo supprimée.');
+        gmSelectEquipement(gmSelectedEquipement);
+    } catch (e) {
+        console.error('❌ Erreur suppression photo équipement:', e);
+        showNotification('❌ Erreur lors de la suppression.', 'error');
+    }
+}
+
+/** Remplit les vignettes après coup (le rendu HTML initial est synchrone, la lecture IndexedDB est async). */
+function gmRenderPhotoThumbnails(entry) {
+    (entry.photos || []).forEach(function(p) {
+        gmGetPhotoBlob(entry.id, p.id).then(function(data) {
+            const el = document.getElementById('gmPhotoThumb_' + p.id);
+            if (el && data) el.innerHTML = '<img src="' + data + '" alt="' + escapeAttr(p.nom || '') + '" style="width:100%; height:100%; object-fit:cover;">';
+            else if (el) el.textContent = 'Indisponible';
+        }).catch(function() {
+            const el = document.getElementById('gmPhotoThumb_' + p.id);
+            if (el) el.textContent = 'Erreur';
+        });
+    });
 }
 
 function gmStatusBadge(status) {
@@ -2264,39 +2437,30 @@ function gmRenderAssociatePanel(code) {
         '</div>';
 }
 
-function gmSelectEquipement(materiel) {
-    gmSelectedEquipement = materiel;
-    gmRenderEquipementsList(document.getElementById('gmEquipSearch') ? document.getElementById('gmEquipSearch').value : '');
-    const eq = gmEquipementsIndex[materiel];
-    const detailEl = document.getElementById('gmEquipDetail');
-    if (!detailEl) return;
-    if (!eq) { detailEl.innerHTML = '<div style="color:#9ca3af; padding:20px;">Équipement introuvable.</div>'; return; }
+function gmTabButton(tab, label) {
+    const active = gmActiveTab === tab;
+    return '<button type="button" onclick="gmSwitchTab(' + escapeAttr(JSON.stringify(tab)) + ')" ' +
+        'style="padding:8px 12px; border:none; background:none; cursor:pointer; font-size:12px; ' +
+        'border-bottom:2px solid ' + (active ? '#2563eb' : 'transparent') + '; ' +
+        'color:' + (active ? '#2563eb' : '#6b7280') + '; font-weight:' + (active ? '600' : '400') + ';">' + label + '</button>';
+}
 
-    const rows = eq.interventions.map(function(iv) {
-        return '<tr>' +
-            '<td style="padding:6px 8px; font-size:12px;">' + escapeHtml(iv.date || '-') + '</td>' +
-            '<td style="padding:6px 8px; font-size:12px;">' + escapeHtml(iv.ot || '-') + '</td>' +
-            '<td style="padding:6px 8px;">' + gmStatusBadge(iv.status) + '</td>' +
-            '<td style="padding:6px 8px; font-size:12px;">' + escapeHtml(iv.technicien || '-') + '</td>' +
-            '</tr>';
-    }).join('');
+function gmSwitchTab(tab) {
+    gmActiveTab = tab;
+    gmSelectEquipement(gmSelectedEquipement);
+}
 
-    const nbFait = eq.interventions.filter(function(iv) { return iv.status === 'F'; }).length;
-
-    // 🆕 Bloc "Identité stable" — cœur de la réconciliation (Phase B1) + fiche enrichie (Phase B2)
-    let identiteHtml;
-    if (eq.registryId) {
-        const entry = equipementsRegistry[eq.registryId] || {};
+function gmRenderTabFiche(eq, entry) {
+    if (entry) {
         const CRITICITES = ['', 'Faible', 'Moyenne', 'Haute', 'Critique'];
         const critOptions = CRITICITES.map(function(c) {
             return '<option value="' + escapeAttr(c) + '"' + (entry.criticite === c ? ' selected' : '') + '>' + (c || '—') + '</option>';
         }).join('');
-        identiteHtml =
-            '<div style="background:#ecfdf5; border:1px solid #a7f3d0; border-radius:8px; padding:10px 12px; margin-bottom:14px; font-size:12px;">' +
+        return '<div style="background:#ecfdf5; border:1px solid #a7f3d0; border-radius:8px; padding:10px 12px; margin-bottom:14px; font-size:12px;">' +
             '🔗 <strong>Identité stable :</strong> ' + escapeHtml(entry.nom || '') +
             '<div style="color:#6b7280; margin-top:2px;">Alias connus : ' + escapeHtml((entry.aliases || []).join(', ')) + '</div>' +
             '</div>' +
-            '<div style="border:1px solid #e5e7eb; border-radius:8px; padding:12px; margin-bottom:14px;">' +
+            '<div style="border:1px solid #e5e7eb; border-radius:8px; padding:12px;">' +
                 '<h4 style="margin:0 0 10px; font-size:13px;">📋 Fiche équipement</h4>' +
                 '<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">' +
                     '<label style="font-size:11px; color:#6b7280;">Catégorie' +
@@ -2315,32 +2479,45 @@ function gmSelectEquipement(materiel) {
                     'style="margin-top:10px; padding:6px 12px; border:none; background:#1f3864; color:#fff; border-radius:6px; cursor:pointer; font-size:12px;">💾 Enregistrer la fiche</button>' +
                 (entry.updatedAt ? '<span style="margin-left:10px; font-size:11px; color:#9ca3af;">Dernière mise à jour : ' + escapeHtml(new Date(entry.updatedAt).toLocaleString('fr-FR')) + '</span>' : '') +
             '</div>';
-    } else {
-        identiteHtml =
-            '<div style="background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:10px 12px; margin-bottom:14px; font-size:12px;">' +
-            '⚠️ Ce code n\'est pas encore lié à un équipement interne stable. En cas de changement de prestataire/contrat, ' +
-            'un code différent pour ce même équipement casserait son historique s\'il n\'est pas associé ici.' +
-            '<div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">' +
-                '<button type="button" onclick="gmRegistryCreateFromCode(' + escapeAttr(JSON.stringify(eq.materiel)) + ', ' + escapeAttr(JSON.stringify(eq.libelle || '')) + ')" ' +
-                    'style="padding:6px 10px; border:1px solid #059669; background:#fff; color:#059669; border-radius:6px; cursor:pointer; font-size:12px;">➕ Créer un nouvel équipement</button>' +
-                '<button type="button" onclick="gmToggleAssociatePanel()" ' +
-                    'style="padding:6px 10px; border:1px solid #2563eb; background:#fff; color:#2563eb; border-radius:6px; cursor:pointer; font-size:12px;">🔗 Associer à un équipement existant</button>' +
-            '</div>' +
-            (gmAssociatePanelOpen ? gmRenderAssociatePanel(eq.materiel) : '') +
-            '</div>';
     }
+    return '<div style="background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:10px 12px; font-size:12px;">' +
+        '⚠️ Ce code n\'est pas encore lié à un équipement interne stable. En cas de changement de prestataire/contrat, ' +
+        'un code différent pour ce même équipement casserait son historique s\'il n\'est pas associé ici.' +
+        '<div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">' +
+            '<button type="button" onclick="gmRegistryCreateFromCode(' + escapeAttr(JSON.stringify(gmSelectedEquipement)) + ', ' + escapeAttr(JSON.stringify((gmEquipementsIndex[gmSelectedEquipement] || {}).libelle || '')) + ')" ' +
+                'style="padding:6px 10px; border:1px solid #059669; background:#fff; color:#059669; border-radius:6px; cursor:pointer; font-size:12px;">➕ Créer un nouvel équipement</button>' +
+            '<button type="button" onclick="gmToggleAssociatePanel()" ' +
+                'style="padding:6px 10px; border:1px solid #2563eb; background:#fff; color:#2563eb; border-radius:6px; cursor:pointer; font-size:12px;">🔗 Associer à un équipement existant</button>' +
+        '</div>' +
+        (gmAssociatePanelOpen ? gmRenderAssociatePanel(gmSelectedEquipement) : '') +
+        '</div>';
+}
 
-    detailEl.innerHTML =
-        '<h3 style="margin:0 0 4px;">' + escapeHtml(eq.materiel) + '</h3>' +
-        '<div style="color:#6b7280; font-size:13px; margin-bottom:4px;">' + escapeHtml(eq.libelle || '') + '</div>' +
-        '<div style="color:#9ca3af; font-size:12px; margin-bottom:14px;">' + escapeHtml(eq.interventionType || '') + '</div>' +
-        identiteHtml +
+function gmRenderTabHistorique(eq, entry) {
+    // Équipement lié : historique cumulatif (persisté, survit au changement de mois).
+    // Équipement non lié : seulement ce qui est visible dans le mois actuellement chargé.
+    const interventions = entry ? (entry.historique || []).slice() : eq.interventions;
+    interventions.sort(function(a, b) { return a.date > b.date ? 1 : (a.date < b.date ? -1 : 0); });
+    const nbFait = interventions.filter(function(iv) { return iv.status === 'F'; }).length;
+    const periodes = entry ? Array.from(new Set(interventions.map(function(iv) { return iv.periode; }).filter(Boolean))) : [];
+
+    const rows = interventions.map(function(iv) {
+        return '<tr>' +
+            '<td style="padding:6px 8px; font-size:12px;">' + escapeHtml(iv.date || '-') + '</td>' +
+            '<td style="padding:6px 8px; font-size:12px;">' + escapeHtml(iv.ot || '-') + '</td>' +
+            '<td style="padding:6px 8px;">' + gmStatusBadge(iv.status) + '</td>' +
+            '<td style="padding:6px 8px; font-size:12px;">' + escapeHtml(iv.technicien || '-') + '</td>' +
+            '</tr>';
+    }).join('');
+
+    return (entry
+        ? '<div style="font-size:11px; color:#059669; margin-bottom:10px;">🔗 Historique cumulé' + (periodes.length ? ' sur ' + periodes.length + ' période(s) : ' + escapeHtml(periodes.join(', ')) : '') + '.</div>'
+        : '<div style="font-size:11px; color:#d97706; margin-bottom:10px;">⚠️ Historique limité au mois actuellement chargé — liez l\'équipement dans l\'onglet Fiche pour le cumuler sur plusieurs mois.</div>') +
         '<div style="display:flex; gap:16px; margin-bottom:14px;">' +
-            '<div><strong>' + eq.interventions.length + '</strong><div style="font-size:11px; color:#9ca3af;">Interventions planifiées</div></div>' +
+            '<div><strong>' + interventions.length + '</strong><div style="font-size:11px; color:#9ca3af;">Interventions</div></div>' +
             '<div><strong>' + nbFait + '</strong><div style="font-size:11px; color:#9ca3af;">Réalisées</div></div>' +
         '</div>' +
-        '<h4 style="margin:0 0 8px; font-size:13px;">Historique</h4>' +
-        (eq.interventions.length === 0
+        (interventions.length === 0
             ? '<div style="color:#9ca3af; font-size:13px;">Aucune intervention enregistrée.</div>'
             : '<table style="width:100%; border-collapse:collapse;"><thead><tr style="text-align:left; border-bottom:1px solid #e5e7eb;">' +
               '<th style="padding:6px 8px; font-size:11px; color:#9ca3af;">DATE</th>' +
@@ -2350,10 +2527,69 @@ function gmSelectEquipement(materiel) {
               '</tr></thead><tbody>' + rows + '</tbody></table>');
 }
 
-function openEquipementsModal() {
+function gmRenderTabPhotos(eq, entry) {
+    if (!entry) {
+        return '<div style="color:#9ca3af; font-size:13px;">Liez d\'abord cet équipement à une identité stable (onglet Fiche) pour pouvoir y ajouter des photos.</div>';
+    }
+    const photos = entry.photos || [];
+    const gallery = photos.map(function(p) {
+        return '<div style="position:relative; width:100px; height:100px;">' +
+            '<div id="gmPhotoThumb_' + escapeAttr(p.id) + '" style="width:100px; height:100px; border-radius:8px; background:#f3f4f6; display:flex; align-items:center; justify-content:center; overflow:hidden; font-size:11px; color:#9ca3af;">…</div>' +
+            '<button type="button" onclick="gmDeletePhoto(' + escapeAttr(JSON.stringify(entry.id)) + ', ' + escapeAttr(JSON.stringify(p.id)) + ')" ' +
+                'style="position:absolute; top:-6px; right:-6px; width:20px; height:20px; border-radius:50%; border:none; background:#ef4444; color:#fff; cursor:pointer; font-size:11px; line-height:20px; text-align:center; padding:0;">✕</button>' +
+            '</div>';
+    }).join('');
+    return '<div style="margin-bottom:12px;">' +
+            '<label style="display:inline-block; padding:6px 12px; border:1px solid #2563eb; color:#2563eb; border-radius:6px; cursor:pointer; font-size:12px;">' +
+                '📷 Ajouter une photo<input type="file" accept="image/*" style="display:none;" onchange="gmUploadPhoto(' + escapeAttr(JSON.stringify(entry.id)) + ', this)"></label>' +
+        '</div>' +
+        (photos.length === 0
+            ? '<div style="color:#9ca3af; font-size:13px;">Aucune photo pour cet équipement.</div>'
+            : '<div style="display:flex; flex-wrap:wrap; gap:12px;">' + gallery + '</div>');
+}
+
+function gmSelectEquipement(materiel) {
+    gmSelectedEquipement = materiel;
+    gmRenderEquipementsList(document.getElementById('gmEquipSearch') ? document.getElementById('gmEquipSearch').value : '');
+    const eq = gmEquipementsIndex[materiel];
+    const detailEl = document.getElementById('gmEquipDetail');
+    if (!detailEl) return;
+    if (!eq) { detailEl.innerHTML = '<div style="color:#9ca3af; padding:20px;">Équipement introuvable.</div>'; return; }
+
+    const entry = eq.registryId ? equipementsRegistry[eq.registryId] : null;
+
+    const tabsHtml = '<div style="display:flex; gap:4px; border-bottom:1px solid #e5e7eb; margin-bottom:14px;">' +
+        gmTabButton('fiche', '📋 Fiche') + gmTabButton('historique', '🛠️ Historique') + gmTabButton('photos', '📷 Photos') +
+        '</div>';
+
+    let tabContent;
+    if (gmActiveTab === 'historique') tabContent = gmRenderTabHistorique(eq, entry);
+    else if (gmActiveTab === 'photos') tabContent = gmRenderTabPhotos(eq, entry);
+    else tabContent = gmRenderTabFiche(eq, entry);
+
+    detailEl.innerHTML =
+        '<h3 style="margin:0 0 4px;">' + escapeHtml(eq.materiel) + '</h3>' +
+        '<div style="color:#6b7280; font-size:13px; margin-bottom:4px;">' + escapeHtml(eq.libelle || '') + '</div>' +
+        '<div style="color:#9ca3af; font-size:12px; margin-bottom:14px;">' + escapeHtml(eq.interventionType || '') + '</div>' +
+        tabsHtml + tabContent;
+
+    if (gmActiveTab === 'photos' && entry) gmRenderPhotoThumbnails(entry);
+}
+
+async function openEquipementsModal() {
+    // Ouvrir tout de suite avec un état de chargement, pour ne pas bloquer l'UI pendant le déchiffrement
+    document.getElementById('equipementsModalOverlay').classList.add('active');
+    const detailElLoading = document.getElementById('gmEquipDetail');
+    if (detailElLoading) detailElLoading.innerHTML = '<div style="color:#9ca3af; padding:20px;">Chargement du registre équipements…</div>';
+
+    await gmLoadEquipRegistry();
+    gmMergeInterventionsIntoRegistry();
+    gmRegistryPersist();
+
     gmEquipementsIndex = gmBuildEquipementsIndex();
     gmSelectedEquipement = null;
     gmAssociatePanelOpen = false;
+    gmActiveTab = 'fiche';
     const hasEquip = Object.keys(gmEquipementsIndex).length > 0;
     const emptyEl = document.getElementById('gmEquipEmptyState');
     const contentEl = document.getElementById('gmEquipContent');
@@ -2374,7 +2610,6 @@ function openEquipementsModal() {
     gmRenderEquipementsList('');
     const detailEl = document.getElementById('gmEquipDetail');
     if (detailEl) detailEl.innerHTML = '<div style="color:#9ca3af; padding:20px;">Sélectionnez un équipement dans la liste.</div>';
-    document.getElementById('equipementsModalOverlay').classList.add('active');
 }
 function closeEquipementsModal() {
     document.getElementById('equipementsModalOverlay').classList.remove('active');
@@ -6911,6 +7146,10 @@ function resetAll() {
     });
     localStorage.removeItem('otSitesIndex_v2');
     localStorage.removeItem('otPreventifData');
+    // 🆕 Nettoyage des registres équipements (stockés par site physique, hors sitesLibrary)
+    Object.keys(localStorage).forEach(function(k) {
+        if (k.indexOf('gmEquipRegistry_v1_') === 0) localStorage.removeItem(k);
+    });
 
     sitesLibrary = {};
     activeSiteKey = null;

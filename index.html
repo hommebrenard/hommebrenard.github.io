@@ -2191,6 +2191,25 @@ function gmToggleAssociatePanel() {
     gmSelectEquipement(gmSelectedEquipement);
 }
 
+/* 🆕 Phase B2 — Fiche enrichie : catégorie, criticité, localisation, notes.
+   Ces champs vivent sur l'équipement interne (equipementsRegistry), pas sur le code
+   du prestataire, donc ils survivent eux aussi à un changement de contrat. */
+function gmSaveFicheEquipement(id) {
+    if (!equipementsRegistry[id]) return;
+    const catEl = document.getElementById('gmFicheCategorie');
+    const critEl = document.getElementById('gmFicheCriticite');
+    const locEl = document.getElementById('gmFicheLocalisation');
+    const notesEl = document.getElementById('gmFicheNotes');
+    equipementsRegistry[id].categorie = catEl ? catEl.value.trim() : '';
+    equipementsRegistry[id].criticite = critEl ? critEl.value : '';
+    equipementsRegistry[id].localisation = locEl ? locEl.value.trim() : '';
+    equipementsRegistry[id].notes = notesEl ? notesEl.value : '';
+    equipementsRegistry[id].updatedAt = new Date().toISOString();
+    gmRegistryPersist();
+    showNotification('✅ Fiche équipement enregistrée.');
+    gmSelectEquipement(gmSelectedEquipement);
+}
+
 function gmStatusBadge(status) {
     if (status === 'F') return '<span class="badge badge-success">Fait</span>';
     if (status === 'NF') return '<span class="badge badge-danger">Non fait</span>';
@@ -2264,14 +2283,37 @@ function gmSelectEquipement(materiel) {
 
     const nbFait = eq.interventions.filter(function(iv) { return iv.status === 'F'; }).length;
 
-    // 🆕 Bloc "Identité stable" — cœur de la réconciliation (Phase B1)
+    // 🆕 Bloc "Identité stable" — cœur de la réconciliation (Phase B1) + fiche enrichie (Phase B2)
     let identiteHtml;
     if (eq.registryId) {
         const entry = equipementsRegistry[eq.registryId] || {};
+        const CRITICITES = ['', 'Faible', 'Moyenne', 'Haute', 'Critique'];
+        const critOptions = CRITICITES.map(function(c) {
+            return '<option value="' + escapeAttr(c) + '"' + (entry.criticite === c ? ' selected' : '') + '>' + (c || '—') + '</option>';
+        }).join('');
         identiteHtml =
             '<div style="background:#ecfdf5; border:1px solid #a7f3d0; border-radius:8px; padding:10px 12px; margin-bottom:14px; font-size:12px;">' +
             '🔗 <strong>Identité stable :</strong> ' + escapeHtml(entry.nom || '') +
             '<div style="color:#6b7280; margin-top:2px;">Alias connus : ' + escapeHtml((entry.aliases || []).join(', ')) + '</div>' +
+            '</div>' +
+            '<div style="border:1px solid #e5e7eb; border-radius:8px; padding:12px; margin-bottom:14px;">' +
+                '<h4 style="margin:0 0 10px; font-size:13px;">📋 Fiche équipement</h4>' +
+                '<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">' +
+                    '<label style="font-size:11px; color:#6b7280;">Catégorie' +
+                        '<input type="text" id="gmFicheCategorie" value="' + escapeAttr(entry.categorie || '') + '" placeholder="ex: Ascenseur, Climatisation..." ' +
+                        'style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;"></label>' +
+                    '<label style="font-size:11px; color:#6b7280;">Criticité' +
+                        '<select id="gmFicheCriticite" style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;">' + critOptions + '</select></label>' +
+                    '<label style="font-size:11px; color:#6b7280; grid-column:1 / -1;">Localisation' +
+                        '<input type="text" id="gmFicheLocalisation" value="' + escapeAttr(entry.localisation || '') + '" placeholder="ex: Bâtiment A, RDC..." ' +
+                        'style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;"></label>' +
+                '</div>' +
+                '<label style="font-size:11px; color:#6b7280;">Notes' +
+                    '<textarea id="gmFicheNotes" rows="3" placeholder="Remarques, historique particulier, points d\'attention..." ' +
+                    'style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px; resize:vertical;">' + escapeHtml(entry.notes || '') + '</textarea></label>' +
+                '<button type="button" onclick="gmSaveFicheEquipement(' + escapeAttr(JSON.stringify(entry.id)) + ')" ' +
+                    'style="margin-top:10px; padding:6px 12px; border:none; background:#1f3864; color:#fff; border-radius:6px; cursor:pointer; font-size:12px;">💾 Enregistrer la fiche</button>' +
+                (entry.updatedAt ? '<span style="margin-left:10px; font-size:11px; color:#9ca3af;">Dernière mise à jour : ' + escapeHtml(new Date(entry.updatedAt).toLocaleString('fr-FR')) + '</span>' : '') +
             '</div>';
     } else {
         identiteHtml =

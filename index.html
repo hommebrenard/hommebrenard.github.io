@@ -2534,32 +2534,40 @@ function gmRenderTabHistorique(eq, entry) {
           '</div>'
         : '<div style="font-size:11px; color:#d97706; margin-bottom:10px;">⚠️ Historique limité au mois actuellement chargé — liez l\'équipement dans l\'onglet Fiche pour le cumuler sur plusieurs mois.</div>';
 
-    // 🆕 Filtre par période : chips cliquables (élégant pour un petit nombre de mois)
-    let periodeChips = '';
+    // 🆕 Filtre par période : liste déroulante (scalable, même avec beaucoup de mois cumulés)
+    let periodeFilter = '';
     if (entry && periodes.length > 1) {
-        const chip = function(label, value) {
-            const active = gmHistFilterPeriode === value;
-            return '<button type="button" onclick="gmSetHistFilter(' + "'periode'" + ', ' + escapeAttr(JSON.stringify(value)) + ')" ' +
-                'style="padding:4px 10px; border-radius:999px; border:1px solid ' + (active ? '#2563eb' : '#e5e7eb') + '; ' +
-                'background:' + (active ? '#eff6ff' : '#fff') + '; color:' + (active ? '#2563eb' : '#6b7280') + '; ' +
-                'font-size:11px; cursor:pointer; margin:0 6px 6px 0;">' + escapeHtml(label) + '</button>';
-        };
-        periodeChips = '<div style="margin-bottom:8px;">' +
-            chip('Tous les mois (' + allInterventions.length + ')', '') +
-            periodes.map(function(p) {
+        // Tri chronologique des périodes "MOIS ANNEE" (pas alphabétique)
+        const sortedPeriodes = periodes.slice().sort(function(a, b) {
+            const parse = function(p) {
+                const m = String(p || '').match(/^(\S+)\s+(\d{4})$/);
+                if (!m) return 0;
+                const idx = (typeof MONTHS_FR !== 'undefined') ? MONTHS_FR.indexOf(m[1].toUpperCase()) : 0;
+                return parseInt(m[2], 10) * 100 + (idx === -1 ? 0 : idx);
+            };
+            return parse(b) - parse(a); // le plus récent en premier
+        });
+        const periodeOptions = ['<option value="">Tous les mois (' + allInterventions.length + ')</option>'].concat(
+            sortedPeriodes.map(function(p) {
                 const count = allInterventions.filter(function(iv) { return iv.periode === p; }).length;
-                return chip(p + ' (' + count + ')', p);
-            }).join('') +
-            '</div>';
+                return '<option value="' + escapeAttr(p) + '"' + (gmHistFilterPeriode === p ? ' selected' : '') + '>' + escapeHtml(p) + ' (' + count + ')</option>';
+            })
+        ).join('');
+        periodeFilter = '<select onchange="gmSetHistFilter(' + "'periode'" + ', this.value)" ' +
+            'style="padding:4px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:11px; color:#374151;">' + periodeOptions + '</select>';
     }
 
-    // 🆕 Filtre par statut : discret, à droite
+    // 🆕 Filtre par statut
     const STATUTS = [['', 'Tous les statuts'], ['F', 'Fait'], ['NF', 'Non fait'], ['P', 'Partiel'], ['NC', 'Non communiqué'], ['__EN_ATTENTE__', 'En attente']];
     const statutOptions = STATUTS.map(function(s) {
         return '<option value="' + escapeAttr(s[0]) + '"' + (gmHistFilterStatut === s[0] ? ' selected' : '') + '>' + escapeHtml(s[1]) + '</option>';
     }).join('');
     const statutFilter = '<select onchange="gmSetHistFilter(' + "'statut'" + ', this.value)" ' +
-        'style="padding:4px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:11px; color:#374151; margin-bottom:10px;">' + statutOptions + '</select>';
+        'style="padding:4px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:11px; color:#374151;">' + statutOptions + '</select>';
+
+    const filtersRow = (periodeFilter || statutFilter)
+        ? '<div style="display:flex; gap:8px; margin-bottom:12px;">' + periodeFilter + statutFilter + '</div>'
+        : '';
 
     const rows = interventions.map(function(iv) {
         return '<tr>' +
@@ -2570,13 +2578,10 @@ function gmRenderTabHistorique(eq, entry) {
             '</tr>';
     }).join('');
 
-    return headerBadge + periodeChips +
-        '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
-            '<div style="display:flex; gap:16px;">' +
-                '<div><strong>' + interventions.length + '</strong><div style="font-size:11px; color:#9ca3af;">Interventions' + (interventions.length !== allInterventions.length ? ' (filtrées)' : '') + '</div></div>' +
-                '<div><strong>' + nbFait + '</strong><div style="font-size:11px; color:#9ca3af;">Réalisées</div></div>' +
-            '</div>' +
-            statutFilter +
+    return headerBadge + filtersRow +
+        '<div style="display:flex; gap:16px; margin-bottom:14px;">' +
+            '<div><strong>' + interventions.length + '</strong><div style="font-size:11px; color:#9ca3af;">Interventions' + (interventions.length !== allInterventions.length ? ' (filtrées)' : '') + '</div></div>' +
+            '<div><strong>' + nbFait + '</strong><div style="font-size:11px; color:#9ca3af;">Réalisées</div></div>' +
         '</div>' +
         (interventions.length === 0
             ? '<div style="color:#9ca3af; font-size:13px; padding:10px 0;">Aucune intervention pour ce filtre.</div>'

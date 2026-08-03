@@ -2104,6 +2104,8 @@ var gmEquipementsIndex = {};
 var gmSelectedEquipement = null;
 var gmAssociatePanelOpen = false; // état d'affichage du panneau "associer à un équipement existant"
 var gmActiveTab = 'fiche'; // 🆕 onglet actif du détail équipement : 'fiche' | 'historique' | 'photos'
+var gmHistFilterPeriode = ''; // 🆕 filtre historique : période (mois) sélectionnée, '' = toutes
+var gmHistFilterStatut = '';  // 🆕 filtre historique : statut sélectionné, '' = tous
 
 function gmBuildEquipementsIndex() {
     const index = {};
@@ -2493,13 +2495,71 @@ function gmRenderTabFiche(eq, entry) {
         '</div>';
 }
 
+/** Convertit "JJ/MM/AAAA" en valeur triable (AAAAMMJJ). Retourne 0 si invalide (relégué en fin de liste). */
+function gmParseDateFR(dateStr) {
+    const m = String(dateStr || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!m) return 0;
+    return parseInt(m[3] + m[2] + m[1], 10);
+}
+
+function gmSetHistFilter(type, value) {
+    if (type === 'periode') gmHistFilterPeriode = value;
+    if (type === 'statut') gmHistFilterStatut = value;
+    gmSelectEquipement(gmSelectedEquipement);
+}
+
 function gmRenderTabHistorique(eq, entry) {
     // Équipement lié : historique cumulatif (persisté, survit au changement de mois).
     // Équipement non lié : seulement ce qui est visible dans le mois actuellement chargé.
-    const interventions = entry ? (entry.historique || []).slice() : eq.interventions;
-    interventions.sort(function(a, b) { return a.date > b.date ? 1 : (a.date < b.date ? -1 : 0); });
+    const allInterventions = entry ? (entry.historique || []).slice() : eq.interventions;
+    const periodes = entry ? Array.from(new Set(allInterventions.map(function(iv) { return iv.periode; }).filter(Boolean))) : [];
+
+    // 🆕 Filtres (période + statut), appliqués avant tri/affichage
+    let interventions = allInterventions.filter(function(iv) {
+        if (gmHistFilterPeriode && iv.periode !== gmHistFilterPeriode) return false;
+        if (gmHistFilterStatut === '__EN_ATTENTE__') { if (iv.status) return false; }
+        else if (gmHistFilterStatut && iv.status !== gmHistFilterStatut) return false;
+        return true;
+    });
+    // 🆕 Tri chronologique réel (le plus récent en premier) — pas un tri alphabétique sur la chaîne JJ/MM/AAAA
+    interventions.sort(function(a, b) { return gmParseDateFR(b.date) - gmParseDateFR(a.date); });
+
     const nbFait = interventions.filter(function(iv) { return iv.status === 'F'; }).length;
-    const periodes = entry ? Array.from(new Set(interventions.map(function(iv) { return iv.periode; }).filter(Boolean))) : [];
+
+    // Bandeau d'en-tête : indication élégante du nombre de mois cumulés
+    const headerBadge = entry
+        ? '<div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">' +
+            '<span style="display:inline-flex; align-items:center; gap:4px; background:#ecfdf5; color:#059669; border:1px solid #a7f3d0; ' +
+            'border-radius:999px; padding:3px 10px; font-size:11px; font-weight:600;">🔗 ' + periodes.length + ' mois cumulé' + (periodes.length > 1 ? 's' : '') + '</span>' +
+          '</div>'
+        : '<div style="font-size:11px; color:#d97706; margin-bottom:10px;">⚠️ Historique limité au mois actuellement chargé — liez l\'équipement dans l\'onglet Fiche pour le cumuler sur plusieurs mois.</div>';
+
+    // 🆕 Filtre par période : chips cliquables (élégant pour un petit nombre de mois)
+    let periodeChips = '';
+    if (entry && periodes.length > 1) {
+        const chip = function(label, value) {
+            const active = gmHistFilterPeriode === value;
+            return '<button type="button" onclick="gmSetHistFilter(' + "'periode'" + ', ' + escapeAttr(JSON.stringify(value)) + ')" ' +
+                'style="padding:4px 10px; border-radius:999px; border:1px solid ' + (active ? '#2563eb' : '#e5e7eb') + '; ' +
+                'background:' + (active ? '#eff6ff' : '#fff') + '; color:' + (active ? '#2563eb' : '#6b7280') + '; ' +
+                'font-size:11px; cursor:pointer; margin:0 6px 6px 0;">' + escapeHtml(label) + '</button>';
+        };
+        periodeChips = '<div style="margin-bottom:8px;">' +
+            chip('Tous les mois (' + allInterventions.length + ')', '') +
+            periodes.map(function(p) {
+                const count = allInterventions.filter(function(iv) { return iv.periode === p; }).length;
+                return chip(p + ' (' + count + ')', p);
+            }).join('') +
+            '</div>';
+    }
+
+    // 🆕 Filtre par statut : discret, à droite
+    const STATUTS = [['', 'Tous les statuts'], ['F', 'Fait'], ['NF', 'Non fait'], ['P', 'Partiel'], ['NC', 'Non communiqué'], ['__EN_ATTENTE__', 'En attente']];
+    const statutOptions = STATUTS.map(function(s) {
+        return '<option value="' + escapeAttr(s[0]) + '"' + (gmHistFilterStatut === s[0] ? ' selected' : '') + '>' + escapeHtml(s[1]) + '</option>';
+    }).join('');
+    const statutFilter = '<select onchange="gmSetHistFilter(' + "'statut'" + ', this.value)" ' +
+        'style="padding:4px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:11px; color:#374151; margin-bottom:10px;">' + statutOptions + '</select>';
 
     const rows = interventions.map(function(iv) {
         return '<tr>' +
@@ -2510,15 +2570,16 @@ function gmRenderTabHistorique(eq, entry) {
             '</tr>';
     }).join('');
 
-    return (entry
-        ? '<div style="font-size:11px; color:#059669; margin-bottom:10px;">🔗 Historique cumulé' + (periodes.length ? ' sur ' + periodes.length + ' période(s) : ' + escapeHtml(periodes.join(', ')) : '') + '.</div>'
-        : '<div style="font-size:11px; color:#d97706; margin-bottom:10px;">⚠️ Historique limité au mois actuellement chargé — liez l\'équipement dans l\'onglet Fiche pour le cumuler sur plusieurs mois.</div>') +
-        '<div style="display:flex; gap:16px; margin-bottom:14px;">' +
-            '<div><strong>' + interventions.length + '</strong><div style="font-size:11px; color:#9ca3af;">Interventions</div></div>' +
-            '<div><strong>' + nbFait + '</strong><div style="font-size:11px; color:#9ca3af;">Réalisées</div></div>' +
+    return headerBadge + periodeChips +
+        '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
+            '<div style="display:flex; gap:16px;">' +
+                '<div><strong>' + interventions.length + '</strong><div style="font-size:11px; color:#9ca3af;">Interventions' + (interventions.length !== allInterventions.length ? ' (filtrées)' : '') + '</div></div>' +
+                '<div><strong>' + nbFait + '</strong><div style="font-size:11px; color:#9ca3af;">Réalisées</div></div>' +
+            '</div>' +
+            statutFilter +
         '</div>' +
         (interventions.length === 0
-            ? '<div style="color:#9ca3af; font-size:13px;">Aucune intervention enregistrée.</div>'
+            ? '<div style="color:#9ca3af; font-size:13px; padding:10px 0;">Aucune intervention pour ce filtre.</div>'
             : '<table style="width:100%; border-collapse:collapse;"><thead><tr style="text-align:left; border-bottom:1px solid #e5e7eb;">' +
               '<th style="padding:6px 8px; font-size:11px; color:#9ca3af;">DATE</th>' +
               '<th style="padding:6px 8px; font-size:11px; color:#9ca3af;">OT</th>' +

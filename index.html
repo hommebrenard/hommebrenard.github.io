@@ -3276,6 +3276,11 @@ let checklistLoaded = false;
 let mainHeaderText = '';
 let annexesData = [];
 let annexePageMap = {};
+let annexePageStarts = []; // 🐛 CORRECTION : était déclaré en `const` À L'INTÉRIEUR du bloc
+// "if (annexesData.length > 0)" dans exportAllPDF(), donc hors de portée dès la ligne suivante
+// (filigrane BROUILLON) -> ReferenceError systématique, à CHAQUE génération de PDF, même sans
+// annexe. Déclaré ici au niveau module comme annexesData/annexePageMap, et simplement réinitialisé
+// (sans redéclaration) dans exportAllPDF().
 let chartsInstances = {};
 
 // ============================================
@@ -4674,8 +4679,11 @@ if (parsed && parsed.__archive) {
     const bucket = parsed;
     if (!bucket.planningData || !bucket.checklistData) throw new Error('Fichier d\'archive invalide');
     const key = bucket.siteKey || slugifySiteName(((bucket.site || '') + ' ' + (bucket.periode || '')) || file.name);
-    bucket.label = ((bucket.site || '') + (bucket.periode ? ' ' + bucket.periode : '')).trim() || file.name;
-    bucket.mainHeaderText = bucket.label;
+    // 🐛 CORRECTION : privilégier le vrai titre (label/mainHeaderText), présent dans les archives
+    // générées après ce correctif. Repli sur l'ancienne reconstruction depuis site+periode
+    // pour rester compatible avec les archives déjà produites avant.
+    bucket.label = bucket.label || ((bucket.site || '') + (bucket.periode ? ' ' + bucket.periode : '')).trim() || file.name;
+    bucket.mainHeaderText = bucket.mainHeaderText || bucket.label;
     if (!bucket.dateColumns) {
         bucket.dateColumns = (bucket.planningHeaders || []).filter(h => /\d{2}\/\d{2}\/\d{4}/.test(String(h)));
     }
@@ -5002,6 +5010,13 @@ function cloturerEtArchiverSiteActif() {
 
     const archive = {
         __archive: true,
+        // 🐛 CORRECTION : "site"/"periode" (dérivés de la clé slugifiée) servaient jusqu'ici à
+        // reconstruire le titre affiché après import -> "OT Préventif - AG Type A KENITRA mai 2026"
+        // devenait "archive_kenitra_mai_2026" (minuscules, tirets bas, mise en forme perdue).
+        // On conserve désormais le VRAI titre à la source, en plus de site/periode gardés pour
+        // compatibilité/affichage.
+        label: bucket.label,
+        mainHeaderText: bucket.mainHeaderText,
         site: parsed.site,
         siteKey: activeSiteKey,
         periode: parsed.monthYear,
@@ -7742,6 +7757,7 @@ function exportAllPDF() {
     // ÉTAPE 1 : Identifier les OT nécessitant une annexe
    annexesData = [];
 annexePageMap = {};
+annexePageStarts = []; // 🐛 CORRECTION : réinitialisé ici aussi, pour ne jamais garder de résidu d'un appel précédent si celui-ci n'a aucune annexe
 let annexeCounter = 1;
 
 planningData.forEach(row => {
@@ -8192,7 +8208,7 @@ planningData.forEach(row => {
         doc.text('Sommaire des annexes', pageWidth/2, pageHeight - 8, {align: 'center'});
         
         // ===== PAGES D'ANNEXES INDIVIDUELLES =====
-        const annexePageStarts = []; // 🆕 { otNum, startPage } pour déterminer les plages de pages par OT (filigrane BROUILLON)
+        annexePageStarts = []; // 🐛 CORRECTION : réinitialise la variable globale (voir déclaration en haut du fichier), ne la redéclare plus localement
         annexesData.forEach((annexe) => {
             doc.addPage();
             annexePageStarts.push({ otNum: annexe.otNum, startPage: doc.internal.getNumberOfPages() });

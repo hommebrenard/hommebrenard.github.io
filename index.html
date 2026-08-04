@@ -2240,7 +2240,7 @@ function gmRegistryCreateFromCode(code, defaultNom) {
     equipementsRegistry[id] = {
         id: id, nom: nom.trim(), libelle: defaultNom || '', aliases: [code],
         criticite: '', categorie: '', localisation: '', notes: '',
-        historique: [], photos: [],
+        historique: [], photos: [], pannes: [],
         createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
     };
     gmMergeInterventionsIntoRegistry();
@@ -2736,6 +2736,119 @@ function gmRenderTabPhotos(eq, entry) {
             : '<div style="display:flex; flex-wrap:wrap; gap:12px;">' + gallery + '</div>');
 }
 
+/* ============================================
+   🆕 Phase C — Journal Correctif/Pannes : nouvelle saisie manuelle, indépendante du planning
+   préventif. Vit dans le même registre équipement (entry.pannes), donc réutilise la persistance
+   déjà en place (gmRegistryPersist) — aucun nouveau mécanisme de stockage.
+   ============================================ */
+function gmRenderTabCorrectif(eq, entry) {
+    if (!entry) {
+        return '<div style="color:#9ca3af; font-size:13px;">Liez d\'abord cet équipement à une identité stable (onglet Fiche) pour pouvoir y enregistrer des pannes.</div>';
+    }
+    const pannes = (entry.pannes || []).slice().sort(function(a, b) { return String(b.date || '').localeCompare(String(a.date || '')); });
+
+    const form = '<div style="border:1px solid #fecaca; background:#fef2f2; border-radius:8px; padding:12px; margin-bottom:14px;">' +
+        '<h4 style="margin:0 0 10px; font-size:13px; color:#991b1b;">⚠️ Déclarer une panne</h4>' +
+        '<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">' +
+            '<label style="font-size:11px; color:#6b7280;">Date *' +
+                '<input type="date" id="gmPanneDate" style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;"></label>' +
+            '<label style="font-size:11px; color:#6b7280;">Durée d\'arrêt (heures)' +
+                '<input type="number" step="0.5" min="0" id="gmPanneDuree" placeholder="ex: 2.5" style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;"></label>' +
+        '</div>' +
+        '<label style="font-size:11px; color:#6b7280; display:block; margin-bottom:10px;">Description *' +
+            '<input type="text" id="gmPanneDescription" placeholder="ex: Arret compresseur, surchauffe moteur" style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;"></label>' +
+        '<label style="font-size:11px; color:#6b7280; display:block; margin-bottom:10px;">Cause' +
+            '<input type="text" id="gmPanneCause" placeholder="ex: Defaut roulement" style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;"></label>' +
+        '<label style="font-size:11px; color:#6b7280; display:block; margin-bottom:10px;">Action corrective' +
+            '<input type="text" id="gmPanneAction" placeholder="ex: Remplacement roulement" style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;"></label>' +
+        '<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">' +
+            '<label style="font-size:11px; color:#6b7280;">Coût (MAD)' +
+                '<input type="number" step="0.01" min="0" id="gmPanneCout" placeholder="ex: 1500" style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;"></label>' +
+            '<label style="font-size:11px; color:#6b7280;">Technicien' +
+                '<input type="text" id="gmPanneTechnicien" style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;"></label>' +
+        '</div>' +
+        '<button type="button" onclick="gmAddPanne(' + escapeAttr(JSON.stringify(entry.id)) + ')" ' +
+            'style="padding:6px 14px; border:none; background:#dc2626; color:#fff; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600;">+ Enregistrer la panne</button>' +
+        '</div>';
+
+    if (pannes.length === 0) {
+        return form + '<div style="color:#9ca3af; font-size:13px;">Aucune panne enregistrée pour cet équipement.</div>';
+    }
+
+    const rows = pannes.map(function(p) {
+        const dateAffiche = p.date ? new Date(p.date + 'T00:00:00').toLocaleDateString('fr-FR') : '-';
+        return '<tr>' +
+            '<td style="padding:6px 8px; font-size:12px; white-space:nowrap;">' + escapeHtml(dateAffiche) + '</td>' +
+            '<td style="padding:6px 8px; font-size:12px;">' + escapeHtml(p.description || '-') + '</td>' +
+            '<td style="padding:6px 8px; font-size:12px;">' + escapeHtml(p.cause || '-') + '</td>' +
+            '<td style="padding:6px 8px; font-size:12px; text-align:center;">' + (p.dureeArret != null ? escapeHtml(String(p.dureeArret)) + ' h' : '-') + '</td>' +
+            '<td style="padding:6px 8px; font-size:12px;">' + escapeHtml(p.actionCorrective || '-') + '</td>' +
+            '<td style="padding:6px 8px; font-size:12px; text-align:right;">' + (p.cout != null ? escapeHtml(String(p.cout)) + ' MAD' : '-') + '</td>' +
+            '<td style="padding:6px 8px; font-size:12px;">' + escapeHtml(p.technicien || '-') + '</td>' +
+            '<td style="padding:6px 8px;"><button type="button" onclick="gmDeletePanne(' + escapeAttr(JSON.stringify(entry.id)) + ', ' + escapeAttr(JSON.stringify(p.id)) + ')" ' +
+                'style="border:none; background:none; color:#ef4444; cursor:pointer; font-size:13px;">✕</button></td>' +
+            '</tr>';
+    }).join('');
+
+    return form +
+        '<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; min-width:700px;"><thead><tr style="text-align:left; border-bottom:1px solid #e5e7eb;">' +
+        '<th style="padding:6px 8px; font-size:11px; color:#9ca3af;">DATE</th>' +
+        '<th style="padding:6px 8px; font-size:11px; color:#9ca3af;">DESCRIPTION</th>' +
+        '<th style="padding:6px 8px; font-size:11px; color:#9ca3af;">CAUSE</th>' +
+        '<th style="padding:6px 8px; font-size:11px; color:#9ca3af;">DURÉE</th>' +
+        '<th style="padding:6px 8px; font-size:11px; color:#9ca3af;">ACTION CORRECTIVE</th>' +
+        '<th style="padding:6px 8px; font-size:11px; color:#9ca3af;">COÛT</th>' +
+        '<th style="padding:6px 8px; font-size:11px; color:#9ca3af;">TECHNICIEN</th>' +
+        '<th></th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+/** Ajoute une panne à l'équipement (formulaire de l'onglet Correctif). Date et description obligatoires. */
+function gmAddPanne(registryId) {
+    const entry = equipementsRegistry[registryId];
+    if (!entry) return;
+    const dateEl = document.getElementById('gmPanneDate');
+    const descEl = document.getElementById('gmPanneDescription');
+    const causeEl = document.getElementById('gmPanneCause');
+    const dureeEl = document.getElementById('gmPanneDuree');
+    const actionEl = document.getElementById('gmPanneAction');
+    const coutEl = document.getElementById('gmPanneCout');
+    const techEl = document.getElementById('gmPanneTechnicien');
+
+    const date = dateEl ? dateEl.value : '';
+    const description = descEl ? descEl.value.trim() : '';
+    if (!date || !description) { showNotification('⚠️ Date et description sont obligatoires.', 'warning'); return; }
+
+    if (!entry.pannes) entry.pannes = [];
+    entry.pannes.push({
+        id: 'pn_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        date: date,
+        description: description,
+        cause: causeEl ? causeEl.value.trim() : '',
+        dureeArret: (dureeEl && dureeEl.value !== '') ? parseFloat(dureeEl.value) : null,
+        actionCorrective: actionEl ? actionEl.value.trim() : '',
+        cout: (coutEl && coutEl.value !== '') ? parseFloat(coutEl.value) : null,
+        technicien: techEl ? techEl.value.trim() : '',
+        createdAt: new Date().toISOString()
+    });
+    entry.updatedAt = new Date().toISOString();
+    gmRegistryPersist();
+    showNotification('✅ Panne enregistrée.');
+    gmSelectEquipement(gmSelectedEquipement);
+}
+
+/** Supprime une panne (avec confirmation, comme pour les photos). */
+function gmDeletePanne(registryId, panneId) {
+    if (!confirm('Supprimer cette panne ?')) return;
+    const entry = equipementsRegistry[registryId];
+    if (!entry || !entry.pannes) return;
+    entry.pannes = entry.pannes.filter(function(p) { return p.id !== panneId; });
+    entry.updatedAt = new Date().toISOString();
+    gmRegistryPersist();
+    showNotification('🗑️ Panne supprimée.');
+    gmSelectEquipement(gmSelectedEquipement);
+}
+
 function gmSelectEquipement(materiel) {
     gmSelectedEquipement = materiel;
     gmRenderEquipementsList(document.getElementById('gmEquipSearch') ? document.getElementById('gmEquipSearch').value : '');
@@ -2747,11 +2860,12 @@ function gmSelectEquipement(materiel) {
     const entry = eq.registryId ? equipementsRegistry[eq.registryId] : null;
 
     const tabsHtml = '<div style="display:flex; gap:4px; border-bottom:1px solid #e5e7eb; margin-bottom:14px;">' +
-        gmTabButton('fiche', '📋 Fiche') + gmTabButton('historique', '🛠️ Historique') + gmTabButton('photos', '📷 Photos') +
+        gmTabButton('fiche', '📋 Fiche') + gmTabButton('historique', '🛠️ Préventif') + gmTabButton('correctif', '⚠️ Correctif') + gmTabButton('photos', '📷 Photos') +
         '</div>';
 
     let tabContent;
     if (gmActiveTab === 'historique') tabContent = gmRenderTabHistorique(eq, entry);
+    else if (gmActiveTab === 'correctif') tabContent = gmRenderTabCorrectif(eq, entry);
     else if (gmActiveTab === 'photos') tabContent = gmRenderTabPhotos(eq, entry);
     else tabContent = gmRenderTabFiche(eq, entry);
 

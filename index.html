@@ -2159,10 +2159,21 @@ function gmRegistryFindByCode(code) {
    d'équipements doit survivre au changement de mois, donc il est stocké
    sous une clé basée uniquement sur le nom du site (parseSiteKey retire le mois).
    ============================================ */
-function gmPhysicalSiteKey() {
-    const source = activeSiteKey || mainHeaderText || '';
+/** 🆕 Variante paramétrable : calcule la clé "site physique" pour une clé de site quelconque
+ *  (pas forcément le site actif). Utilisée pour fusionner un registre importé appartenant
+ *  à un site qui n'est pas nécessairement en cours d'affichage. */
+function gmPhysicalSiteKeyFor(siteKeyOrText) {
+    const source = siteKeyOrText || '';
     const parsed = (typeof parseSiteKey === 'function') ? parseSiteKey(source) : { site: source };
     return slugifySiteName(parsed.site || source);
+}
+
+function gmEquipRegistryStorageKeyFor(siteKeyOrText) {
+    return 'gmEquipRegistry_v1_' + gmPhysicalSiteKeyFor(siteKeyOrText);
+}
+
+function gmPhysicalSiteKey() {
+    return gmPhysicalSiteKeyFor(activeSiteKey || mainHeaderText || '');
 }
 
 function gmEquipRegistryStorageKey() {
@@ -2323,6 +2334,117 @@ async function gmDeletePhotoBlob(registryId, photoId) {
         req.onsuccess = function() { resolve(true); };
         req.onerror = function(e) { reject(e.target.error || new Error('Erreur suppression photo')); };
     });
+}
+
+/**
+ * 🆕 Prépare une COPIE du registre équipements avec les photos "réhydratées" (leur donnée
+ * base64 récupérée depuis IndexedDB) pour produire un export autonome, exploitable par une
+ * autre installation. Même principe que rehydraterPiecesJointesPourExport pour les OT.
+ * Ne modifie JAMAIS le registre réel en mémoire.
+ */
+async function gmRehydratePhotosForExport(registry) {
+    const copie = {};
+    for (const id of Object.keys(registry || {})) {
+        const entry = registry[id] || {};
+        const entryCopie = Object.assign({}, entry);
+        if (Array.isArray(entry.photos) && entry.photos.length > 0) {
+            entryCopie.photos = [];
+            for (const p of entry.photos) {
+                const pCopie = Object.assign({}, p);
+                try {
+                    pCopie.data = await gmGetPhotoBlob(id, p.id);
+                } catch (e) {
+                    console.warn('⚠️ Photo équipement illisible pour export (ignorée) :', p.nom, e);
+                    pCopie.data = null;
+                }
+                entryCopie.photos.push(pCopie);
+            }
+        }
+        copie[id] = entryCopie;
+    }
+    return copie;
+}
+
+/**
+ * 🆕 À l'import d'un registre équipement contenant des photos avec leur donnée base64 encore
+ * présente (reçues d'une autre installation via export "Site" ou "Tous les sites"), on les
+ * enregistre en IndexedDB LOCALE puis on retire ce champ lourd — pour que le registre stocké
+ * localement reste léger. Idempotent : ignore les photos qui n'ont pas de champ `data`.
+ * Mutate l'objet passé en place (comme persisterPiecesJointesRecues pour les OT).
+ */
+async function gmPersisterPhotosRecues(registry) {
+    for (const id of Object.keys(registry || {})) {
+        const entry = registry[id];
+        if (!entry || !Array.isArray(entry.photos)) continue;
+        for (const p of entry.photos) {
+            if (p && typeof p.data === 'string' && p.data) {
+                try {
+                    await gmSavePhotoBlob(id, p.id, p.data);
+                } catch (e) {
+                    console.warn('⚠️ Photo équipement reçue non stockée en IndexedDB (ignorée) :', p.nom, e);
+                }
+                delete p.data;
+            }
+        }
+    }
+}
+
+/**
+ * 🆕 Fusionne un registre équipement importé dans le registre local existant, stocké dans son
+ * propre espace (clé physique du site, indépendante du mois — voir gmEquipRegistryStorageKeyFor).
+ * Ne remplace JAMAIS un registre local par un import plus pauvre : fusionne alias / historique /
+ * photos (union dédoublonnée), et ne met à jour les champs scalaires (nom, notes, criticité...)
+ * que si la version importée est la plus récente (updatedAt).
+ * Appeler APRÈS gmPersisterPhotosRecues (pour ne fusionner que des métadonnées légères).
+ */
+async function gmMergeImportedRegistry(siteKeyOrText, importedRegistry) {
+    if (!importedRegistry || Object.keys(importedRegistry).length === 0) return;
+    const storageKey = gmEquipRegistryStorageKeyFor(siteKeyOrText);
+    let local = {};
+    try { local = (await loadEncrypted(storageKey)) || {}; } catch (e) { local = {}; }
+
+    Object.keys(importedRegistry).forEach(function(id) {
+        const incoming = importedRegistry[id];
+        if (!incoming) return;
+        const existing = local[id];
+        if (!existing) { local[id] = incoming; return; }
+
+        existing.aliases = Array.from(new Set((existing.aliases || []).concat(incoming.aliases || [])));
+
+        const existingOts = new Set((existing.historique || []).map(function(iv) { return iv.ot; }));
+        (incoming.historique || []).forEach(function(iv) {
+            if (!existingOts.has(iv.ot)) {
+                if (!existing.historique) existing.historique = [];
+                existing.historique.push(iv);
+                existingOts.add(iv.ot);
+            }
+        });
+
+        const existingPhotoIds = new Set((existing.photos || []).map(function(p) { return p.id; }));
+        (incoming.photos || []).forEach(function(p) {
+            if (!existingPhotoIds.has(p.id)) {
+                if (!existing.photos) existing.photos = [];
+                existing.photos.push(p);
+                existingPhotoIds.add(p.id);
+            }
+        });
+
+        if (new Date(incoming.updatedAt || 0) > new Date(existing.updatedAt || 0)) {
+            existing.nom = incoming.nom || existing.nom;
+            existing.libelle = incoming.libelle || existing.libelle;
+            existing.categorie = incoming.categorie;
+            existing.criticite = incoming.criticite;
+            existing.localisation = incoming.localisation;
+            existing.notes = incoming.notes;
+            existing.updatedAt = incoming.updatedAt;
+        }
+    });
+
+    try {
+        await saveEncrypted(storageKey, local);
+    } catch (e) {
+        console.warn('⚠️ Fusion du registre équipements importé : sauvegarde impossible', e);
+    }
 }
 
 const GM_PHOTO_MAX_SIZE = 5 * 1024 * 1024; // 5 Mo, cohérent avec les pièces jointes OT
@@ -2679,6 +2801,19 @@ async function openEquipementsModal() {
 }
 function closeEquipementsModal() {
     document.getElementById('equipementsModalOverlay').classList.remove('active');
+}
+
+/** 🆕 Ouvre la fiche équipement de l'OT actuellement affiché dans le modal de checklist. */
+async function voirFicheEquipementDepuisOT() {
+    if (!currentMateriel) { showNotification('Aucun équipement associé à cet OT.', 'warning'); return; }
+    const materielCible = currentMateriel;
+    closeModal();
+    await openEquipementsModal();
+    if (gmEquipementsIndex[materielCible]) {
+        gmSelectEquipement(materielCible);
+    } else {
+        showNotification('⚠️ Équipement "' + materielCible + '" introuvable dans le registre.', 'warning');
+    }
 }
 </script>
 
@@ -3090,6 +3225,7 @@ function closeEquipementsModal() {
                 Progression : <strong id="progressText">0 / 0</strong> actions
             </div>
             <div>
+                <button class="btn btn-secondary" onclick="voirFicheEquipementDepuisOT()" aria-label="Voir la fiche de cet équipement">🏭 Fiche équipement</button>
                 <button class="btn btn-info" onclick="exportChecklistPDF()" aria-label="Exporter en PDF">📄 Export PDF</button>
                 <button class="btn btn-secondary" onclick="closeModal()" aria-label="Annuler les modifications">Annuler</button>
                 <button class="btn btn-success" onclick="saveChecklist()" aria-label="Enregistrer la check-list">💾 Enregistrer</button>
@@ -3134,6 +3270,7 @@ let currentOT = null;
 let currentKey = null;
 let currentOTDate = null;
 let currentSiteName = '';
+let currentMateriel = ''; // 🆕 code équipement de l'OT actuellement ouvert (pour le lien "Voir la fiche équipement")
 let planningLoaded = false;
 let checklistLoaded = false;
 let mainHeaderText = '';
@@ -4397,9 +4534,11 @@ async function exportSiteJSON() {
     let bucketPourExport = bucket;
     try {
         const otStatesRehydrates = await rehydraterPiecesJointesPourExport(activeSiteKey, bucket.otStates);
-        bucketPourExport = Object.assign({}, bucket, { otStates: otStatesRehydrates });
+        // 🆕 Réhydrate aussi les photos du registre équipement (mêmes principe/limites que les pièces jointes OT).
+        const equipRegistryRehydrate = await gmRehydratePhotosForExport(bucket.equipementsRegistry || {});
+        bucketPourExport = Object.assign({}, bucket, { otStates: otStatesRehydrates, equipementsRegistry: equipRegistryRehydrate });
     } catch (e) {
-        console.warn('⚠️ Réhydratation des pièces jointes échouée, export sans les pièces jointes binaires :', e);
+        console.warn('⚠️ Réhydratation des pièces jointes/photos échouée, export sans les données binaires :', e);
     }
 
     let fileContent;
@@ -4508,6 +4647,21 @@ function importSiteJSON(event) {
                     importedKeys.push(key);
                 });
                 if (importedKeys.length === 0) throw new Error('Fichier multi-sites vide ou invalide');
+
+                // 🆕 Fusionne le registre équipement (fiche/historique/photos) de chaque site importé
+                // dans son espace de stockage local dédié — sans jamais écraser un registre local existant.
+                for (const k of importedKeys) {
+                    const b = sitesLibrary[k];
+                    if (b && b.equipementsRegistry && Object.keys(b.equipementsRegistry).length > 0) {
+                        try {
+                            await gmPersisterPhotosRecues(b.equipementsRegistry);
+                            await gmMergeImportedRegistry(k, b.equipementsRegistry);
+                        } catch (e) {
+                            console.warn('⚠️ Fusion du registre équipements (multi-site) échouée pour', k, e);
+                        }
+                    }
+                }
+
                 refreshSiteSelector();
                 persistSitesIndex();
                 activateSite(importedKeys[0]);
@@ -4571,6 +4725,16 @@ if (parsed && parsed.__archive) {
                 await persisterPiecesJointesRecues(key, bucket.otStates);
             } catch (e) {
                 console.warn('⚠️ Persistance IndexedDB des pièces jointes reçues échouée :', e);
+            }
+            // 🆕 Idem pour le registre équipement (fiche/historique/photos) : fusionné dans son
+            // espace de stockage local dédié, sans jamais écraser un registre local existant.
+            if (bucket.equipementsRegistry && Object.keys(bucket.equipementsRegistry).length > 0) {
+                try {
+                    await gmPersisterPhotosRecues(bucket.equipementsRegistry);
+                    await gmMergeImportedRegistry(key, bucket.equipementsRegistry);
+                } catch (e) {
+                    console.warn('⚠️ Fusion du registre équipements importé échouée :', e);
+                }
             }
             refreshSiteSelector();
             persistSitesIndex();
@@ -5002,6 +5166,7 @@ function openChecklist(otNum, materiel, interventionType, libelle, dateOT) {
     currentOT = otStr;
     currentKey = key;
     currentOTDate = dateOT;
+    currentMateriel = materiel;
     currentSiteName = extractSiteName(mainHeaderText);
     document.getElementById('modalOverlay').classList.add('active');
     document.getElementById('modalTitle').textContent = 'Check-list OT N° ' + otStr;

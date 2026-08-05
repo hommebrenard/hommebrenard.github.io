@@ -2429,6 +2429,17 @@ async function gmMergeImportedRegistry(siteKeyOrText, importedRegistry) {
             }
         });
 
+        // 🩹 CORRECTIF : les pannes (journal correctif) n'étaient jamais fusionnées ici.
+        // Même logique d'union dédoublonnée que pour l'historique et les photos, par id ('pn_...').
+        const existingPanneIds = new Set((existing.pannes || []).map(function(p) { return p.id; }));
+        (incoming.pannes || []).forEach(function(p) {
+            if (p && p.id && !existingPanneIds.has(p.id)) {
+                if (!existing.pannes) existing.pannes = [];
+                existing.pannes.push(p);
+                existingPanneIds.add(p.id);
+            }
+        });
+
         if (new Date(incoming.updatedAt || 0) > new Date(existing.updatedAt || 0)) {
             existing.nom = incoming.nom || existing.nom;
             existing.libelle = incoming.libelle || existing.libelle;

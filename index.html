@@ -1143,6 +1143,11 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
     .ecart-display.negative { background: #ffebee; color: #c62828; border-color: #ef5350; }
     .ecart-display.zero { background: #e8f5e9; color: #2e7d32; border-color: #66bb6a; }
     
+    /* 🆕 Barre "Tout cocher / Tout décocher" (pt.1) */
+    .checklist-bulk-bar { display:flex; gap:8px; margin:4px 0 10px; }
+    .checklist-bulk-bar button { padding:6px 12px; font-size:12px; border-radius:6px; border:1px solid #ccc; cursor:pointer; background:#f5f5f5; }
+    .checklist-bulk-bar .btn-bulk-check:hover { background:#e8f5e9; border-color:#2e7d32; }
+    .checklist-bulk-bar .btn-bulk-uncheck:hover { background:#ffebee; border-color:#c62828; }
     .checklist-table { width: 100%; border-collapse: collapse; }
     .checklist-table th { background: #7030a0; color: white; padding: 10px; font-size: 12px; }
     .checklist-table td { padding: 10px; border: 1px solid #e0e0e0; font-size: 12px; vertical-align: top; }
@@ -3272,6 +3277,11 @@ async function voirFicheEquipementDepuisOT() {
                 </div>
             </div>
             
+            <div class="checklist-bulk-bar" id="checklistBulkBar">
+                <button type="button" class="btn-bulk-check" onclick="gmCheckAllActions(true)" aria-label="Cocher toutes les actions comme faites">✅ Tout cocher</button>
+                <button type="button" class="btn-bulk-uncheck" onclick="gmCheckAllActions(false)" aria-label="Décocher toutes les actions">⬜ Tout décocher</button>
+            </div>
+
             <table class="checklist-table">
                 <thead>
                     <tr>
@@ -5666,6 +5676,21 @@ function toggleAction(idx, actionCode) {
         }
     }
     updateProgress();
+}
+
+// 🆕 pt.1 : Tout cocher / Tout décocher, en réutilisant strictement toggleAction()
+// (aucune logique dupliquée : même mise à jour de otStates, des lignes desktop et des cartes mobiles)
+function gmCheckAllActions(checked) {
+    const data = checklistData[currentKey];
+    if (!data || !data.actions || data.actions.length === 0) return;
+    data.actions.forEach((action, idx) => {
+        const checkbox = document.querySelector('#action-' + idx + ' input[type="checkbox"]');
+        if (!checkbox) return;
+        if (checkbox.checked === checked) return; // déjà dans l'état voulu, on ne touche pas
+        checkbox.checked = checked;
+        toggleAction(idx, action.code);
+    });
+    showNotification(checked ? '✅ Toutes les actions cochées' : '⬜ Toutes les actions décochées');
 }
 
 function saveComment(code, value) { otStates[currentOT].commentaires[code] = value; }

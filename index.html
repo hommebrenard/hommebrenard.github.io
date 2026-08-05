@@ -1912,6 +1912,72 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
     display: flex; gap: 6px; background: #f9fafb; border-radius: 8px;
     padding: 4px; margin-bottom: 15px; width: fit-content;
 }
+/* 🆕 pt.3 Phase A : Calendrier mensuel préventif */
+.gm-cal-header {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+}
+.gm-cal-nav-btn {
+    background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 6px;
+    width: 30px; height: 30px; font-size: 16px; cursor: pointer; color: #4f46e5;
+}
+.gm-cal-nav-btn:hover { background: #e5e7eb; }
+.gm-cal-title { font-size: 15px; font-weight: 700; color: #1f3864; min-width: 160px; text-align: center; }
+.gm-cal-today-btn {
+    margin-left: auto; background: #eef2ff; color: #4f46e5; border: 1px solid #c7d2fe;
+    border-radius: 6px; padding: 5px 12px; font-size: 11px; font-weight: 600; cursor: pointer;
+}
+.gm-cal-today-btn:hover { background: #e0e7ff; }
+.gm-cal-weekdays {
+    display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px;
+    font-size: 11px; font-weight: 700; color: #9ca3af; text-align: center; margin-bottom: 4px;
+}
+.gm-cal-grid {
+    display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px;
+}
+.gm-cal-cell {
+    min-height: 76px; border: 1px solid #e5e7eb; border-radius: 8px; padding: 6px;
+    background: #fff; font-size: 10px; overflow: hidden;
+}
+.gm-cal-cell.gm-cal-empty { background: transparent; border: none; }
+.gm-cal-cell.gm-cal-has-data { cursor: pointer; background: #fafbff; }
+.gm-cal-cell.gm-cal-has-data:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-color: #c7d2fe; }
+.gm-cal-cell.gm-cal-today { border-color: #4f46e5; border-width: 2px; }
+.gm-cal-daynum { font-weight: 700; color: #374151; margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between; }
+.gm-cal-badge { background: #4f46e5; color: white; border-radius: 10px; padding: 1px 6px; font-size: 9px; font-weight: 700; }
+.gm-cal-entry { color: #4b5563; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gm-cal-more { color: #9ca3af; font-style: italic; }
+
+@media (max-width: 640px) {
+    .gm-cal-cell { min-height: 54px; font-size: 9px; }
+    .gm-cal-title { min-width: 120px; font-size: 13px; }
+}
+
+/* Panneau détail du jour (lecture seule + clic vers openChecklist existante) */
+.gm-cal-day-modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+    z-index: 3000; align-items: center; justify-content: center;
+}
+.gm-cal-day-modal-overlay.active { display: flex; }
+.gm-cal-day-modal {
+    background: white; border-radius: 10px; width: 90%; max-width: 420px;
+    max-height: 80vh; display: flex; flex-direction: column; overflow: hidden;
+}
+.gm-cal-day-modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px; border-bottom: 1px solid #e5e7eb; background: #f9fafb;
+}
+.gm-cal-day-modal-body { padding: 10px; overflow-y: auto; }
+.gm-cal-day-row {
+    border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
+    cursor: pointer; transition: all 0.15s;
+}
+.gm-cal-day-row:hover { background: #f5f7ff; border-color: #c7d2fe; }
+.gm-cal-day-row-ot { font-size: 12px; font-weight: 700; color: #1f3864; margin-bottom: 3px; }
+.gm-cal-day-row-materiel { font-size: 11px; color: #4b5563; }
+.gm-cal-day-row-libelle { font-size: 10px; color: #9ca3af; }
+.gm-cal-day-empty { font-size: 12px; color: #9ca3af; text-align: center; padding: 20px; font-style: italic; }
+
+
 .kb-view-btn {
     padding: 7px 16px; border: none; border-radius: 6px; background: transparent;
     color: #6b7280; font-size: 12px; font-weight: 600; cursor: pointer;
@@ -3181,6 +3247,7 @@ async function voirFicheEquipementDepuisOT() {
     <div class="kb-view-toggle" id="kbViewToggle">
         <button type="button" class="kb-view-btn active" id="kbBtnTableau" onclick="switchMainView('tableau')">📋 Tableau</button>
         <button type="button" class="kb-view-btn" id="kbBtnKanban" onclick="switchMainView('kanban')">🗂️ Kanban</button>
+        <button type="button" class="kb-view-btn" id="kbBtnCalendrier" onclick="switchMainView('calendrier')">🗓️ Calendrier</button>
     </div>
 
     <div class="mobile-filter-bar" id="mobileFilterBar">
@@ -3208,6 +3275,8 @@ async function voirFicheEquipementDepuisOT() {
     <div class="mobile-cards-view" id="mobileCardsView"></div>
 
     <div class="kb-board hidden" id="kanbanBoard"></div>
+
+    <div class="gm-cal-board hidden" id="calendarBoard"></div>
 
     <div class="summary-bar">
         <div class="stat-box total"><span class="number" id="statTotal">0</span><span class="label">Total OT</span></div>
@@ -8612,21 +8681,37 @@ function switchMainView(view) {
     const tableContainer = document.querySelector('.table-container');
     const mobileView = document.getElementById('mobileCardsView');
     const kanbanBoard = document.getElementById('kanbanBoard');
+    const calendarBoard = document.getElementById('calendarBoard');
     const btnTableau = document.getElementById('kbBtnTableau');
     const btnKanban = document.getElementById('kbBtnKanban');
+    const btnCalendrier = document.getElementById('kbBtnCalendrier');
     if (view === 'kanban') {
         if (tableContainer) tableContainer.classList.add('hidden');
         if (mobileView) mobileView.classList.add('hidden');
         if (kanbanBoard) kanbanBoard.classList.remove('hidden');
+        if (calendarBoard) calendarBoard.classList.add('hidden');
         if (btnTableau) btnTableau.classList.remove('active');
         if (btnKanban) btnKanban.classList.add('active');
+        if (btnCalendrier) btnCalendrier.classList.remove('active');
         renderKanban();
+    } else if (view === 'calendrier') {
+        // 🆕 pt.3 Phase A : calendrier mensuel mono-site, lecture seule
+        if (tableContainer) tableContainer.classList.add('hidden');
+        if (mobileView) mobileView.classList.add('hidden');
+        if (kanbanBoard) kanbanBoard.classList.add('hidden');
+        if (calendarBoard) calendarBoard.classList.remove('hidden');
+        if (btnTableau) btnTableau.classList.remove('active');
+        if (btnKanban) btnKanban.classList.remove('active');
+        if (btnCalendrier) btnCalendrier.classList.add('active');
+        renderCalendar();
     } else {
         if (tableContainer) tableContainer.classList.remove('hidden');
         if (isMobile() && mobileView) mobileView.classList.remove('hidden');
         if (kanbanBoard) kanbanBoard.classList.add('hidden');
+        if (calendarBoard) calendarBoard.classList.add('hidden');
         if (btnTableau) btnTableau.classList.add('active');
         if (btnKanban) btnKanban.classList.remove('active');
+        if (btnCalendrier) btnCalendrier.classList.remove('active');
     }
 }
 
@@ -8682,6 +8767,157 @@ function renderKanban() {
             <div class="kb-column-body">${cardsHtml}</div>
         </div>`;
     }).join('');
+}
+
+// ============================================================
+// 🆕 pt.3 Phase A : Calendrier mensuel préventif (mono-site, lecture seule)
+// Réutilise planningData/dateColumns déjà chargés pour le site actif,
+// et openChecklist() existante pour l'ouverture d'un OT (aucune nouvelle
+// mécanique d'édition, aucune mutation de otStates depuis ce module).
+// ============================================================
+let calYear = null;
+let calMonth = null; // 0-indexé (0 = Janvier)
+
+function gmBuildCalendarEntries() {
+    const entries = [];
+    planningData.forEach(row => {
+        if (row.type !== 'row') return;
+        row.ots.forEach((ot, otIdx) => {
+            const otStr = String(ot || '').trim();
+            if (!isValidOT(otStr)) return;
+            const dateStr = (window.dateColumns && window.dateColumns[otIdx]) || '';
+            const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(dateStr);
+            if (!m) return;
+            entries.push({
+                ot: otStr,
+                materiel: row.materiel,
+                libelle: row.libelle || '',
+                interventionType: row.interventionType,
+                date: dateStr,
+                day: parseInt(m[1], 10),
+                month: parseInt(m[2], 10) - 1,
+                year: parseInt(m[3], 10)
+            });
+        });
+    });
+    return entries;
+}
+
+function gmCalendarMonthLabel(year, month) {
+    const noms = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+    return noms[month] + ' ' + year;
+}
+
+function gmCalNav(delta) {
+    if (calYear === null || calMonth === null) return;
+    calMonth += delta;
+    if (calMonth < 0) { calMonth = 11; calYear--; }
+    else if (calMonth > 11) { calMonth = 0; calYear++; }
+    renderCalendar();
+}
+
+function gmCalGoToday() {
+    const now = new Date();
+    calYear = now.getFullYear();
+    calMonth = now.getMonth();
+    renderCalendar();
+}
+
+function renderCalendar() {
+    const board = document.getElementById('calendarBoard');
+    if (!board) return;
+    const entries = gmBuildCalendarEntries();
+
+    if (calYear === null || calMonth === null) {
+        const now = new Date();
+        calYear = now.getFullYear();
+        calMonth = now.getMonth();
+        const hasCurrentMonth = entries.some(e => e.year === calYear && e.month === calMonth);
+        if (!hasCurrentMonth && entries.length > 0) {
+            const sorted = entries.slice().sort((a, b) => (a.year - b.year) || (a.month - b.month) || (a.day - b.day));
+            calYear = sorted[0].year;
+            calMonth = sorted[0].month;
+        }
+    }
+
+    const byDay = {};
+    entries.forEach(e => {
+        if (e.year !== calYear || e.month !== calMonth) return;
+        if (!byDay[e.day]) byDay[e.day] = [];
+        byDay[e.day].push(e);
+    });
+
+    const firstOfMonth = new Date(calYear, calMonth, 1);
+    const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+    let startWeekday = firstOfMonth.getDay(); // 0 = dimanche
+    startWeekday = (startWeekday + 6) % 7;    // 0 = lundi
+
+    let cellsHtml = '';
+    for (let i = 0; i < startWeekday; i++) {
+        cellsHtml += '<div class="gm-cal-cell gm-cal-empty"></div>';
+    }
+    const now = new Date();
+    for (let d = 1; d <= daysInMonth; d++) {
+        const dayEntries = byDay[d] || [];
+        const isToday = now.getFullYear() === calYear && now.getMonth() === calMonth && now.getDate() === d;
+        const preview = dayEntries.slice(0, 2).map(e =>
+            '<div class="gm-cal-entry" title="' + escapeAttr(e.materiel + ' - ' + e.libelle) + '">🔧 ' + escapeHtml(e.ot) + '</div>'
+        ).join('');
+        const moreCount = dayEntries.length - 2;
+        const more = moreCount > 0 ? '<div class="gm-cal-more">+' + moreCount + ' autre(s)</div>' : '';
+        const badge = dayEntries.length > 0 ? '<span class="gm-cal-badge">' + dayEntries.length + ' OT</span>' : '';
+        const clickAttr = dayEntries.length > 0 ? ' onclick="gmOpenCalendarDay(' + calYear + ',' + calMonth + ',' + d + ')"' : '';
+        cellsHtml += '<div class="gm-cal-cell' + (isToday ? ' gm-cal-today' : '') + (dayEntries.length ? ' gm-cal-has-data' : '') + '"' + clickAttr + '>' +
+            '<div class="gm-cal-daynum">' + d + badge + '</div>' +
+            preview + more +
+            '</div>';
+    }
+
+    board.innerHTML =
+        '<div class="gm-cal-header">' +
+        '<button type="button" class="gm-cal-nav-btn" onclick="gmCalNav(-1)" aria-label="Mois précédent">‹</button>' +
+        '<div class="gm-cal-title">' + escapeHtml(gmCalendarMonthLabel(calYear, calMonth)) + '</div>' +
+        '<button type="button" class="gm-cal-nav-btn" onclick="gmCalNav(1)" aria-label="Mois suivant">›</button>' +
+        '<button type="button" class="gm-cal-today-btn" onclick="gmCalGoToday()">Aujourd\'hui</button>' +
+        '</div>' +
+        '<div class="gm-cal-weekdays"><div>Lun</div><div>Mar</div><div>Mer</div><div>Jeu</div><div>Ven</div><div>Sam</div><div>Dim</div></div>' +
+        '<div class="gm-cal-grid">' + cellsHtml + '</div>';
+}
+
+function gmOpenCalendarDay(year, month, day) {
+    const entries = gmBuildCalendarEntries().filter(e => e.year === year && e.month === month && e.day === day);
+    const dateLabel = String(day).padStart(2, '0') + '/' + String(month + 1).padStart(2, '0') + '/' + year;
+    const rows = entries.length ? entries.map(e =>
+        '<div class="gm-cal-day-row" onclick="closeCalendarDayModal(); openChecklist(' +
+        escapeAttr(JSON.stringify(e.ot)) + ',' + escapeAttr(JSON.stringify(e.materiel)) + ',' +
+        escapeAttr(JSON.stringify(e.interventionType)) + ',' + escapeAttr(JSON.stringify(e.libelle)) + ',' +
+        escapeAttr(JSON.stringify(e.date)) + ')">' +
+        '<div class="gm-cal-day-row-ot">🔧 OT ' + escapeHtml(e.ot) + '</div>' +
+        '<div class="gm-cal-day-row-materiel">' + escapeHtml(e.materiel) + '</div>' +
+        '<div class="gm-cal-day-row-libelle">' + escapeHtml(e.libelle) + '</div>' +
+        '</div>'
+    ).join('') : '<div class="gm-cal-day-empty">Aucun OT ce jour.</div>';
+
+    let modal = document.getElementById('calDayModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'calDayModal';
+        modal.className = 'gm-cal-day-modal-overlay';
+        modal.onclick = function(ev) { if (ev.target === modal) closeCalendarDayModal(); };
+        document.body.appendChild(modal);
+    }
+    modal.innerHTML =
+        '<div class="gm-cal-day-modal">' +
+        '<div class="gm-cal-day-modal-header"><strong>📅 ' + escapeHtml(dateLabel) + '</strong>' +
+        '<button type="button" class="close-btn" onclick="closeCalendarDayModal()" aria-label="Fermer">×</button></div>' +
+        '<div class="gm-cal-day-modal-body">' + rows + '</div>' +
+        '</div>';
+    modal.classList.add('active');
+}
+
+function closeCalendarDayModal() {
+    const modal = document.getElementById('calDayModal');
+    if (modal) modal.classList.remove('active');
 }
 
 function showNotification(msg, type = 'success') {

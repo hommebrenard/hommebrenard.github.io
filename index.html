@@ -1927,6 +1927,11 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
     border-radius: 6px; padding: 5px 12px; font-size: 11px; font-weight: 600; cursor: pointer;
 }
 .gm-cal-today-btn:hover { background: #e0e7ff; }
+.gm-cal-legend {
+    display: flex; gap: 12px; flex-wrap: wrap; margin: 0 0 8px; font-size: 10px; color: #4b5563;
+}
+.gm-cal-legend span { display: flex; align-items: center; gap: 4px; }
+.gm-cal-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .gm-cal-weekdays {
     display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px;
     font-size: 11px; font-weight: 700; color: #9ca3af; text-align: center; margin-bottom: 4px;
@@ -2091,7 +2096,7 @@ body.mode-prestataire .internal-only {
 
 <!-- 🆕 Sidebar — bloc additif, isolé (préfixe gm-). N'appelle que des fonctions déjà existantes. -->
 <aside class="gm-sidebar" id="gmSidebar">
-    <button class="gm-sidebar-brand" onclick="gmSidebarNavigate('ot', document.getElementById('gmNavOT')); switchMainView('tableau');">
+    <button class="gm-sidebar-brand" onclick="gmSidebarNavigate('ot', document.getElementById('gmNavOT')); switchMainView(kbCurrentView);">
         <span class="gm-sidebar-brand-icon">🔧</span>
         <span class="gm-sidebar-brand-text">
             <strong>GMAO Maintenance</strong>
@@ -2102,7 +2107,7 @@ body.mode-prestataire .internal-only {
     <div class="gm-sidebar-section">
         <div class="gm-sidebar-section-label">Travail</div>
         <button type="button" class="gm-sidebar-item active" id="gmNavOT"
-                onclick="gmSidebarNavigate('ot', this); switchMainView('tableau');">
+                onclick="gmSidebarNavigate('ot', this); switchMainView(kbCurrentView);">
             <span class="gm-sidebar-item-icon">📋</span> Ordres de travail
         </button>
     </div>
@@ -8778,16 +8783,31 @@ function renderKanban() {
 let calYear = null;
 let calMonth = null; // 0-indexé (0 = Janvier)
 
+function gmCalStatusColor(entry) {
+    // 🩹 Correctif pt.2 : indicateur visuel de statut, réutilisant exactement
+    // la même palette que le Kanban existant (aucune nouvelle règle de couleur inventée).
+    if (entry.isNC) return '#9ca3af';       // gris — kb-nc
+    if (entry.status === 'F') return '#10b981';  // vert — kb-fait
+    if (entry.status === 'NF') return '#ef4444'; // rouge — kb-nonfait
+    if (entry.status === 'P') return '#f59e0b';  // orange — kb-partiel
+    return '#2196f3';                       // bleu — kb-pending (en attente)
+}
+
 function gmBuildCalendarEntries() {
     const entries = [];
     planningData.forEach(row => {
         if (row.type !== 'row') return;
         row.ots.forEach((ot, otIdx) => {
             const otStr = String(ot || '').trim();
-            if (!isValidOT(otStr)) return;
+            // 🩹 CORRECTIF pt.1 : on comptait uniquement isValidOT() (excluant les "NC"),
+            // alors que le total officiel de l'app (calculerKPIs(), Kanban, export) compte
+            // aussi les "NC" comme interventions prévues. Même filtre qu'eux : tout ce qui n'est pas vide.
+            if (!otStr) return;
             const dateStr = (window.dateColumns && window.dateColumns[otIdx]) || '';
             const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(dateStr);
             if (!m) return;
+            const nc = isNC(otStr);
+            const state = !nc ? otStates[otStr] : null;
             entries.push({
                 ot: otStr,
                 materiel: row.materiel,
@@ -8796,7 +8816,9 @@ function gmBuildCalendarEntries() {
                 date: dateStr,
                 day: parseInt(m[1], 10),
                 month: parseInt(m[2], 10) - 1,
-                year: parseInt(m[3], 10)
+                year: parseInt(m[3], 10),
+                isNC: nc,
+                status: state && state.status ? state.status : null
             });
         });
     });
@@ -8861,7 +8883,7 @@ function renderCalendar() {
         const dayEntries = byDay[d] || [];
         const isToday = now.getFullYear() === calYear && now.getMonth() === calMonth && now.getDate() === d;
         const preview = dayEntries.slice(0, 2).map(e =>
-            '<div class="gm-cal-entry" title="' + escapeAttr(e.materiel + ' - ' + e.libelle) + '">🔧 ' + escapeHtml(e.ot) + '</div>'
+            '<div class="gm-cal-entry" style="border-left:3px solid ' + gmCalStatusColor(e) + '; padding-left:4px;" title="' + escapeAttr(e.materiel + ' - ' + e.libelle) + '">🔧 ' + escapeHtml(e.ot) + '</div>'
         ).join('');
         const moreCount = dayEntries.length - 2;
         const more = moreCount > 0 ? '<div class="gm-cal-more">+' + moreCount + ' autre(s)</div>' : '';
@@ -8880,6 +8902,13 @@ function renderCalendar() {
         '<button type="button" class="gm-cal-nav-btn" onclick="gmCalNav(1)" aria-label="Mois suivant">›</button>' +
         '<button type="button" class="gm-cal-today-btn" onclick="gmCalGoToday()">Aujourd\'hui</button>' +
         '</div>' +
+        '<div class="gm-cal-legend">' +
+        '<span><i style="background:#2196f3"></i>En attente</span>' +
+        '<span><i style="background:#10b981"></i>Fait</span>' +
+        '<span><i style="background:#f59e0b"></i>Partiel</span>' +
+        '<span><i style="background:#ef4444"></i>Non fait</span>' +
+        '<span><i style="background:#9ca3af"></i>NC</span>' +
+        '</div>' +
         '<div class="gm-cal-weekdays"><div>Lun</div><div>Mar</div><div>Mer</div><div>Jeu</div><div>Ven</div><div>Sam</div><div>Dim</div></div>' +
         '<div class="gm-cal-grid">' + cellsHtml + '</div>';
 }
@@ -8887,16 +8916,20 @@ function renderCalendar() {
 function gmOpenCalendarDay(year, month, day) {
     const entries = gmBuildCalendarEntries().filter(e => e.year === year && e.month === month && e.day === day);
     const dateLabel = String(day).padStart(2, '0') + '/' + String(month + 1).padStart(2, '0') + '/' + year;
-    const rows = entries.length ? entries.map(e =>
-        '<div class="gm-cal-day-row" onclick="closeCalendarDayModal(); openChecklist(' +
-        escapeAttr(JSON.stringify(e.ot)) + ',' + escapeAttr(JSON.stringify(e.materiel)) + ',' +
-        escapeAttr(JSON.stringify(e.interventionType)) + ',' + escapeAttr(JSON.stringify(e.libelle)) + ',' +
-        escapeAttr(JSON.stringify(e.date)) + ')">' +
-        '<div class="gm-cal-day-row-ot">🔧 OT ' + escapeHtml(e.ot) + '</div>' +
-        '<div class="gm-cal-day-row-materiel">' + escapeHtml(e.materiel) + '</div>' +
-        '<div class="gm-cal-day-row-libelle">' + escapeHtml(e.libelle) + '</div>' +
-        '</div>'
-    ).join('') : '<div class="gm-cal-day-empty">Aucun OT ce jour.</div>';
+    const rows = entries.length ? entries.map(e => {
+        const color = gmCalStatusColor(e);
+        const clickHandler = e.isNC
+            ? 'closeCalendarDayModal(); showNCMessage();'
+            : 'closeCalendarDayModal(); openChecklist(' +
+              escapeAttr(JSON.stringify(e.ot)) + ',' + escapeAttr(JSON.stringify(e.materiel)) + ',' +
+              escapeAttr(JSON.stringify(e.interventionType)) + ',' + escapeAttr(JSON.stringify(e.libelle)) + ',' +
+              escapeAttr(JSON.stringify(e.date)) + ');';
+        return '<div class="gm-cal-day-row" style="border-left:4px solid ' + color + ';" onclick="' + clickHandler + '">' +
+            '<div class="gm-cal-day-row-ot">🔧 OT ' + escapeHtml(e.ot) + '</div>' +
+            '<div class="gm-cal-day-row-materiel">' + escapeHtml(e.materiel) + '</div>' +
+            '<div class="gm-cal-day-row-libelle">' + escapeHtml(e.libelle) + '</div>' +
+            '</div>';
+    }).join('') : '<div class="gm-cal-day-empty">Aucun OT ce jour.</div>';
 
     let modal = document.getElementById('calDayModal');
     if (!modal) {

@@ -1927,11 +1927,14 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
     border-radius: 6px; padding: 5px 12px; font-size: 11px; font-weight: 600; cursor: pointer;
 }
 .gm-cal-today-btn:hover { background: #e0e7ff; }
-.gm-cal-legend {
-    display: flex; gap: 12px; flex-wrap: wrap; margin: 0 0 8px; font-size: 10px; color: #4b5563;
-}
+.gm-cal-legend { display: flex; gap: 12px; flex-wrap: wrap; margin: 0 0 8px; font-size: 10px; color: #4b5563; }
 .gm-cal-legend span { display: flex; align-items: center; gap: 4px; }
 .gm-cal-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+/* 🩹 Correctif bug 1 : mini barre d'indicateurs propre au mois affiché dans le calendrier */
+.gm-cal-stats-bar { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
+.gm-cal-stats-bar .stat-box { padding: 8px 10px; min-width: 72px; border-radius: 8px; text-align: center; }
+.gm-cal-stats-bar .stat-box .number { font-size: 17px; }
+.gm-cal-stats-bar .stat-box .label { font-size: 9px; }
 .gm-cal-weekdays {
     display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px;
     font-size: 11px; font-weight: 700; color: #9ca3af; text-align: center; margin-bottom: 4px;
@@ -5342,6 +5345,7 @@ function renderPlanning() {
     renderMobileCardsView();
     updateStats();
     if (typeof kbRefreshIfActive === 'function') kbRefreshIfActive();
+    if (typeof gmCalRefreshIfActive === 'function') gmCalRefreshIfActive();
 }
 
 function setupPlanningTableEvents() {
@@ -8783,6 +8787,17 @@ function renderKanban() {
 let calYear = null;
 let calMonth = null; // 0-indexé (0 = Janvier)
 
+// 🩹 CORRECTIF (bug 2) : quand un nouveau site/mois est chargé (activateSite() -> renderPlanning()),
+// le calendrier restait figé sur l'ancien mois affiché. Même mécanisme que kbRefreshIfActive() déjà
+// existant pour le Kanban : on réinitialise calYear/calMonth pour que renderCalendar() re-détecte
+// automatiquement le bon mois (celui du nouveau site actif), et on rafraîchit immédiatement si la
+// vue Calendrier est active à ce moment-là.
+function gmCalRefreshIfActive() {
+    calYear = null;
+    calMonth = null;
+    if (kbCurrentView === 'calendrier') renderCalendar();
+}
+
 function gmCalStatusColor(entry) {
     // 🩹 Correctif pt.2 : indicateur visuel de statut, réutilisant exactement
     // la même palette que le Kanban existant (aucune nouvelle règle de couleur inventée).
@@ -8863,11 +8878,18 @@ function renderCalendar() {
     }
 
     const byDay = {};
+    let calStatFait = 0, calStatNonFait = 0, calStatPartiel = 0, calStatEncours = 0, calStatNC = 0;
     entries.forEach(e => {
         if (e.year !== calYear || e.month !== calMonth) return;
         if (!byDay[e.day]) byDay[e.day] = [];
         byDay[e.day].push(e);
+        if (e.isNC) calStatNC++;
+        else if (e.status === 'F') calStatFait++;
+        else if (e.status === 'NF') calStatNonFait++;
+        else if (e.status === 'P') calStatPartiel++;
+        else calStatEncours++;
     });
+    const calStatTotal = calStatFait + calStatNonFait + calStatPartiel + calStatEncours + calStatNC;
 
     const firstOfMonth = new Date(calYear, calMonth, 1);
     const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
@@ -8908,6 +8930,18 @@ function renderCalendar() {
         '<span><i style="background:#f59e0b"></i>Partiel</span>' +
         '<span><i style="background:#ef4444"></i>Non fait</span>' +
         '<span><i style="background:#9ca3af"></i>NC</span>' +
+        '</div>' +
+        // 🩹 CORRECTIF (bug 1) : indicateurs propres au MOIS AFFICHÉ dans le calendrier,
+        // distincts de la barre globale du bas (qui reste inchangée, calculée sur tout le fichier
+        // chargé, pour Tableau/Kanban). Ici on recalcule à chaque rendu à partir des entrées du
+        // mois actuellement visible, donc ça varie bien avec la navigation du calendrier.
+        '<div class="gm-cal-stats-bar">' +
+        '<div class="stat-box total"><span class="number">' + calStatTotal + '</span><span class="label">Total OT (mois)</span></div>' +
+        '<div class="stat-box fait"><span class="number">' + calStatFait + '</span><span class="label">Faits</span></div>' +
+        '<div class="stat-box partiel"><span class="number">' + calStatPartiel + '</span><span class="label">Partiels</span></div>' +
+        '<div class="stat-box nonfait"><span class="number">' + calStatNonFait + '</span><span class="label">Non Faits</span></div>' +
+        '<div class="stat-box encours"><span class="number">' + calStatEncours + '</span><span class="label">En attente</span></div>' +
+        '<div class="stat-box nc-box"><span class="number">' + calStatNC + '</span><span class="label">NC</span></div>' +
         '</div>' +
         '<div class="gm-cal-weekdays"><div>Lun</div><div>Mar</div><div>Mer</div><div>Jeu</div><div>Ven</div><div>Sam</div><div>Dim</div></div>' +
         '<div class="gm-cal-grid">' + cellsHtml + '</div>';

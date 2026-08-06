@@ -3286,7 +3286,7 @@ async function voirFicheEquipementDepuisOT() {
 
     <div class="gm-cal-board hidden" id="calendarBoard"></div>
 
-    <div class="summary-bar">
+    <div class="summary-bar" id="globalSummaryBar">
         <div class="stat-box total"><span class="number" id="statTotal">0</span><span class="label">Total OT</span></div>
         <div class="stat-box fait"><span class="number" id="statFait">0</span><span class="label">Faits</span></div>
         <div class="stat-box partiel"><span class="number" id="statPartiel">0</span><span class="label">Partiels</span></div>
@@ -8694,11 +8694,18 @@ function switchMainView(view) {
     const btnTableau = document.getElementById('kbBtnTableau');
     const btnKanban = document.getElementById('kbBtnKanban');
     const btnCalendrier = document.getElementById('kbBtnCalendrier');
+    // 🩹 CORRECTIF : la barre globale du bas (tout le fichier chargé) et la mini-barre du
+    // calendrier (mois affiché) montraient deux totaux différents en même temps, source de
+    // confusion. On masque simplement la barre globale pendant la vue Calendrier — elle est
+    // déjà couverte par la mini-barre du calendrier — et on la réaffiche sur Tableau/Kanban,
+    // sans toucher à son calcul (aucun risque pour ces deux vues).
+    const globalSummaryBar = document.getElementById('globalSummaryBar');
     if (view === 'kanban') {
         if (tableContainer) tableContainer.classList.add('hidden');
         if (mobileView) mobileView.classList.add('hidden');
         if (kanbanBoard) kanbanBoard.classList.remove('hidden');
         if (calendarBoard) calendarBoard.classList.add('hidden');
+        if (globalSummaryBar) globalSummaryBar.classList.remove('hidden');
         if (btnTableau) btnTableau.classList.remove('active');
         if (btnKanban) btnKanban.classList.add('active');
         if (btnCalendrier) btnCalendrier.classList.remove('active');
@@ -8709,6 +8716,7 @@ function switchMainView(view) {
         if (mobileView) mobileView.classList.add('hidden');
         if (kanbanBoard) kanbanBoard.classList.add('hidden');
         if (calendarBoard) calendarBoard.classList.remove('hidden');
+        if (globalSummaryBar) globalSummaryBar.classList.add('hidden');
         if (btnTableau) btnTableau.classList.remove('active');
         if (btnKanban) btnKanban.classList.remove('active');
         if (btnCalendrier) btnCalendrier.classList.add('active');
@@ -8718,6 +8726,7 @@ function switchMainView(view) {
         if (isMobile() && mobileView) mobileView.classList.remove('hidden');
         if (kanbanBoard) kanbanBoard.classList.add('hidden');
         if (calendarBoard) calendarBoard.classList.add('hidden');
+        if (globalSummaryBar) globalSummaryBar.classList.remove('hidden');
         if (btnTableau) btnTableau.classList.add('active');
         if (btnKanban) btnKanban.classList.remove('active');
         if (btnCalendrier) btnCalendrier.classList.remove('active');

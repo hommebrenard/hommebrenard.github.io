@@ -1927,6 +1927,39 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
     border-radius: 6px; padding: 5px 12px; font-size: 11px; font-weight: 600; cursor: pointer;
 }
 .gm-cal-today-btn:hover { background: #e0e7ff; }
+/* 🆕 Phase B : vue annuelle */
+.gm-cal-mode-toggle { display: flex; gap: 4px; margin-left: 8px; background: #f3f4f6; border-radius: 6px; padding: 2px; }
+.gm-cal-mode-toggle button {
+    border: none; background: transparent; padding: 4px 10px; font-size: 11px; font-weight: 600;
+    border-radius: 5px; cursor: pointer; color: #6b7280;
+}
+.gm-cal-mode-toggle button.active { background: #4f46e5; color: white; }
+.gm-cal-year-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+}
+@media (max-width: 900px) { .gm-cal-year-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 480px) { .gm-cal-year-grid { grid-template-columns: 1fr; } }
+.gm-cal-year-month {
+    border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; background: #fff;
+}
+.gm-cal-year-month-header {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 12px; font-weight: 700; color: #1f3864; margin-bottom: 6px; cursor: pointer;
+}
+.gm-cal-year-month-header:hover { color: #4f46e5; }
+.gm-cal-year-month-total {
+    background: #eef2ff; color: #4f46e5; border-radius: 8px; padding: 1px 6px; font-size: 10px; font-weight: 700;
+}
+.gm-cal-year-mini-grid {
+    display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px;
+}
+.gm-cal-mini-day, .gm-cal-mini-empty {
+    width: 100%; aspect-ratio: 1; border-radius: 2px; background: #f3f4f6;
+}
+.gm-cal-mini-empty { background: transparent; }
+.gm-cal-mini-has-data { cursor: pointer; }
+.gm-cal-mini-has-data:hover { outline: 2px solid #1f3864; outline-offset: 1px; }
+
 .gm-cal-legend { display: flex; gap: 12px; flex-wrap: wrap; margin: 0 0 8px; font-size: 10px; color: #4b5563; }
 .gm-cal-legend span { display: flex; align-items: center; gap: 4px; }
 .gm-cal-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
@@ -8795,6 +8828,8 @@ function renderKanban() {
 // ============================================================
 let calYear = null;
 let calMonth = null; // 0-indexé (0 = Janvier)
+let gmCalMode = 'mois'; // 🆕 Phase B : 'mois' | 'annee'
+let calYearView = null; // 🆕 Phase B : année affichée en mode "Année"
 
 // 🩹 CORRECTIF (bug 2) : quand un nouveau site/mois est chargé (activateSite() -> renderPlanning()),
 // le calendrier restait figé sur l'ancien mois affiché. Même mécanisme que kbRefreshIfActive() déjà
@@ -8804,6 +8839,7 @@ let calMonth = null; // 0-indexé (0 = Janvier)
 function gmCalRefreshIfActive() {
     calYear = null;
     calMonth = null;
+    calYearView = null; // 🆕 Phase B : re-détecter aussi l'année à afficher
     if (kbCurrentView === 'calendrier') renderCalendar();
 }
 
@@ -8872,6 +8908,7 @@ function gmCalGoToday() {
 function renderCalendar() {
     const board = document.getElementById('calendarBoard');
     if (!board) return;
+    if (gmCalMode === 'annee') { renderCalendarYearView(board); return; } // 🆕 Phase B
     const entries = gmBuildCalendarEntries();
 
     if (calYear === null || calMonth === null) {
@@ -8932,6 +8969,7 @@ function renderCalendar() {
         '<div class="gm-cal-title">' + escapeHtml(gmCalendarMonthLabel(calYear, calMonth)) + '</div>' +
         '<button type="button" class="gm-cal-nav-btn" onclick="gmCalNav(1)" aria-label="Mois suivant">›</button>' +
         '<button type="button" class="gm-cal-today-btn" onclick="gmCalGoToday()">Aujourd\'hui</button>' +
+        gmCalModeToggleHtml() +
         '</div>' +
         '<div class="gm-cal-legend">' +
         '<span><i style="background:#2196f3"></i>En attente</span>' +
@@ -8989,6 +9027,242 @@ function gmOpenCalendarDay(year, month, day) {
         '<div class="gm-cal-day-modal-body">' + rows + '</div>' +
         '</div>';
     modal.classList.add('active');
+}
+
+// ============================================================
+// 🆕 Phase B : Vue annuelle — agrège tous les mois déjà importés (sitesLibrary)
+// pour le MÊME site physique, sans jamais changer le site actif juste pour l'affichage.
+// Réutilise strictement : slugifySiteName(), activateSite(), openChecklist(), showNCMessage(),
+// gmCalStatusColor(), le panneau #calDayModal déjà existant. Aucune nouvelle mécanique de données.
+// ============================================================
+
+function gmCalModeToggleHtml() {
+    return '<div class="gm-cal-mode-toggle">' +
+        '<button type="button" class="' + (gmCalMode === 'mois' ? 'active' : '') + '" onclick="gmCalSetMode(\'mois\')">Mois</button>' +
+        '<button type="button" class="' + (gmCalMode === 'annee' ? 'active' : '') + '" onclick="gmCalSetMode(\'annee\')">Année</button>' +
+        '</div>';
+}
+
+function gmCalSetMode(mode) {
+    gmCalMode = mode;
+    renderCalendar();
+}
+
+const GM_MOIS_FR_NORM = ['JANVIER', 'FEVRIER', 'MARS', 'AVRIL', 'MAI', 'JUIN', 'JUILLET', 'AOUT', 'SEPTEMBRE', 'OCTOBRE', 'NOVEMBRE', 'DECEMBRE'];
+
+/** Réduit un libellé de site (ex: "AG Type A KENITRA Mai 2026") à une clé de regroupement
+ *  ignorant le mois/l'année, en réutilisant la normalisation déjà éprouvée de slugifySiteName(). */
+function gmBaseSiteKey(label) {
+    let s = slugifySiteName(label);
+    GM_MOIS_FR_NORM.forEach(function(mo) {
+        s = s.replace(new RegExp('\\b' + mo + '\\b', 'g'), ' ');
+    });
+    s = s.replace(/\b(19|20)\d{2}\b/g, ' ');
+    return s.replace(/\s+/g, ' ').trim();
+}
+
+/** Construit les entrées d'une année complète pour tous les buckets sitesLibrary du même site
+ *  physique. Pour le site ACTUELLEMENT actif, lit les variables globales en direct (données à
+ *  jour) ; pour les autres, lit le bucket sauvegardé (dernière synchro connue). */
+function gmBuildYearEntries(baseKey, year) {
+    const entries = [];
+    Object.keys(sitesLibrary || {}).forEach(function(key) {
+        const bucket = sitesLibrary[key];
+        if (!bucket) return;
+        const isActive = (key === activeSiteKey);
+        const pData = isActive ? planningData : bucket.planningData;
+        const dCols = isActive ? window.dateColumns : bucket.dateColumns;
+        const oStates = isActive ? otStates : (bucket.otStates || {});
+        if (!pData || !dCols) return;
+        const label = bucket.label || key;
+        if (gmBaseSiteKey(label) !== baseKey) return;
+        pData.forEach(function(row) {
+            if (row.type !== 'row') return;
+            row.ots.forEach(function(ot, otIdx) {
+                const otStr = String(ot || '').trim();
+                if (!otStr) return;
+                const dateStr = dCols[otIdx] || '';
+                const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(dateStr);
+                if (!m) return;
+                const y = parseInt(m[3], 10);
+                if (y !== year) return;
+                const nc = isNC(otStr);
+                const state = !nc ? oStates[otStr] : null;
+                entries.push({
+                    ot: otStr,
+                    materiel: row.materiel,
+                    libelle: row.libelle || '',
+                    interventionType: row.interventionType,
+                    date: dateStr,
+                    day: parseInt(m[1], 10),
+                    month: parseInt(m[2], 10) - 1,
+                    year: y,
+                    isNC: nc,
+                    status: state && state.status ? state.status : null,
+                    siteKey: key
+                });
+            });
+        });
+    });
+    return entries;
+}
+
+function gmCalCurrentBaseSiteLabel() {
+    return (activeSiteKey && sitesLibrary[activeSiteKey]) ? sitesLibrary[activeSiteKey].label : (currentSiteName || '');
+}
+
+function gmCalYearNav(delta) {
+    if (calYearView === null) return;
+    calYearView += delta;
+    renderCalendar();
+}
+
+function gmCalYearGoToday() {
+    calYearView = new Date().getFullYear();
+    renderCalendar();
+}
+
+/** Ouvre le mois précis directement depuis un clic sur un mois de la vue annuelle. */
+function gmCalJumpToMonth(year, month) {
+    calYear = year;
+    calMonth = month;
+    gmCalSetMode('mois');
+}
+
+function renderCalendarYearView(board) {
+    const currentLabel = gmCalCurrentBaseSiteLabel();
+    const baseKey = gmBaseSiteKey(currentLabel);
+
+    if (calYearView === null) {
+        const now = new Date();
+        calYearView = now.getFullYear();
+        const probe = gmBuildYearEntries(baseKey, calYearView);
+        if (probe.length === 0) {
+            const candidateYears = [];
+            Object.keys(sitesLibrary || {}).forEach(function(key) {
+                const bucket = sitesLibrary[key];
+                if (!bucket) return;
+                const isActive = (key === activeSiteKey);
+                const dCols = isActive ? window.dateColumns : bucket.dateColumns;
+                const label = bucket.label || key;
+                if (!dCols || gmBaseSiteKey(label) !== baseKey) return;
+                dCols.forEach(function(d) {
+                    const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(d);
+                    if (m) candidateYears.push(parseInt(m[3], 10));
+                });
+            });
+            if (candidateYears.length > 0) calYearView = Math.min.apply(null, candidateYears);
+        }
+    }
+
+    const entries = gmBuildYearEntries(baseKey, calYearView);
+    const moisNoms = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+
+    let monthsHtml = '';
+    for (let mo = 0; mo < 12; mo++) {
+        const moEntries = entries.filter(function(e) { return e.month === mo; });
+        const total = moEntries.length;
+        const byDay = {};
+        moEntries.forEach(function(e) {
+            if (!byDay[e.day]) byDay[e.day] = [];
+            byDay[e.day].push(e);
+        });
+
+        const daysInMonth = new Date(calYearView, mo + 1, 0).getDate();
+        const firstOfMonth = new Date(calYearView, mo, 1);
+        const startWeekday = (firstOfMonth.getDay() + 6) % 7;
+
+        let miniCells = '';
+        for (let i = 0; i < startWeekday; i++) miniCells += '<span class="gm-cal-mini-empty"></span>';
+        for (let d = 1; d <= daysInMonth; d++) {
+            const dayEntries = byDay[d] || [];
+            if (dayEntries.length === 0) {
+                miniCells += '<span class="gm-cal-mini-day"></span>';
+            } else {
+                let color = '#2196f3';
+                if (dayEntries.some(function(e) { return e.status === 'NF'; })) color = '#ef4444';
+                else if (dayEntries.some(function(e) { return e.status === 'P'; })) color = '#f59e0b';
+                else if (dayEntries.every(function(e) { return e.isNC; })) color = '#9ca3af';
+                else if (dayEntries.every(function(e) { return e.status === 'F'; })) color = '#10b981';
+                miniCells += '<span class="gm-cal-mini-day gm-cal-mini-has-data" style="background:' + color + ';" ' +
+                    'onclick="gmOpenYearDay(' + calYearView + ',' + mo + ',' + d + ')" ' +
+                    'title="' + escapeAttr(d + ' ' + moisNoms[mo] + ' — ' + dayEntries.length + ' OT') + '"></span>';
+            }
+        }
+
+        monthsHtml += '<div class="gm-cal-year-month">' +
+            '<div class="gm-cal-year-month-header" onclick="gmCalJumpToMonth(' + calYearView + ',' + mo + ')" title="Voir ce mois en détail">' +
+            moisNoms[mo] + '<span class="gm-cal-year-month-total">' + total + '</span></div>' +
+            '<div class="gm-cal-year-mini-grid">' + miniCells + '</div>' +
+            '</div>';
+    }
+
+    board.innerHTML =
+        '<div class="gm-cal-header">' +
+        '<button type="button" class="gm-cal-nav-btn" onclick="gmCalYearNav(-1)" aria-label="Année précédente">‹</button>' +
+        '<div class="gm-cal-title">' + escapeHtml(String(calYearView)) + (currentLabel ? ' — ' + escapeHtml(currentLabel) : '') + '</div>' +
+        '<button type="button" class="gm-cal-nav-btn" onclick="gmCalYearNav(1)" aria-label="Année suivante">›</button>' +
+        '<button type="button" class="gm-cal-today-btn" onclick="gmCalYearGoToday()">Aujourd\'hui</button>' +
+        gmCalModeToggleHtml() +
+        '</div>' +
+        '<div class="gm-cal-legend">' +
+        '<span><i style="background:#2196f3"></i>En attente</span>' +
+        '<span><i style="background:#10b981"></i>Fait</span>' +
+        '<span><i style="background:#f59e0b"></i>Partiel</span>' +
+        '<span><i style="background:#ef4444"></i>Non fait</span>' +
+        '<span><i style="background:#9ca3af"></i>NC</span>' +
+        '</div>' +
+        '<div class="gm-cal-year-grid">' + monthsHtml + '</div>';
+}
+
+/** Panneau jour pour la vue annuelle — identique dans l'esprit à gmOpenCalendarDay(), mais les
+ *  entrées peuvent provenir de sites (mois) différents du site actif. */
+function gmOpenYearDay(year, month, day) {
+    const currentLabel = gmCalCurrentBaseSiteLabel();
+    const baseKey = gmBaseSiteKey(currentLabel);
+    const entries = gmBuildYearEntries(baseKey, year).filter(function(e) { return e.month === month && e.day === day; });
+    const dateLabel = String(day).padStart(2, '0') + '/' + String(month + 1).padStart(2, '0') + '/' + year;
+
+    const rows = entries.length ? entries.map(function(e) {
+        const color = gmCalStatusColor(e);
+        const clickHandler = e.isNC
+            ? 'closeCalendarDayModal(); showNCMessage();'
+            : 'closeCalendarDayModal(); gmOpenOtFromYearView(' +
+              escapeAttr(JSON.stringify(e.siteKey)) + ',' + escapeAttr(JSON.stringify(e.ot)) + ',' +
+              escapeAttr(JSON.stringify(e.materiel)) + ',' + escapeAttr(JSON.stringify(e.interventionType)) + ',' +
+              escapeAttr(JSON.stringify(e.libelle)) + ',' + escapeAttr(JSON.stringify(e.date)) + ');';
+        return '<div class="gm-cal-day-row" style="border-left:4px solid ' + color + ';" onclick="' + clickHandler + '">' +
+            '<div class="gm-cal-day-row-ot">🔧 OT ' + escapeHtml(e.ot) + '</div>' +
+            '<div class="gm-cal-day-row-materiel">' + escapeHtml(e.materiel) + '</div>' +
+            '<div class="gm-cal-day-row-libelle">' + escapeHtml(e.libelle) + '</div>' +
+            '</div>';
+    }).join('') : '<div class="gm-cal-day-empty">Aucun OT ce jour.</div>';
+
+    let modal = document.getElementById('calDayModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'calDayModal';
+        modal.className = 'gm-cal-day-modal-overlay';
+        modal.onclick = function(ev) { if (ev.target === modal) closeCalendarDayModal(); };
+        document.body.appendChild(modal);
+    }
+    modal.innerHTML =
+        '<div class="gm-cal-day-modal">' +
+        '<div class="gm-cal-day-modal-header"><strong>📅 ' + escapeHtml(dateLabel) + '</strong>' +
+        '<button type="button" class="close-btn" onclick="closeCalendarDayModal()" aria-label="Fermer">×</button></div>' +
+        '<div class="gm-cal-day-modal-body">' + rows + '</div>' +
+        '</div>';
+    modal.classList.add('active');
+}
+
+/** Ouvre un OT appartenant potentiellement à un AUTRE mois (bucket) que le site actif :
+ *  bascule d'abord proprement via activateSite() existante (sauvegarde le site en cours),
+ *  puis ouvre la fiche normalement — aucune nouvelle mécanique d'édition. */
+function gmOpenOtFromYearView(siteKey, ot, materiel, interventionType, libelle, date) {
+    if (siteKey && siteKey !== activeSiteKey) {
+        activateSite(siteKey);
+    }
+    openChecklist(ot, materiel, interventionType, libelle, date);
 }
 
 function closeCalendarDayModal() {

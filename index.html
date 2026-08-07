@@ -3514,6 +3514,7 @@ let equipementsRegistry = {}; // 🆕 { idInterne: { id, nom, libelle, aliases:[
 let currentOT = null;
 let currentKey = null;
 let currentOTDate = null;
+let currentEffectiveActions = []; // 🆕 Phase 1 : liste d'actions calculée pour l'OT actuellement ouvert (gamme + ajouts − suppressions propres à cet OT)
 let currentSiteName = '';
 let currentMateriel = ''; // 🆕 code équipement de l'OT actuellement ouvert (pour le lien "Voir la fiche équipement")
 let planningLoaded = false;
@@ -3708,13 +3709,37 @@ function filterMobileCards() {
     });
 }
 
+// ============================================================
+// 🆕 Chantier "Actions de gamme par OT" — Phase 1 (fondation)
+// Calcule la liste d'actions EFFECTIVE pour un OT précis : gamme partagée (checklistData[clé])
+// + ajouts propres à cet OT − suppressions propres à cet OT. Ne modifie JAMAIS checklistData
+// (la gamme reste intacte et partagée par tous les mois de cet équipement, comme avant).
+// Tant qu'aucun OT n'a d'ajout/suppression enregistrée (otStates[ot].actionsAjoutees /
+// actionsSupprimeesCodes vides ou absents), le résultat est STRICTEMENT identique à
+// checklistData[clé].actions — zéro changement de comportement pour l'existant.
+// ============================================================
+function gmComputeEffectiveActions(cle, otStr) {
+    const template = (checklistData[cle] && checklistData[cle].actions) || [];
+    const state = otStates[otStr] || {};
+    const removed = new Set(state.actionsSupprimeesCodes || []);
+    const added = state.actionsAjoutees || [];
+    const base = removed.size > 0 ? template.filter(a => !removed.has(a.code)) : template;
+    return added.length > 0 ? base.concat(added) : base;
+}
+
+/** Verrouillage des actions d'un OT : même règle que validationAdmin (déjà existante) —
+ *  figé dès que le prestataire a signé, pour préserver l'intégrité de l'audit. */
+function gmActionsVerrouillees(otStr) {
+    return !!(otStates[otStr] && otStates[otStr].electronicSignatureData);
+}
+
 function renderChecklistMobileCards() {
     const container = document.getElementById('checklistMobileCards');
     container.innerHTML = '';
     const data = checklistData[currentKey];
     if (!data) return;
     
-    data.actions.forEach((action, idx) => {
+    currentEffectiveActions.forEach((action, idx) => {
         const isChecked = otStates[currentOT].actions[action.code] || false;
         const comment = otStates[currentOT].commentaires[action.code] || '';
         const card = document.createElement('div');
@@ -5448,6 +5473,10 @@ if (otStates[otStr].dateFin === undefined) otStates[otStr].dateFin = '';
 if (otStates[otStr].signature === undefined) otStates[otStr].signature = '';
 if (otStates[otStr].site === undefined) otStates[otStr].site = currentSiteName;
 if (otStates[otStr].validationAdmin === undefined) otStates[otStr].validationAdmin = false;
+// 🆕 Phase 1 (fondation) : structure des ajouts/suppressions d'actions propres à cet OT
+if (!otStates[otStr].actionsAjoutees) otStates[otStr].actionsAjoutees = [];
+if (!otStates[otStr].actionsSupprimeesCodes) otStates[otStr].actionsSupprimeesCodes = [];
+currentEffectiveActions = gmComputeEffectiveActions(currentKey, otStr);
 const chkValidationAdmin = document.getElementById('chkValidationAdmin');
 const aDejaSigne = !!(otStates[otStr].electronicSignatureData);
 if (chkValidationAdmin) {
@@ -5474,7 +5503,7 @@ updateValidationAdminLabel(otStates[otStr].validationAdmin);
     
     const tbody = document.getElementById('checklistBody');
     tbody.innerHTML = '';
-    data.actions.forEach((action, idx) => {
+    currentEffectiveActions.forEach((action, idx) => {
         const isChecked = otStates[otStr].actions[action.code] || false;
         const comment = otStates[otStr].commentaires[action.code] || '';
         const tr = document.createElement('tr');
@@ -5792,9 +5821,8 @@ function toggleAction(idx, actionCode) {
 // 🆕 pt.1 : Tout cocher / Tout décocher, en réutilisant strictement toggleAction()
 // (aucune logique dupliquée : même mise à jour de otStates, des lignes desktop et des cartes mobiles)
 function gmCheckAllActions(checked) {
-    const data = checklistData[currentKey];
-    if (!data || !data.actions || data.actions.length === 0) return;
-    data.actions.forEach((action, idx) => {
+    if (!currentEffectiveActions || currentEffectiveActions.length === 0) return;
+    currentEffectiveActions.forEach((action, idx) => {
         const checkbox = document.querySelector('#action-' + idx + ' input[type="checkbox"]');
         if (!checkbox) return;
         if (checkbox.checked === checked) return; // déjà dans l'état voulu, on ne touche pas
@@ -5807,9 +5835,8 @@ function gmCheckAllActions(checked) {
 function saveComment(code, value) { otStates[currentOT].commentaires[code] = value; }
 
 function updateProgress() {
-    const data = checklistData[currentKey];
-    const total = data.actions.length;
-    const done = data.actions.filter(a => otStates[currentOT].actions[a.code]).length;
+    const total = currentEffectiveActions.length;
+    const done = currentEffectiveActions.filter(a => otStates[currentOT].actions[a.code]).length;
     document.getElementById('progressText').textContent = done + ' / ' + total;
 }
 
@@ -7480,9 +7507,8 @@ function closeAnomaliesModal() {
 function saveChecklist() {
     const techName = document.getElementById('techName').value.trim();
     if (!techName) { showNotification('⚠️ Veuillez renseigner le nom du technicien', 'warning'); return; }
-    const data = checklistData[currentKey];
-    const total = data.actions.length;
-    const done = data.actions.filter(a => otStates[currentOT].actions[a.code]).length;
+    const total = currentEffectiveActions.length;
+    const done = currentEffectiveActions.filter(a => otStates[currentOT].actions[a.code]).length;
     otStates[currentOT].technicien = techName;
     otStates[currentOT].site = document.getElementById('site').value;
     otStates[currentOT].dateDebut = document.getElementById('dateDebut').value;
@@ -7838,7 +7864,7 @@ function exportChecklistPDF() {
     }
     const statusText = state.status === 'F' ? 'FAIT' : state.status === 'NF' ? 'NON FAIT' : state.status === 'P' ? 'PARTIEL' : 'N/A';
     doc.text('Statut : ' + statusText, 14, y); y += 8;
-    const rows = data.actions.map(a => [state.actions[a.code] ? 'OK' : 'NOK', a.code, a.desc, state.commentaires[a.code] || '']);
+    const rows = currentEffectiveActions.map(a => [state.actions[a.code] ? 'OK' : 'NOK', a.code, a.desc, state.commentaires[a.code] || '']);
     doc.autoTable({
         startY: y,
         head: [['Fait', 'Code', 'Description', 'Commentaire']],

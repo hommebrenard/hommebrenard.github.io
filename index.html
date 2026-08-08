@@ -8990,12 +8990,19 @@ function gmCalGoToday() {
     renderCalendar();
 }
 
+// 🩹 Correctif : la vue Mois (mono-site) n'affichait que "Avril 2026" sans le nom du site,
+// contrairement à la vue Année qui affiche désormais "2026 — OT AG Type B SAFI". On aligne
+// les deux vues en réutilisant gmCalCurrentBaseSiteLabel() + gmBaseSiteDisplayLabel() déjà
+// créées pour la vue Année (aucune nouvelle mécanique, juste une réutilisation).
+function gmCalMonthViewSiteSuffix() {
+    return gmBaseSiteDisplayLabel(gmCalCurrentBaseSiteLabel());
+}
+
 function renderCalendar() {
     const board = document.getElementById('calendarBoard');
     if (!board) return;
     if (gmCalMode === 'annee') { renderCalendarYearView(board); return; } // 🆕 Phase B
     const entries = gmBuildCalendarEntries();
-
     if (calYear === null || calMonth === null) {
         const now = new Date();
         calYear = now.getFullYear();
@@ -9051,7 +9058,7 @@ function renderCalendar() {
     board.innerHTML =
         '<div class="gm-cal-header">' +
         '<button type="button" class="gm-cal-nav-btn" onclick="gmCalNav(-1)" aria-label="Mois précédent">‹</button>' +
-        '<div class="gm-cal-title">' + escapeHtml(gmCalendarMonthLabel(calYear, calMonth)) + '</div>' +
+        '<div class="gm-cal-title">' + escapeHtml(gmCalendarMonthLabel(calYear, calMonth) + (gmCalMonthViewSiteSuffix() ? ' — ' + gmCalMonthViewSiteSuffix() : '')) + '</div>' +
         '<button type="button" class="gm-cal-nav-btn" onclick="gmCalNav(1)" aria-label="Mois suivant">›</button>' +
         '<button type="button" class="gm-cal-today-btn" onclick="gmCalGoToday()">Aujourd\'hui</button>' +
         gmCalModeToggleHtml() +

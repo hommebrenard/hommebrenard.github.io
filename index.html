@@ -1940,14 +1940,18 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
 @media (max-width: 900px) { .gm-cal-year-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 480px) { .gm-cal-year-grid { grid-template-columns: 1fr; } }
 .gm-cal-year-month {
-    border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; background: #fff;
+    border: 1px solid #e5e7eb; border-radius: 10px; background: #fff;
+    display: flex; flex-direction: column; overflow: hidden;
 }
 .gm-cal-year-month-header {
-    display: flex; align-items: center; justify-content: space-between;
-    font-size: 12px; font-weight: 700; color: #1f3864; margin-bottom: 6px; cursor: pointer;
+    display: flex; align-items: center; justify-content: space-between; gap: 6px;
+    font-size: 12px; font-weight: 700; color: #1f3864; padding: 10px 10px 8px;
 }
-.gm-cal-year-month-header:hover { color: #4f46e5; }
+.gm-cal-year-month-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: #2563eb; flex-shrink: 0; margin-right: 4px;
+}
 .gm-cal-year-month-total {
+    /* conservée pour compatibilité (non supprimée), non utilisée par le nouveau rendu */
     background: #eef2ff; color: #4f46e5; border-radius: 8px; padding: 1px 6px; font-size: 10px; font-weight: 700;
 }
 .gm-cal-year-mini-grid {
@@ -1958,25 +1962,49 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
 }
 .gm-cal-mini-empty { background: transparent; }
 .gm-cal-mini-has-data { cursor: pointer; }
-/* 🆕 Refonte vue annuelle : format liste par mois */
-.gm-cal-year-month-name { flex: 1; }
-.gm-cal-year-month-badges { display: flex; gap: 4px; align-items: center; }
+/* 🆕 Refonte vue annuelle v2 : cartes compactes à hauteur fixe, liste scrollable interne */
+.gm-cal-year-month-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gm-cal-year-open-btn {
+    border: 1px solid #c7d2fe; background: #eef2ff; color: #4f46e5; font-size: 10px; font-weight: 700;
+    padding: 3px 9px; border-radius: 6px; cursor: pointer; flex-shrink: 0; white-space: nowrap;
+}
+.gm-cal-year-open-btn:hover { background: #e0e7ff; }
+.gm-cal-year-month-badges { display: flex; gap: 6px; align-items: center; padding: 0 10px 8px; }
 .gm-cal-year-badge-total {
-    background: #eef2ff; color: #4f46e5; border-radius: 8px; padding: 1px 6px; font-size: 10px; font-weight: 700;
+    background: #f3f4f6; color: #374151; border-radius: 6px; padding: 3px 8px; font-size: 10px; font-weight: 700;
 }
 .gm-cal-year-badge-todo {
-    background: #fef3c7; color: #b45309; border-radius: 8px; padding: 1px 6px; font-size: 10px; font-weight: 700;
+    background: #fef3c7; color: #b45309; border-radius: 6px; padding: 3px 8px; font-size: 10px; font-weight: 700;
 }
-.gm-cal-year-ot-list { display: flex; flex-direction: column; gap: 4px; }
+.gm-cal-year-ot-list {
+    display: flex; flex-direction: column; gap: 6px;
+    max-height: 220px; overflow-y: auto; padding: 0 8px 10px;
+    scrollbar-width: thin; scrollbar-color: #c7d2fe #f3f4f6;
+}
+.gm-cal-year-ot-list::-webkit-scrollbar { width: 7px; }
+.gm-cal-year-ot-list::-webkit-scrollbar-track { background: #f3f4f6; border-radius: 4px; }
+.gm-cal-year-ot-list::-webkit-scrollbar-thumb { background: #c7d2fe; border-radius: 4px; }
+.gm-cal-year-ot-list::-webkit-scrollbar-thumb:hover { background: #a5b4fc; }
 .gm-cal-year-ot-row {
-    display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 4px;
-    background: #f9fafb; cursor: pointer; font-size: 11px;
+    border: 1px solid #e5e7eb; border-left-width: 3px; border-radius: 6px;
+    padding: 6px 8px; cursor: pointer; background: #fff;
 }
-.gm-cal-year-ot-row:hover { background: #f3f4f6; }
-.gm-cal-year-ot-date { color: #6b7280; font-weight: 600; flex-shrink: 0; }
-.gm-cal-year-ot-num { font-weight: 700; color: #1f3864; flex-shrink: 0; }
-.gm-cal-year-ot-libelle { color: #374151; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gm-cal-year-ot-empty { color: #9ca3af; font-size: 11px; font-style: italic; padding: 4px 6px; }
+.gm-cal-year-ot-row:hover { background: #f9fafb; }
+.gm-cal-year-ot-toprow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 3px; }
+.gm-cal-year-ot-num {
+    background: #eef2ff; color: #4f46e5; font-size: 10px; font-weight: 700;
+    padding: 1px 6px; border-radius: 4px; flex-shrink: 0;
+}
+.gm-cal-year-ot-date { color: #6b7280; font-size: 10px; display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; }
+.gm-cal-year-ot-status {
+    font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 4px; margin-left: auto; flex-shrink: 0;
+}
+.gm-cal-year-ot-libelle {
+    color: #374151; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gm-cal-year-ot-empty {
+    color: #9ca3af; font-size: 11px; font-style: italic; text-align: center; padding: 28px 10px;
+}
 .gm-cal-mini-has-data:hover { outline: 2px solid #1f3864; outline-offset: 1px; }
 
 .gm-cal-legend { display: flex; gap: 12px; flex-wrap: wrap; margin: 0 0 8px; font-size: 10px; color: #4b5563; }
@@ -8898,6 +8926,18 @@ function gmCalStatusColor(entry) {
     return '#2196f3';                       // bleu — kb-pending (en attente)
 }
 
+// 🆕 Refonte vue annuelle v2 : libellé + couleurs de la pastille de statut affichée sur
+// chaque ligne d'OT compacte. Réutilise gmCalStatusColor() pour la cohérence des couleurs
+// (aucune nouvelle règle de couleur inventée), n'ajoute que le libellé texte + une teinte
+// de fond claire assortie pour la pastille.
+function gmCalYearStatusMeta(entry) {
+    if (entry.isNC) return { label: 'NC', bg: '#f3f4f6', fg: '#6b7280' };
+    if (entry.status === 'F') return { label: 'Fait', bg: '#d1fae5', fg: '#047857' };
+    if (entry.status === 'NF') return { label: 'Non fait', bg: '#fee2e2', fg: '#b91c1c' };
+    if (entry.status === 'P') return { label: 'Partiel', bg: '#fef3c7', fg: '#b45309' };
+    return { label: 'Ouvert', bg: '#dbeafe', fg: '#1d4ed8' };
+}
+
 function gmBuildCalendarEntries() {
     const entries = [];
     planningData.forEach(row => {
@@ -9203,12 +9243,14 @@ function renderCalendarYearView(board) {
     const entries = gmBuildYearEntries(baseKey, calYearView);
     const moisNoms = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 
-    // 🆕 Refonte : format liste par mois (remplace l'ancienne mini-grille de points,
-    // jugée peu lisible). Chaque mois affiche une carte "Total / à faire" suivie de la
-    // liste des OT du mois, cliquables directement — sans passer par un panneau-jour
-    // intermédiaire. Réutilise strictement gmCalStatusColor(), showNCMessage() et
-    // gmOpenOtFromYearView() déjà existants. gmOpenYearDay() et la mini-grille restent
-    // en place (non supprimées) mais ne sont plus appelées depuis cette vue.
+    // 🆕 Refonte v2 : cartes compactes à hauteur fixe (comme demandé), avec liste d'OT
+    // scrollable en interne (curseur de navigation natif via .gm-cal-year-ot-list) plutôt
+    // que des cartes qui grandissent indéfiniment. Bouton "Ouvrir le mois" dédié (au lieu
+    // d'un en-tête entièrement cliquable). Chaque ligne d'OT montre : badge numéro OT,
+    // date courte avec icône, pastille de statut coloré, puis le libellé en dessous.
+    // Réutilise strictement gmCalStatusColor()/gmCalYearStatusMeta(), showNCMessage() et
+    // gmOpenOtFromYearView() déjà existants. gmOpenYearDay() et la mini-grille restent en
+    // place (non supprimées) mais ne sont plus appelées depuis cette vue.
     let monthsHtml = '';
     for (let mo = 0; mo < 12; mo++) {
         const moEntries = entries
@@ -9220,27 +9262,34 @@ function renderCalendarYearView(board) {
 
         const rowsHtml = moEntries.length ? moEntries.map(function(e) {
             const color = gmCalStatusColor(e);
+            const statusMeta = gmCalYearStatusMeta(e);
             const clickHandler = e.isNC
                 ? 'showNCMessage()'
                 : 'gmOpenOtFromYearView(' +
                   escapeAttr(JSON.stringify(e.siteKey)) + ',' + escapeAttr(JSON.stringify(e.ot)) + ',' +
                   escapeAttr(JSON.stringify(e.materiel)) + ',' + escapeAttr(JSON.stringify(e.interventionType)) + ',' +
                   escapeAttr(JSON.stringify(e.libelle)) + ',' + escapeAttr(JSON.stringify(e.date)) + ')';
-            const dateShort = String(e.day).padStart(2, '0') + '/' + String(mo + 1).padStart(2, '0');
-            return '<div class="gm-cal-year-ot-row" style="border-left:4px solid ' + color + ';" onclick="' + clickHandler + '">' +
-                '<span class="gm-cal-year-ot-date">' + dateShort + '</span>' +
-                '<span class="gm-cal-year-ot-num">🔧 OT ' + escapeHtml(e.ot) + '</span>' +
-                '<span class="gm-cal-year-ot-libelle">' + escapeHtml(e.libelle) + '</span>' +
+            const dateShort = String(e.day).padStart(2, '0') + ' ' + moisNoms[mo].slice(0, 3).toLowerCase() + '.';
+            return '<div class="gm-cal-year-ot-row" style="border-left-color:' + color + ';" onclick="' + clickHandler + '">' +
+                '<div class="gm-cal-year-ot-toprow">' +
+                '<span class="gm-cal-year-ot-num">OT-' + escapeHtml(e.ot) + '</span>' +
+                '<span class="gm-cal-year-ot-date">📅 ' + escapeHtml(dateShort) + '</span>' +
+                '<span class="gm-cal-year-ot-status" style="background:' + statusMeta.bg + ';color:' + statusMeta.fg + ';">' + statusMeta.label + '</span>' +
+                '</div>' +
+                '<div class="gm-cal-year-ot-libelle">' + escapeHtml(e.libelle) + '</div>' +
                 '</div>';
-        }).join('') : '<div class="gm-cal-year-ot-empty">Aucun OT</div>';
+        }).join('') : '<div class="gm-cal-year-ot-empty">Aucun OT planifié</div>';
 
         monthsHtml += '<div class="gm-cal-year-month">' +
-            '<div class="gm-cal-year-month-header" onclick="gmCalJumpToMonth(' + calYearView + ',' + mo + ')" title="Voir ce mois en détail">' +
-            '<span class="gm-cal-year-month-name">' + moisNoms[mo] + '</span>' +
-            '<span class="gm-cal-year-month-badges">' +
-            '<span class="gm-cal-year-badge-total">Total ' + total + '</span>' +
+            '<div class="gm-cal-year-month-header">' +
+            '<span class="gm-cal-year-month-dot"></span>' +
+            '<span class="gm-cal-year-month-name">' + moisNoms[mo] + ' ' + calYearView + '</span>' +
+            '<button type="button" class="gm-cal-year-open-btn" onclick="gmCalJumpToMonth(' + calYearView + ',' + mo + ')">Ouvrir le mois</button>' +
+            '</div>' +
+            '<div class="gm-cal-year-month-badges">' +
+            '<span class="gm-cal-year-badge-total">Total: ' + total + '</span>' +
             (todo > 0 ? '<span class="gm-cal-year-badge-todo">' + todo + ' à faire</span>' : '') +
-            '</span></div>' +
+            '</div>' +
             '<div class="gm-cal-year-ot-list">' + rowsHtml + '</div>' +
             '</div>';
     }

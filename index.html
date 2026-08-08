@@ -1958,6 +1958,25 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
 }
 .gm-cal-mini-empty { background: transparent; }
 .gm-cal-mini-has-data { cursor: pointer; }
+/* 🆕 Refonte vue annuelle : format liste par mois */
+.gm-cal-year-month-name { flex: 1; }
+.gm-cal-year-month-badges { display: flex; gap: 4px; align-items: center; }
+.gm-cal-year-badge-total {
+    background: #eef2ff; color: #4f46e5; border-radius: 8px; padding: 1px 6px; font-size: 10px; font-weight: 700;
+}
+.gm-cal-year-badge-todo {
+    background: #fef3c7; color: #b45309; border-radius: 8px; padding: 1px 6px; font-size: 10px; font-weight: 700;
+}
+.gm-cal-year-ot-list { display: flex; flex-direction: column; gap: 4px; }
+.gm-cal-year-ot-row {
+    display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 4px;
+    background: #f9fafb; cursor: pointer; font-size: 11px;
+}
+.gm-cal-year-ot-row:hover { background: #f3f4f6; }
+.gm-cal-year-ot-date { color: #6b7280; font-weight: 600; flex-shrink: 0; }
+.gm-cal-year-ot-num { font-weight: 700; color: #1f3864; flex-shrink: 0; }
+.gm-cal-year-ot-libelle { color: #374151; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gm-cal-year-ot-empty { color: #9ca3af; font-size: 11px; font-style: italic; padding: 4px 6px; }
 .gm-cal-mini-has-data:hover { outline: 2px solid #1f3864; outline-offset: 1px; }
 
 .gm-cal-legend { display: flex; gap: 12px; flex-wrap: wrap; margin: 0 0 8px; font-size: 10px; color: #4b5563; }
@@ -9184,42 +9203,45 @@ function renderCalendarYearView(board) {
     const entries = gmBuildYearEntries(baseKey, calYearView);
     const moisNoms = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 
+    // 🆕 Refonte : format liste par mois (remplace l'ancienne mini-grille de points,
+    // jugée peu lisible). Chaque mois affiche une carte "Total / à faire" suivie de la
+    // liste des OT du mois, cliquables directement — sans passer par un panneau-jour
+    // intermédiaire. Réutilise strictement gmCalStatusColor(), showNCMessage() et
+    // gmOpenOtFromYearView() déjà existants. gmOpenYearDay() et la mini-grille restent
+    // en place (non supprimées) mais ne sont plus appelées depuis cette vue.
     let monthsHtml = '';
     for (let mo = 0; mo < 12; mo++) {
-        const moEntries = entries.filter(function(e) { return e.month === mo; });
+        const moEntries = entries
+            .filter(function(e) { return e.month === mo; })
+            .slice()
+            .sort(function(a, b) { return a.day - b.day; });
         const total = moEntries.length;
-        const byDay = {};
-        moEntries.forEach(function(e) {
-            if (!byDay[e.day]) byDay[e.day] = [];
-            byDay[e.day].push(e);
-        });
+        const todo = moEntries.filter(function(e) { return !e.isNC && e.status !== 'F'; }).length;
 
-        const daysInMonth = new Date(calYearView, mo + 1, 0).getDate();
-        const firstOfMonth = new Date(calYearView, mo, 1);
-        const startWeekday = (firstOfMonth.getDay() + 6) % 7;
-
-        let miniCells = '';
-        for (let i = 0; i < startWeekday; i++) miniCells += '<span class="gm-cal-mini-empty"></span>';
-        for (let d = 1; d <= daysInMonth; d++) {
-            const dayEntries = byDay[d] || [];
-            if (dayEntries.length === 0) {
-                miniCells += '<span class="gm-cal-mini-day"></span>';
-            } else {
-                let color = '#2196f3';
-                if (dayEntries.some(function(e) { return e.status === 'NF'; })) color = '#ef4444';
-                else if (dayEntries.some(function(e) { return e.status === 'P'; })) color = '#f59e0b';
-                else if (dayEntries.every(function(e) { return e.isNC; })) color = '#9ca3af';
-                else if (dayEntries.every(function(e) { return e.status === 'F'; })) color = '#10b981';
-                miniCells += '<span class="gm-cal-mini-day gm-cal-mini-has-data" style="background:' + color + ';" ' +
-                    'onclick="gmOpenYearDay(' + calYearView + ',' + mo + ',' + d + ')" ' +
-                    'title="' + escapeAttr(d + ' ' + moisNoms[mo] + ' — ' + dayEntries.length + ' OT') + '"></span>';
-            }
-        }
+        const rowsHtml = moEntries.length ? moEntries.map(function(e) {
+            const color = gmCalStatusColor(e);
+            const clickHandler = e.isNC
+                ? 'showNCMessage()'
+                : 'gmOpenOtFromYearView(' +
+                  escapeAttr(JSON.stringify(e.siteKey)) + ',' + escapeAttr(JSON.stringify(e.ot)) + ',' +
+                  escapeAttr(JSON.stringify(e.materiel)) + ',' + escapeAttr(JSON.stringify(e.interventionType)) + ',' +
+                  escapeAttr(JSON.stringify(e.libelle)) + ',' + escapeAttr(JSON.stringify(e.date)) + ')';
+            const dateShort = String(e.day).padStart(2, '0') + '/' + String(mo + 1).padStart(2, '0');
+            return '<div class="gm-cal-year-ot-row" style="border-left:4px solid ' + color + ';" onclick="' + clickHandler + '">' +
+                '<span class="gm-cal-year-ot-date">' + dateShort + '</span>' +
+                '<span class="gm-cal-year-ot-num">🔧 OT ' + escapeHtml(e.ot) + '</span>' +
+                '<span class="gm-cal-year-ot-libelle">' + escapeHtml(e.libelle) + '</span>' +
+                '</div>';
+        }).join('') : '<div class="gm-cal-year-ot-empty">Aucun OT</div>';
 
         monthsHtml += '<div class="gm-cal-year-month">' +
             '<div class="gm-cal-year-month-header" onclick="gmCalJumpToMonth(' + calYearView + ',' + mo + ')" title="Voir ce mois en détail">' +
-            moisNoms[mo] + '<span class="gm-cal-year-month-total">' + total + '</span></div>' +
-            '<div class="gm-cal-year-mini-grid">' + miniCells + '</div>' +
+            '<span class="gm-cal-year-month-name">' + moisNoms[mo] + '</span>' +
+            '<span class="gm-cal-year-month-badges">' +
+            '<span class="gm-cal-year-badge-total">Total ' + total + '</span>' +
+            (todo > 0 ? '<span class="gm-cal-year-badge-todo">' + todo + ' à faire</span>' : '') +
+            '</span></div>' +
+            '<div class="gm-cal-year-ot-list">' + rowsHtml + '</div>' +
             '</div>';
     }
 

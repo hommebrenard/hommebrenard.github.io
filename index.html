@@ -9146,6 +9146,33 @@ function gmBaseSiteKey(label) {
     return s.replace(/\s+/g, ' ').trim();
 }
 
+// 🩹 Correctif : titre de la vue annuelle affichant le mois/l'année du fichier actif au lieu
+// du nom générique du site (ex: "OT AG Type B SAFI Avril 2026 Converti" alors que la vue
+// agrège plusieurs mois, et parfois même une année différente de celle affichée). Cette liste
+// couvre les variantes avec/sans accent rencontrées dans les noms de fichiers réels.
+const GM_MOIS_FR_DISPLAY_VARIANTS = [
+    ['Janvier'], ['Février', 'Fevrier'], ['Mars'], ['Avril'], ['Mai'], ['Juin'], ['Juillet'],
+    ['Août', 'Aout'], ['Septembre'], ['Octobre'], ['Novembre'], ['Décembre', 'Decembre']
+];
+
+/** Libellé du site "de base", pour AFFICHAGE humain uniquement (ex: titre de la vue annuelle) :
+ *  retire le mois, l'année, et les suffixes de fichier bruités ("Converti", "Copie", etc.) d'un
+ *  libellé de bucket sitesLibrary, sans toucher à la casse du reste — contrairement à
+ *  gmBaseSiteKey()/slugifySiteName(), qui produisent une clé technique tout-majuscules destinée
+ *  uniquement à faire correspondre les buckets entre eux, jamais à être affichée telle quelle. */
+function gmBaseSiteDisplayLabel(label) {
+    let s = String(label || '').replace(/\.(xlsx|xls)$/i, '').replace(/[_\-]+/g, ' ');
+    GM_MOIS_FR_DISPLAY_VARIANTS.forEach(function(variants) {
+        variants.forEach(function(v) {
+            s = s.replace(new RegExp('\\b' + v + '\\b', 'gi'), ' ');
+        });
+    });
+    s = s.replace(/\b(19|20)\d{2}\b/g, ' ');
+    s = s.replace(/\b(converti|convert|copie|copy|final)\b/gi, ' ');
+    s = s.replace(/\bv\d+\b/gi, ' ');
+    return s.replace(/\s+/g, ' ').trim();
+}
+
 /** Construit les entrées d'une année complète pour tous les buckets sitesLibrary du même site
  *  physique. Pour le site ACTUELLEMENT actif, lit les variables globales en direct (données à
  *  jour) ; pour les autres, lit le bucket sauvegardé (dernière synchro connue). */
@@ -9217,6 +9244,10 @@ function gmCalJumpToMonth(year, month) {
 function renderCalendarYearView(board) {
     const currentLabel = gmCalCurrentBaseSiteLabel();
     const baseKey = gmBaseSiteKey(currentLabel);
+    // 🩹 Correctif : le titre affiché doit être le nom générique du site (sans mois/année
+    // spécifiques au fichier actif), puisque la vue agrège potentiellement plusieurs mois —
+    // et parfois une année différente de celle affichée dans le sélecteur d'année.
+    const displayLabel = gmBaseSiteDisplayLabel(currentLabel);
 
     if (calYearView === null) {
         const now = new Date();
@@ -9297,7 +9328,7 @@ function renderCalendarYearView(board) {
     board.innerHTML =
         '<div class="gm-cal-header">' +
         '<button type="button" class="gm-cal-nav-btn" onclick="gmCalYearNav(-1)" aria-label="Année précédente">‹</button>' +
-        '<div class="gm-cal-title">' + escapeHtml(String(calYearView)) + (currentLabel ? ' — ' + escapeHtml(currentLabel) : '') + '</div>' +
+        '<div class="gm-cal-title">' + escapeHtml(String(calYearView)) + (displayLabel ? ' — ' + escapeHtml(displayLabel) : '') + '</div>' +
         '<button type="button" class="gm-cal-nav-btn" onclick="gmCalYearNav(1)" aria-label="Année suivante">›</button>' +
         '<button type="button" class="gm-cal-today-btn" onclick="gmCalYearGoToday()">Aujourd\'hui</button>' +
         gmCalModeToggleHtml() +

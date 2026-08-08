@@ -1144,10 +1144,21 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
     .ecart-display.zero { background: #e8f5e9; color: #2e7d32; border-color: #66bb6a; }
     
     /* 🆕 Barre "Tout cocher / Tout décocher" (pt.1) */
-    .checklist-bulk-bar { display:flex; gap:8px; margin:4px 0 10px; }
+    .checklist-bulk-bar { display:flex; gap:8px; margin:4px 0 10px; flex-wrap: wrap; }
     .checklist-bulk-bar button { padding:6px 12px; font-size:12px; border-radius:6px; border:1px solid #ccc; cursor:pointer; background:#f5f5f5; }
     .checklist-bulk-bar .btn-bulk-check:hover { background:#e8f5e9; border-color:#2e7d32; }
     .checklist-bulk-bar .btn-bulk-uncheck:hover { background:#ffebee; border-color:#c62828; }
+    /* 🆕 Phase 2 (actions de gamme par OT) : bouton "+ Ajouter une action", propre à l'OT
+       courant, jamais sur la gamme partagée. Style aligné sur checklist-bulk-bar existant. */
+    .checklist-bulk-bar .btn-add-action {
+        background: #eef2ff; border-color: #c7d2fe; color: #4338ca; font-weight: 600; margin-left: auto;
+    }
+    .checklist-bulk-bar .btn-add-action:hover { background: #e0e7ff; border-color: #a5b4fc; }
+    .action-row-ot-added { background: #fafaff; }
+    .gm-ot-added-badge {
+        display: inline-block; background: #eef2ff; color: #4338ca; font-size: 9px; font-weight: 700;
+        border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle;
+    }
     .checklist-table { width: 100%; border-collapse: collapse; }
     .checklist-table th { background: #7030a0; color: white; padding: 10px; font-size: 12px; }
     .checklist-table td { padding: 10px; border: 1px solid #e0e0e0; font-size: 12px; vertical-align: top; }
@@ -3437,6 +3448,7 @@ async function voirFicheEquipementDepuisOT() {
             <div class="checklist-bulk-bar" id="checklistBulkBar">
                 <button type="button" class="btn-bulk-check" onclick="gmCheckAllActions(true)" aria-label="Cocher toutes les actions comme faites">✅ Tout cocher</button>
                 <button type="button" class="btn-bulk-uncheck" onclick="gmCheckAllActions(false)" aria-label="Décocher toutes les actions">⬜ Tout décocher</button>
+                <button type="button" class="btn-add-action" id="btnAddAction" onclick="gmAddActionForCurrentOt()" aria-label="Ajouter une action propre à cet OT">➕ Ajouter une action</button>
             </div>
 
             <table class="checklist-table">
@@ -3771,7 +3783,13 @@ function gmComputeEffectiveActions(cle, otStr) {
     const removed = new Set(state.actionsSupprimeesCodes || []);
     const added = state.actionsAjoutees || [];
     const base = removed.size > 0 ? template.filter(a => !removed.has(a.code)) : template;
-    return added.length > 0 ? base.concat(added) : base;
+    if (added.length === 0) return base;
+    // 🆕 Phase 2 : marque chaque action ajoutée avec _addedByOt (copie superficielle — ne
+    // touche JAMAIS l'objet persisté dans otStates[...].actionsAjoutees) pour permettre à
+    // l'affichage de la distinguer visuellement de la gamme partagée, sans rien changer au
+    // format sérialisé (export/import restent inchangés).
+    const addedMarked = added.map(function(a) { return Object.assign({}, a, { _addedByOt: true }); });
+    return base.concat(addedMarked);
 }
 
 /** Verrouillage des actions d'un OT : même règle que validationAdmin (déjà existante) —
@@ -3780,8 +3798,52 @@ function gmActionsVerrouillees(otStr) {
     return !!(otStates[otStr] && otStates[otStr].electronicSignatureData);
 }
 
+// ============================================================
+// 🆕 Chantier "Actions de gamme par OT" — Phase 2 : "+ Ajouter une action"
+// Ajoute une action PROPRE à l'OT courant, jamais sur la gamme partagée (checklistData
+// reste intact). Verrouillé par gmActionsVerrouillees() (même règle que validationAdmin).
+// Réutilise gmComputeEffectiveActions() (Phase 1) et gmRenderChecklistTableBody() (extraite
+// de openChecklist() sans changement de comportement) pour rafraîchir l'affichage.
+// ============================================================
+
+/** Génère un code d'action qui ne collisionne jamais avec la gamme partagée ni avec les
+ *  ajouts déjà présents sur cet OT. Préfixe "OT-ADD-" pour rester visuellement reconnaissable
+ *  comme un ajout propre à l'OT (distinct des codes de gamme, ex: "A1", "C3"...). */
+function gmGenerateOtActionCode(cle, existingAdded) {
+    const template = (checklistData[cle] && checklistData[cle].actions) || [];
+    const usedCodes = new Set(template.map(function(a) { return a.code; })
+        .concat((existingAdded || []).map(function(a) { return a.code; })));
+    let n = (existingAdded || []).length + 1;
+    let code = 'OT-ADD-' + n;
+    while (usedCodes.has(code)) { n++; code = 'OT-ADD-' + n; }
+    return code;
+}
+
+function gmAddActionForCurrentOt() {
+    if (!currentOT || !otStates[currentOT]) return;
+    if (gmActionsVerrouillees(currentOT)) {
+        showNotification('Cet OT est signé : impossible d\'ajouter une action.', 'warning');
+        return;
+    }
+    const desc = String(prompt('Description de la nouvelle action (propre à cet OT uniquement, n\'affecte pas la gamme partagée) :') || '').trim();
+    if (!desc) return;
+
+    if (!otStates[currentOT].actionsAjoutees) otStates[currentOT].actionsAjoutees = [];
+    const code = gmGenerateOtActionCode(currentKey, otStates[currentOT].actionsAjoutees);
+    otStates[currentOT].actionsAjoutees.push({ code: code, desc: desc });
+    if (!otStates[currentOT].actions) otStates[currentOT].actions = {};
+    if (!otStates[currentOT].commentaires) otStates[currentOT].commentaires = {};
+
+    currentEffectiveActions = gmComputeEffectiveActions(currentKey, currentOT);
+    gmRenderChecklistTableBody();
+    renderChecklistMobileCards();
+    updateProgress();
+    showNotification('✅ Action ajoutée pour cet OT (' + code + ').', 'success');
+}
+
 function renderChecklistMobileCards() {
     const container = document.getElementById('checklistMobileCards');
+
     container.innerHTML = '';
     const data = checklistData[currentKey];
     if (!data) return;
@@ -3790,11 +3852,12 @@ function renderChecklistMobileCards() {
         const isChecked = otStates[currentOT].actions[action.code] || false;
         const comment = otStates[currentOT].commentaires[action.code] || '';
         const card = document.createElement('div');
-        card.className = 'checklist-mobile-card ' + (isChecked ? 'checked' : 'unchecked');
+        card.className = 'checklist-mobile-card ' + (isChecked ? 'checked' : 'unchecked') + (action._addedByOt ? ' action-row-ot-added' : '');
         card.id = 'mcard-' + idx;
+        const addedBadgeMobile = action._addedByOt ? '<span class="gm-ot-added-badge" title="Action propre à cet OT, absente de la gamme partagée">🆕 Ajout OT</span>' : '';
         card.innerHTML = `
             <div class="checklist-card-header">
-                <span class="checklist-card-code">${escapeHtml(action.code)}</span>
+                <span class="checklist-card-code">${escapeHtml(action.code)}${addedBadgeMobile}</span>
                 <label class="checklist-card-check" for="mcheck-${idx}">
                     <input type="checkbox" id="mcheck-${idx}" name="mcheck-${idx}" ${isChecked ? 'checked' : ''} 
                            onchange="toggleActionMobile(${idx}, ${escapeAttr(JSON.stringify(action.code))})" 
@@ -5482,6 +5545,30 @@ function setupPlanningTableEvents() {
 
 function showNCMessage() { showNotification('Cet OT est marqué "NC" (Non Communiqué)', 'warning'); }
 
+/** Reconstruit le tableau desktop de la checklist (tbody #checklistBody) à partir de
+ *  currentEffectiveActions/currentOT. Extrait de openChecklist() sans changement de
+ *  comportement pour l'existant, afin d'être réutilisable après ajout/modification/
+ *  suppression d'une action OT (Phases 2-4) sans dupliquer cette logique. Ajoute uniquement
+ *  un badge visuel "🆕 Ajout OT" sur les lignes marquées _addedByOt par
+ *  gmComputeEffectiveActions() (Phase 2) — n'affecte pas les lignes de la gamme partagée. */
+function gmRenderChecklistTableBody() {
+    const otStr = currentOT;
+    const tbody = document.getElementById('checklistBody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    currentEffectiveActions.forEach((action, idx) => {
+        const isChecked = otStates[otStr].actions[action.code] || false;
+        const comment = otStates[otStr].commentaires[action.code] || '';
+        const tr = document.createElement('tr');
+        tr.className = 'action-row ' + (isChecked ? 'checked' : 'unchecked') + (action._addedByOt ? ' action-row-ot-added' : '');
+        tr.id = 'action-' + idx;
+        const descEscaped = escapeAttr(action.desc);
+        const addedBadge = action._addedByOt ? '<span class="gm-ot-added-badge" title="Action propre à cet OT, absente de la gamme partagée">🆕 Ajout OT</span>' : '';
+        tr.innerHTML = '<td class="check-cell"><input type="checkbox" id="check-' + idx + '" name="check-' + idx + '" ' + (isChecked ? 'checked' : '') + ' onchange="toggleAction(' + idx + ', ' + escapeAttr(JSON.stringify(action.code)) + ')" aria-label="Marquer comme fait : ' + descEscaped + '"></td><td><label for="check-' + idx + '">' + escapeHtml(action.desc) + addedBadge + '</label></td><td style="text-align:center;"><code>' + escapeHtml(action.code) + '</code></td><td><label for="comment-' + idx + '" style="display:none;">Commentaire</label><textarea class="comment-input" id="comment-' + idx + '" name="comment-' + idx + '" placeholder="Commentaire..." onchange="saveComment(' + escapeAttr(JSON.stringify(action.code)) + ', this.value)" aria-label="Commentaire pour : ' + descEscaped + '">' + escapeHtml(comment) + '</textarea></td><td class="status-cell" id="status-' + idx + '">' + (isChecked ? '<span style="color:#2e7d32;">FAIT</span>' : '<span style="color:#c62828;">NON FAIT</span>') + '</td>';
+        tbody.appendChild(tr);
+    });
+}
+
 function openChecklist(otNum, materiel, interventionType, libelle, dateOT) {
     materiel = String(materiel || '').trim();
     interventionType = String(interventionType || '').trim();
@@ -5548,19 +5635,10 @@ updateValidationAdminLabel(otStates[otStr].validationAdmin);
     document.getElementById('dateFin').value = otStates[otStr].dateFin || '';
     calculateEcart();
     
-    const tbody = document.getElementById('checklistBody');
-    tbody.innerHTML = '';
-    currentEffectiveActions.forEach((action, idx) => {
-        const isChecked = otStates[otStr].actions[action.code] || false;
-        const comment = otStates[otStr].commentaires[action.code] || '';
-        const tr = document.createElement('tr');
-        tr.className = 'action-row ' + (isChecked ? 'checked' : 'unchecked');
-        tr.id = 'action-' + idx;
-        const descEscaped = escapeAttr(action.desc);
-        tr.innerHTML = '<td class="check-cell"><input type="checkbox" id="check-' + idx + '" name="check-' + idx + '" ' + (isChecked ? 'checked' : '') + ' onchange="toggleAction(' + idx + ', ' + escapeAttr(JSON.stringify(action.code)) + ')" aria-label="Marquer comme fait : ' + descEscaped + '"></td><td><label for="check-' + idx + '">' + escapeHtml(action.desc) + '</label></td><td style="text-align:center;"><code>' + escapeHtml(action.code) + '</code></td><td><label for="comment-' + idx + '" style="display:none;">Commentaire</label><textarea class="comment-input" id="comment-' + idx + '" name="comment-' + idx + '" placeholder="Commentaire..." onchange="saveComment(' + escapeAttr(JSON.stringify(action.code)) + ', this.value)" aria-label="Commentaire pour : ' + descEscaped + '">' + escapeHtml(comment) + '</textarea></td><td class="status-cell" id="status-' + idx + '">' + (isChecked ? '<span style="color:#2e7d32;">FAIT</span>' : '<span style="color:#c62828;">NON FAIT</span>') + '</td>';
-        tbody.appendChild(tr);
-    });
-    
+    const btnAddActionEl = document.getElementById('btnAddAction');
+    if (btnAddActionEl) btnAddActionEl.style.display = gmActionsVerrouillees(otStr) ? 'none' : '';
+
+    gmRenderChecklistTableBody();
     renderChecklistMobileCards();
     renderAttachments();
     updateProgress();

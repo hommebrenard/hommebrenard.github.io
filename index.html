@@ -1159,6 +1159,15 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
         display: inline-block; background: #eef2ff; color: #4338ca; font-size: 9px; font-weight: 700;
         border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle;
     }
+    /* 🆕 Phase 3a (actions de gamme par OT) : badge "Modifié" + icône crayon d'édition */
+    .gm-ot-modified-badge {
+        display: inline-block; background: #fff7ed; color: #c2410c; font-size: 9px; font-weight: 700;
+        border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle;
+    }
+    .gm-edit-icon {
+        cursor: pointer; margin-left: 6px; font-size: 12px; opacity: 0.7;
+    }
+    .gm-edit-icon:hover { opacity: 1; }
     .checklist-table { width: 100%; border-collapse: collapse; }
     .checklist-table th { background: #7030a0; color: white; padding: 10px; font-size: 12px; }
     .checklist-table td { padding: 10px; border: 1px solid #e0e0e0; font-size: 12px; vertical-align: top; }
@@ -3788,7 +3797,13 @@ function gmComputeEffectiveActions(cle, otStr) {
     // touche JAMAIS l'objet persisté dans otStates[...].actionsAjoutees) pour permettre à
     // l'affichage de la distinguer visuellement de la gamme partagée, sans rien changer au
     // format sérialisé (export/import restent inchangés).
-    const addedMarked = added.map(function(a) { return Object.assign({}, a, { _addedByOt: true }); });
+    // 🆕 Phase 3a : une action ajoutée qui porte origineCode est une MODIFICATION d'une action
+    // de gamme (badge "✏️ Modifié"), distincte d'un ajout pur (badge "🆕 Ajout OT").
+    const addedMarked = added.map(function(a) {
+        return a.origineCode
+            ? Object.assign({}, a, { _modifiedByOt: true })
+            : Object.assign({}, a, { _addedByOt: true });
+    });
     return base.concat(addedMarked);
 }
 
@@ -3817,6 +3832,83 @@ function gmGenerateOtActionCode(cle, existingAdded) {
     let code = 'OT-ADD-' + n;
     while (usedCodes.has(code)) { n++; code = 'OT-ADD-' + n; }
     return code;
+}
+
+// ============================================================
+// 🆕 Chantier "Actions de gamme par OT" — Phase 3a : modifier une action
+// Deux cas, sans jamais muter checklistData (gamme partagée intacte) :
+//  - action de GAMME jamais encore modifiée sur cet OT -> masquage (actionsSupprimeesCodes)
+//    + nouvelle version dans actionsAjoutees avec origineCode (ex: A1 -> A1-MOD)
+//  - action déjà dans actionsAjoutees (ajout OT-ADD-X ou déjà-modifiée A1-MOD) -> édition
+//    directe en place, aucun nouveau masquage
+// Verrouillé par gmActionsVerrouillees() (même règle que Phase 2).
+// ============================================================
+
+/** Dérive un code de modification qui ne collisionne jamais avec les ajouts déjà présents
+ *  sur cet OT (ex: A1 -> A1-MOD, puis A1-MOD2 si A1 est modifié une 2e fois sur le même OT). */
+function gmGenerateOtModCode(codeOrigine, existingAdded) {
+    const usedCodes = new Set((existingAdded || []).map(function(a) { return a.code; }));
+    let code = codeOrigine + '-MOD';
+    let n = 2;
+    while (usedCodes.has(code)) { code = codeOrigine + '-MOD' + n; n++; }
+    return code;
+}
+
+/** Modifie une action de GAMME pour un OT précis (jamais pour les autres OT, jamais pour la
+ *  gamme partagée). Reporte la coche/le commentaire déjà saisis sur le code d'origine vers le
+ *  nouveau code, pour ne pas faire perdre une saisie déjà faite par le technicien. */
+function gmModifyGammeAction(otStr, codeOrigine, nouveauLibelle) {
+    const state = otStates[otStr];
+    if (!state) return null;
+    if (!state.actionsAjoutees) state.actionsAjoutees = [];
+    if (!state.actionsSupprimeesCodes) state.actionsSupprimeesCodes = [];
+    if (state.actionsSupprimeesCodes.indexOf(codeOrigine) === -1) {
+        state.actionsSupprimeesCodes.push(codeOrigine);
+    }
+    const nouveauCode = gmGenerateOtModCode(codeOrigine, state.actionsAjoutees);
+    state.actionsAjoutees.push({ code: nouveauCode, desc: nouveauLibelle, origineCode: codeOrigine });
+    if (state.actions && state.actions[codeOrigine] !== undefined) {
+        state.actions[nouveauCode] = state.actions[codeOrigine];
+    }
+    if (state.commentaires && state.commentaires[codeOrigine] !== undefined) {
+        state.commentaires[nouveauCode] = state.commentaires[codeOrigine];
+    }
+    return nouveauCode;
+}
+
+/** Édite en place une action déjà présente dans actionsAjoutees (ajout OT-ADD-X pur, ou
+ *  action déjà modifiée type A1-MOD) : pas de nouveau masquage, simple mise à jour du libellé. */
+function gmModifyOtAddedAction(otStr, code, nouveauLibelle) {
+    const state = otStates[otStr];
+    if (!state || !state.actionsAjoutees) return false;
+    const item = state.actionsAjoutees.find(function(a) { return a.code === code; });
+    if (!item) return false;
+    item.desc = nouveauLibelle;
+    return true;
+}
+
+/** Point d'entrée UI (icône crayon) : détermine automatiquement le bon chemin (masquage vs
+ *  édition directe) selon que l'action est déjà dans actionsAjoutees ou non. */
+function gmEditActionForCurrentOt(code, currentDesc, isAlreadyOtAction) {
+    if (!currentOT || !otStates[currentOT]) return;
+    if (gmActionsVerrouillees(currentOT)) {
+        showNotification('Cet OT est signé : impossible de modifier une action.', 'warning');
+        return;
+    }
+    const nouveauLibelle = String(prompt('Modifier le libellé de cette action (propre à cet OT uniquement, n\'affecte pas la gamme partagée) :', currentDesc) || '').trim();
+    if (!nouveauLibelle || nouveauLibelle === currentDesc) return;
+
+    if (isAlreadyOtAction) {
+        gmModifyOtAddedAction(currentOT, code, nouveauLibelle);
+    } else {
+        gmModifyGammeAction(currentOT, code, nouveauLibelle);
+    }
+
+    currentEffectiveActions = gmComputeEffectiveActions(currentKey, currentOT);
+    gmRenderChecklistTableBody();
+    renderChecklistMobileCards();
+    updateProgress();
+    showNotification('✅ Action modifiée pour cet OT.', 'success');
 }
 
 function gmAddActionForCurrentOt() {
@@ -3848,16 +3940,20 @@ function renderChecklistMobileCards() {
     const data = checklistData[currentKey];
     if (!data) return;
     
+    const lockedMobile = gmActionsVerrouillees(currentOT);
     currentEffectiveActions.forEach((action, idx) => {
         const isChecked = otStates[currentOT].actions[action.code] || false;
         const comment = otStates[currentOT].commentaires[action.code] || '';
         const card = document.createElement('div');
-        card.className = 'checklist-mobile-card ' + (isChecked ? 'checked' : 'unchecked') + (action._addedByOt ? ' action-row-ot-added' : '');
+        card.className = 'checklist-mobile-card ' + (isChecked ? 'checked' : 'unchecked') + (action._addedByOt ? ' action-row-ot-added' : '') + (action._modifiedByOt ? ' action-row-ot-modified' : '');
         card.id = 'mcard-' + idx;
         const addedBadgeMobile = action._addedByOt ? '<span class="gm-ot-added-badge" title="Action propre à cet OT, absente de la gamme partagée">🆕 Ajout OT</span>' : '';
+        const modifiedBadgeMobile = action._modifiedByOt ? '<span class="gm-ot-modified-badge" title="Action de gamme modifiée pour cet OT">✏️ Modifié</span>' : '';
+        const isAlreadyOtActionMobile = !!(action._addedByOt || action._modifiedByOt);
+        const editIconMobile = lockedMobile ? '' : ('<span class="gm-edit-icon" title="Modifier" onclick="gmEditActionForCurrentOt(' + escapeAttr(JSON.stringify(action.code)) + ', ' + escapeAttr(JSON.stringify(action.desc)) + ', ' + isAlreadyOtActionMobile + ')">✏️</span>');
         card.innerHTML = `
             <div class="checklist-card-header">
-                <span class="checklist-card-code">${escapeHtml(action.code)}${addedBadgeMobile}</span>
+                <span class="checklist-card-code">${escapeHtml(action.code)}${addedBadgeMobile}${modifiedBadgeMobile}${editIconMobile}</span>
                 <label class="checklist-card-check" for="mcheck-${idx}">
                     <input type="checkbox" id="mcheck-${idx}" name="mcheck-${idx}" ${isChecked ? 'checked' : ''} 
                            onchange="toggleActionMobile(${idx}, ${escapeAttr(JSON.stringify(action.code))})" 
@@ -5555,16 +5651,20 @@ function gmRenderChecklistTableBody() {
     const otStr = currentOT;
     const tbody = document.getElementById('checklistBody');
     if (!tbody) return;
+    const locked = gmActionsVerrouillees(otStr);
     tbody.innerHTML = '';
     currentEffectiveActions.forEach((action, idx) => {
         const isChecked = otStates[otStr].actions[action.code] || false;
         const comment = otStates[otStr].commentaires[action.code] || '';
         const tr = document.createElement('tr');
-        tr.className = 'action-row ' + (isChecked ? 'checked' : 'unchecked') + (action._addedByOt ? ' action-row-ot-added' : '');
+        tr.className = 'action-row ' + (isChecked ? 'checked' : 'unchecked') + (action._addedByOt ? ' action-row-ot-added' : '') + (action._modifiedByOt ? ' action-row-ot-modified' : '');
         tr.id = 'action-' + idx;
         const descEscaped = escapeAttr(action.desc);
         const addedBadge = action._addedByOt ? '<span class="gm-ot-added-badge" title="Action propre à cet OT, absente de la gamme partagée">🆕 Ajout OT</span>' : '';
-        tr.innerHTML = '<td class="check-cell"><input type="checkbox" id="check-' + idx + '" name="check-' + idx + '" ' + (isChecked ? 'checked' : '') + ' onchange="toggleAction(' + idx + ', ' + escapeAttr(JSON.stringify(action.code)) + ')" aria-label="Marquer comme fait : ' + descEscaped + '"></td><td><label for="check-' + idx + '">' + escapeHtml(action.desc) + addedBadge + '</label></td><td style="text-align:center;"><code>' + escapeHtml(action.code) + '</code></td><td><label for="comment-' + idx + '" style="display:none;">Commentaire</label><textarea class="comment-input" id="comment-' + idx + '" name="comment-' + idx + '" placeholder="Commentaire..." onchange="saveComment(' + escapeAttr(JSON.stringify(action.code)) + ', this.value)" aria-label="Commentaire pour : ' + descEscaped + '">' + escapeHtml(comment) + '</textarea></td><td class="status-cell" id="status-' + idx + '">' + (isChecked ? '<span style="color:#2e7d32;">FAIT</span>' : '<span style="color:#c62828;">NON FAIT</span>') + '</td>';
+        const modifiedBadge = action._modifiedByOt ? '<span class="gm-ot-modified-badge" title="Action de gamme modifiée pour cet OT">✏️ Modifié</span>' : '';
+        const isAlreadyOtAction = !!(action._addedByOt || action._modifiedByOt);
+        const editIcon = locked ? '' : ('<span class="gm-edit-icon" title="Modifier cette action pour cet OT" onclick="gmEditActionForCurrentOt(' + escapeAttr(JSON.stringify(action.code)) + ', ' + escapeAttr(JSON.stringify(action.desc)) + ', ' + isAlreadyOtAction + ')">✏️</span>');
+        tr.innerHTML = '<td class="check-cell"><input type="checkbox" id="check-' + idx + '" name="check-' + idx + '" ' + (isChecked ? 'checked' : '') + ' onchange="toggleAction(' + idx + ', ' + escapeAttr(JSON.stringify(action.code)) + ')" aria-label="Marquer comme fait : ' + descEscaped + '"></td><td><label for="check-' + idx + '">' + escapeHtml(action.desc) + addedBadge + modifiedBadge + editIcon + '</label></td><td style="text-align:center;"><code>' + escapeHtml(action.code) + '</code></td><td><label for="comment-' + idx + '" style="display:none;">Commentaire</label><textarea class="comment-input" id="comment-' + idx + '" name="comment-' + idx + '" placeholder="Commentaire..." onchange="saveComment(' + escapeAttr(JSON.stringify(action.code)) + ', this.value)" aria-label="Commentaire pour : ' + descEscaped + '">' + escapeHtml(comment) + '</textarea></td><td class="status-cell" id="status-' + idx + '">' + (isChecked ? '<span style="color:#2e7d32;">FAIT</span>' : '<span style="color:#c62828;">NON FAIT</span>') + '</td>';
         tbody.appendChild(tr);
     });
 }

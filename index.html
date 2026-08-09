@@ -1148,6 +1148,13 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
     .checklist-bulk-bar button { padding:6px 12px; font-size:12px; border-radius:6px; border:1px solid #ccc; cursor:pointer; background:#f5f5f5; }
     .checklist-bulk-bar .btn-bulk-check:hover { background:#e8f5e9; border-color:#2e7d32; }
     .checklist-bulk-bar .btn-bulk-uncheck:hover { background:#ffebee; border-color:#c62828; }
+    /* 🆕 Fix : sans ces règles, le focus par défaut du navigateur (couleur d'accent système)
+       reste visible après un clic et peut donner l'impression que le bouton "reste vert". */
+    .checklist-bulk-bar button:focus,
+    .checklist-bulk-bar button:focus-visible {
+        outline: 2px solid #93c5fd; outline-offset: 1px; background: #f5f5f5;
+    }
+    .checklist-bulk-bar button:active { background: #e5e7eb; }
     /* 🆕 Phase 2 (actions de gamme par OT) : bouton "+ Ajouter une action", propre à l'OT
        courant, jamais sur la gamme partagée. Style aligné sur checklist-bulk-bar existant. */
     .checklist-bulk-bar .btn-add-action {
@@ -3913,6 +3920,10 @@ function gmEditActionForCurrentOt(code, currentDesc, isAlreadyOtAction) {
 
 function gmAddActionForCurrentOt() {
     if (!currentOT || !otStates[currentOT]) return;
+    if (typeof isPrestataireMode !== 'undefined' && isPrestataireMode) {
+        showNotification('Cette action est réservée au gestionnaire.', 'warning');
+        return;
+    }
     if (gmActionsVerrouillees(currentOT)) {
         showNotification('Cet OT est signé : impossible d\'ajouter une action.', 'warning');
         return;
@@ -5736,7 +5747,7 @@ updateValidationAdminLabel(otStates[otStr].validationAdmin);
     calculateEcart();
     
     const btnAddActionEl = document.getElementById('btnAddAction');
-    if (btnAddActionEl) btnAddActionEl.style.display = gmActionsVerrouillees(otStr) ? 'none' : '';
+    if (btnAddActionEl) btnAddActionEl.style.display = (gmActionsVerrouillees(otStr) || isPrestataireMode) ? 'none' : '';
 
     gmRenderChecklistTableBody();
     renderChecklistMobileCards();

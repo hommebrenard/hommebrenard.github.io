@@ -4832,7 +4832,10 @@ function refreshSiteSelector() {
         filteredKeys.map(k => {
             const b = sitesLibrary[k];
             const ready = (b.planningData && b.checklistData) ? '✅' : '⏳';
-            return `<option value="${escapeAttr(k)}">${ready} ${escapeHtml(b.label)}</option>`;
+            // 🐛 CORRECTION : filet de sécurité display-only, en plus de la correction à l'import —
+            // évite une option vide (juste le badge ✅/⏳) si .label est vide pour n'importe quelle raison.
+            const displayLabel = b.label || b.mainHeaderText || k;
+            return `<option value="${escapeAttr(k)}">${ready} ${escapeHtml(displayLabel)}</option>`;
         }).join('');
     // Force explicitement la valeur affichée (ne dépend pas du comportement par défaut du navigateur)
     sel.value = (activeSiteKey && sitesLibrary[activeSiteKey] && filteredKeys.includes(activeSiteKey)) ? activeSiteKey : '';
@@ -5138,6 +5141,9 @@ function importSiteJSON(event) {
                 Object.keys(parsed.sites).forEach(function(origKey) {
                     const bucket = parsed.sites[origKey];
                     if (!bucket || !bucket.planningData || !bucket.checklistData) return;
+                    // 🐛 CORRECTION : sans ce filet, un bucket importé sans .label affiche une option
+                    // vide (juste le badge ✅/⏳) dans le sélecteur "Site actif" -> impression de bug visuel.
+                    bucket.label = bucket.label || bucket.mainHeaderText || formatSiteLabel(origKey);
                     const key = slugifySiteName(bucket.label || origKey);
                     sitesLibrary[key] = bucket;
                     importedKeys.push(key);

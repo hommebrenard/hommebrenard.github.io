@@ -3898,6 +3898,10 @@ function gmModifyOtAddedAction(otStr, code, nouveauLibelle) {
  *  édition directe) selon que l'action est déjà dans actionsAjoutees ou non. */
 function gmEditActionForCurrentOt(code, currentDesc, isAlreadyOtAction) {
     if (!currentOT || !otStates[currentOT]) return;
+    if (typeof isPrestataireMode !== 'undefined' && isPrestataireMode) {
+        showNotification('Cette action est réservée au gestionnaire.', 'warning');
+        return;
+    }
     if (gmActionsVerrouillees(currentOT)) {
         showNotification('Cet OT est signé : impossible de modifier une action.', 'warning');
         return;
@@ -3951,7 +3955,7 @@ function renderChecklistMobileCards() {
     const data = checklistData[currentKey];
     if (!data) return;
     
-    const lockedMobile = gmActionsVerrouillees(currentOT);
+    const lockedMobile = gmActionsVerrouillees(currentOT) || (typeof isPrestataireMode !== 'undefined' && isPrestataireMode);
     currentEffectiveActions.forEach((action, idx) => {
         const isChecked = otStates[currentOT].actions[action.code] || false;
         const comment = otStates[currentOT].commentaires[action.code] || '';
@@ -5662,7 +5666,7 @@ function gmRenderChecklistTableBody() {
     const otStr = currentOT;
     const tbody = document.getElementById('checklistBody');
     if (!tbody) return;
-    const locked = gmActionsVerrouillees(otStr);
+    const locked = gmActionsVerrouillees(otStr) || (typeof isPrestataireMode !== 'undefined' && isPrestataireMode);
     tbody.innerHTML = '';
     currentEffectiveActions.forEach((action, idx) => {
         const isChecked = otStates[otStr].actions[action.code] || false;

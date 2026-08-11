@@ -1175,6 +1175,11 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
         cursor: pointer; margin-left: 6px; font-size: 12px; opacity: 0.7;
     }
     .gm-edit-icon:hover { opacity: 1; }
+    /* 🆕 Phase 4 (actions de gamme par OT) : icône corbeille de masquage, réservée admin */
+    .gm-hide-icon {
+        cursor: pointer; margin-left: 6px; font-size: 12px; opacity: 0.7;
+    }
+    .gm-hide-icon:hover { opacity: 1; }
     .checklist-table { width: 100%; border-collapse: collapse; }
     .checklist-table th { background: #7030a0; color: white; padding: 10px; font-size: 12px; }
     .checklist-table td { padding: 10px; border: 1px solid #e0e0e0; font-size: 12px; vertical-align: top; }
@@ -3922,6 +3927,90 @@ function gmEditActionForCurrentOt(code, currentDesc, isAlreadyOtAction) {
     showNotification('✅ Action modifiée pour cet OT.', 'success');
 }
 
+// ============================================================
+// 🆕 Chantier "Actions de gamme par OT" — Phase 4 : masquer une action (réservé admin)
+// Masque une action pour cet OT précis, avec motif de traçabilité obligatoire.
+// Ne modifie JAMAIS checklistData (gamme partagée intacte, toujours visible pour les
+// autres OT/mois). Réutilise actionsSupprimeesCodes (Phase 1) pour les actions de gamme
+// et retire l'entrée d'actionsAjoutees pour les ajouts/modifications propres à l'OT
+// (Phase 2/3a). Chaque masquage est journalisé dans otStates[ot].actionsMasqueesHistorique
+// (nouveau tableau additif, jamais lu par le code existant) pour garder une trace du motif,
+// de la date et de l'auteur — exporté/importé automatiquement puisque otStates est
+// sérialisé tel quel. Verrouillé par gmActionsVerrouillees() (même règle que Phase 2/3a).
+// ============================================================
+
+/** Enregistre une entrée de traçabilité pour un masquage d'action, sans jamais modifier
+ *  les structures existantes lues par le reste de l'application (additif uniquement). */
+function gmLogActionMasquee(otStr, code, motif, origineCode) {
+    const state = otStates[otStr];
+    if (!state) return;
+    if (!state.actionsMasqueesHistorique) state.actionsMasqueesHistorique = [];
+    state.actionsMasqueesHistorique.push({
+        code: code,
+        origineCode: origineCode || null,
+        motif: motif,
+        date: new Date().toISOString()
+    });
+}
+
+/** Masque définitivement une action de gamme (jamais encore touchée par cet OT) : ajoute
+ *  son code à actionsSupprimeesCodes, comme le fait déjà gmModifyGammeAction, mais sans
+ *  ajouter de version de remplacement — l'action disparaît simplement de cet OT. */
+function gmHideGammeAction(otStr, code, motif) {
+    const state = otStates[otStr];
+    if (!state) return false;
+    if (!state.actionsSupprimeesCodes) state.actionsSupprimeesCodes = [];
+    if (state.actionsSupprimeesCodes.indexOf(code) === -1) {
+        state.actionsSupprimeesCodes.push(code);
+    }
+    gmLogActionMasquee(otStr, code, motif, null);
+    return true;
+}
+
+/** Masque une action déjà propre à l'OT (ajout OT-ADD-X pur, ou modification type A1-MOD) :
+ *  la retire d'actionsAjoutees. Si elle portait origineCode (cas d'une modification), le
+ *  code d'origine reste dans actionsSupprimeesCodes (déjà posé par gmModifyGammeAction),
+ *  donc l'action de gamme d'origine reste elle aussi masquée pour cet OT — comportement
+ *  voulu : masquer une action modifiée doit la faire disparaître entièrement, pas revenir
+ *  à sa version de gamme initiale. */
+function gmHideOtAddedAction(otStr, code, motif) {
+    const state = otStates[otStr];
+    if (!state || !state.actionsAjoutees) return false;
+    const idx = state.actionsAjoutees.findIndex(function(a) { return a.code === code; });
+    if (idx === -1) return false;
+    const origineCode = state.actionsAjoutees[idx].origineCode || null;
+    state.actionsAjoutees.splice(idx, 1);
+    gmLogActionMasquee(otStr, code, motif, origineCode);
+    return true;
+}
+
+/** Point d'entrée UI (icône corbeille) : demande un motif obligatoire (traçabilité), puis
+ *  masque l'action via le bon chemin selon qu'elle est déjà propre à l'OT ou non. */
+function gmHideActionForCurrentOt(code, isAlreadyOtAction) {
+    if (!currentOT || !otStates[currentOT]) return;
+    if (typeof isPrestataireMode !== 'undefined' && isPrestataireMode) {
+        showNotification('Cette action est réservée au gestionnaire.', 'warning');
+        return;
+    }
+    if (gmActionsVerrouillees(currentOT)) {
+        showNotification('Cet OT est signé : impossible de masquer une action.', 'warning');
+        return;
+    }
+    const motif = String(prompt('Motif du masquage de cette action pour cet OT (obligatoire, pour traçabilité) :') || '').trim();
+    if (!motif) return;
+
+    const ok = isAlreadyOtAction
+        ? gmHideOtAddedAction(currentOT, code, motif)
+        : gmHideGammeAction(currentOT, code, motif);
+    if (!ok) return;
+
+    currentEffectiveActions = gmComputeEffectiveActions(currentKey, currentOT);
+    gmRenderChecklistTableBody();
+    renderChecklistMobileCards();
+    updateProgress();
+    showNotification('🗑️ Action masquée pour cet OT.', 'success');
+}
+
 function gmAddActionForCurrentOt() {
     if (!currentOT || !otStates[currentOT]) return;
     if (typeof isPrestataireMode !== 'undefined' && isPrestataireMode) {
@@ -3966,9 +4055,10 @@ function renderChecklistMobileCards() {
         const modifiedBadgeMobile = action._modifiedByOt ? '<span class="gm-ot-modified-badge" title="Action de gamme modifiée pour cet OT">✏️ Modifié</span>' : '';
         const isAlreadyOtActionMobile = !!(action._addedByOt || action._modifiedByOt);
         const editIconMobile = lockedMobile ? '' : ('<span class="gm-edit-icon" title="Modifier" onclick="gmEditActionForCurrentOt(' + escapeAttr(JSON.stringify(action.code)) + ', ' + escapeAttr(JSON.stringify(action.desc)) + ', ' + isAlreadyOtActionMobile + ')">✏️</span>');
+        const hideIconMobile = lockedMobile ? '' : ('<span class="gm-hide-icon" title="Masquer" onclick="gmHideActionForCurrentOt(' + escapeAttr(JSON.stringify(action.code)) + ', ' + isAlreadyOtActionMobile + ')">🗑️</span>');
         card.innerHTML = `
             <div class="checklist-card-header">
-                <span class="checklist-card-code">${escapeHtml(action.code)}${addedBadgeMobile}${modifiedBadgeMobile}${editIconMobile}</span>
+                <span class="checklist-card-code">${escapeHtml(action.code)}${addedBadgeMobile}${modifiedBadgeMobile}${editIconMobile}${hideIconMobile}</span>
                 <label class="checklist-card-check" for="mcheck-${idx}">
                     <input type="checkbox" id="mcheck-${idx}" name="mcheck-${idx}" ${isChecked ? 'checked' : ''} 
                            onchange="toggleActionMobile(${idx}, ${escapeAttr(JSON.stringify(action.code))})" 
@@ -5685,7 +5775,8 @@ function gmRenderChecklistTableBody() {
         const modifiedBadge = action._modifiedByOt ? '<span class="gm-ot-modified-badge" title="Action de gamme modifiée pour cet OT">✏️ Modifié</span>' : '';
         const isAlreadyOtAction = !!(action._addedByOt || action._modifiedByOt);
         const editIcon = locked ? '' : ('<span class="gm-edit-icon" title="Modifier cette action pour cet OT" onclick="gmEditActionForCurrentOt(' + escapeAttr(JSON.stringify(action.code)) + ', ' + escapeAttr(JSON.stringify(action.desc)) + ', ' + isAlreadyOtAction + ')">✏️</span>');
-        tr.innerHTML = '<td class="check-cell"><input type="checkbox" id="check-' + idx + '" name="check-' + idx + '" ' + (isChecked ? 'checked' : '') + ' onchange="toggleAction(' + idx + ', ' + escapeAttr(JSON.stringify(action.code)) + ')" aria-label="Marquer comme fait : ' + descEscaped + '"></td><td><label for="check-' + idx + '">' + escapeHtml(action.desc) + addedBadge + modifiedBadge + editIcon + '</label></td><td style="text-align:center;"><code>' + escapeHtml(action.code) + '</code></td><td><label for="comment-' + idx + '" style="display:none;">Commentaire</label><textarea class="comment-input" id="comment-' + idx + '" name="comment-' + idx + '" placeholder="Commentaire..." onchange="saveComment(' + escapeAttr(JSON.stringify(action.code)) + ', this.value)" aria-label="Commentaire pour : ' + descEscaped + '">' + escapeHtml(comment) + '</textarea></td><td class="status-cell" id="status-' + idx + '">' + (isChecked ? '<span style="color:#2e7d32;">FAIT</span>' : '<span style="color:#c62828;">NON FAIT</span>') + '</td>';
+        const hideIcon = locked ? '' : ('<span class="gm-hide-icon" title="Masquer cette action pour cet OT" onclick="gmHideActionForCurrentOt(' + escapeAttr(JSON.stringify(action.code)) + ', ' + isAlreadyOtAction + ')">🗑️</span>');
+        tr.innerHTML = '<td class="check-cell"><input type="checkbox" id="check-' + idx + '" name="check-' + idx + '" ' + (isChecked ? 'checked' : '') + ' onchange="toggleAction(' + idx + ', ' + escapeAttr(JSON.stringify(action.code)) + ')" aria-label="Marquer comme fait : ' + descEscaped + '"></td><td><label for="check-' + idx + '">' + escapeHtml(action.desc) + addedBadge + modifiedBadge + editIcon + hideIcon + '</label></td><td style="text-align:center;"><code>' + escapeHtml(action.code) + '</code></td><td><label for="comment-' + idx + '" style="display:none;">Commentaire</label><textarea class="comment-input" id="comment-' + idx + '" name="comment-' + idx + '" placeholder="Commentaire..." onchange="saveComment(' + escapeAttr(JSON.stringify(action.code)) + ', this.value)" aria-label="Commentaire pour : ' + descEscaped + '">' + escapeHtml(comment) + '</textarea></td><td class="status-cell" id="status-' + idx + '">' + (isChecked ? '<span style="color:#2e7d32;">FAIT</span>' : '<span style="color:#c62828;">NON FAIT</span>') + '</td>';
         tbody.appendChild(tr);
     });
 }

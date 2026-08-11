@@ -2278,7 +2278,22 @@ function gmSidebarNavigate(id, btnEl) {
                 <div style="width:280px; flex-shrink:0; border-right:1px solid #e5e7eb; padding-right:12px; overflow-y:auto; max-height:60vh;">
                     <input type="text" id="gmEquipSearch" placeholder="🔎 Rechercher un équipement..."
                            oninput="gmRenderEquipementsList(this.value)"
-                           style="width:100%; padding:8px 10px; margin-bottom:10px; border:1px solid #d1d5db; border-radius:8px; font-size:13px;">
+                           style="width:100%; padding:8px 10px; margin-bottom:8px; border:1px solid #d1d5db; border-radius:8px; font-size:13px;">
+                    <div style="display:flex; gap:6px; margin-bottom:6px;">
+                        <select id="gmEquipFilterTagSel" onchange="gmEquipFilterTag = this.value; gmRenderEquipementsList(document.getElementById('gmEquipSearch').value);"
+                                style="flex:1; padding:5px 6px; border:1px solid #d1d5db; border-radius:6px; font-size:11px;">
+                            <option value="">🏷️ Toutes étiquettes</option>
+                        </select>
+                        <select id="gmEquipFilterEmplacementSel" onchange="gmEquipFilterEmplacement = this.value; gmRenderEquipementsList(document.getElementById('gmEquipSearch').value);"
+                                style="flex:1; padding:5px 6px; border:1px solid #d1d5db; border-radius:6px; font-size:11px;">
+                            <option value="">📍 Tous emplacements</option>
+                        </select>
+                    </div>
+                    <button type="button" class="internal-only" onclick="gmToggleEmplacementsPanel()"
+                            style="width:100%; margin-bottom:8px; padding:6px 8px; border:1px dashed #9ca3af; background:#fff; color:#374151; border-radius:6px; cursor:pointer; font-size:11px;">
+                        📍 Gérer les emplacements
+                    </button>
+                    <div id="gmEmplacementsPanel"></div>
                     <div id="gmEquipList"></div>
                 </div>
                 <div style="flex:1; overflow-y:auto; max-height:60vh;" id="gmEquipDetail">
@@ -2397,6 +2412,91 @@ function gmRegistryPersist() {
     gmSaveEquipRegistry().catch(function(e) { console.warn('⚠️ Registre équipements : persistance impossible', e); });
 }
 
+/* ============================================
+   🆕 Chantier 5 — Emplacements : registre hiérarchique léger (Bâtiment > Zone...),
+   scopé au site physique comme le registre équipements (même clé de portée,
+   même mécanisme de chiffrement), mais stocké sous sa PROPRE clé localStorage
+   pour ne jamais toucher au format existant de equipementsRegistry (additif pur).
+   ============================================ */
+var emplacementsRegistry = {};
+var gmEmplacementsPanelOpen = false;
+var gmEquipFilterTag = '';
+var gmEquipFilterEmplacement = '';
+
+function gmEmplacementsStorageKey() {
+    return 'gmEmplacements_v1_' + gmPhysicalSiteKey();
+}
+
+async function gmLoadEmplacementsRegistry() {
+    try {
+        const data = await loadEncrypted(gmEmplacementsStorageKey());
+        emplacementsRegistry = data || {};
+    } catch (e) {
+        console.warn('⚠️ Registre emplacements : chargement impossible', e);
+        emplacementsRegistry = emplacementsRegistry || {};
+    }
+}
+
+async function gmSaveEmplacementsRegistry() {
+    try {
+        await saveEncrypted(gmEmplacementsStorageKey(), emplacementsRegistry);
+        return true;
+    } catch (e) {
+        console.warn('⚠️ Registre emplacements : sauvegarde impossible', e);
+        return false;
+    }
+}
+
+function gmEmplacementsPersist() {
+    gmSaveEmplacementsRegistry().catch(function(e) { console.warn('⚠️ Registre emplacements : persistance impossible', e); });
+}
+
+function gmGenerateEmplacementId() {
+    return 'empl_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+/** Libellé complet d'un emplacement avec son chemin parent (ex: "Bâtiment A > RDC > Local technique"). */
+function gmEmplacementLabel(id) {
+    const e = emplacementsRegistry[id];
+    if (!e) return '';
+    const parentLabel = e.parentId ? gmEmplacementLabel(e.parentId) : '';
+    return parentLabel ? (parentLabel + ' > ' + e.nom) : e.nom;
+}
+
+/** Création d'un emplacement — réservée au gestionnaire (même garde que le registre équipements). */
+function gmCreateEmplacement(nom, parentId) {
+    if (typeof isPrestataireMode !== 'undefined' && isPrestataireMode) {
+        showNotification('Cette action est réservée au gestionnaire.', 'warning');
+        return null;
+    }
+    const n = String(nom || '').trim();
+    if (!n) return null;
+    const id = gmGenerateEmplacementId();
+    emplacementsRegistry[id] = { id: id, nom: n, parentId: parentId || null, createdAt: new Date().toISOString() };
+    gmEmplacementsPersist();
+    return id;
+}
+
+/** Suppression d'un emplacement — réservée au gestionnaire, refusée s'il est encore
+ *  référencé (par un équipement ou comme parent d'un autre emplacement) pour éviter
+ *  de casser des liens existants silencieusement. */
+function gmDeleteEmplacement(id) {
+    if (typeof isPrestataireMode !== 'undefined' && isPrestataireMode) {
+        showNotification('Cette action est réservée au gestionnaire.', 'warning');
+        return false;
+    }
+    const usedByEquip = Object.values(equipementsRegistry || {}).some(function(e) { return e.emplacementId === id; });
+    const usedByChild = Object.values(emplacementsRegistry || {}).some(function(e) { return e.parentId === id; });
+    if (usedByEquip || usedByChild) {
+        showNotification('⚠️ Impossible de supprimer : cet emplacement est encore utilisé.', 'warning');
+        return false;
+    }
+    delete emplacementsRegistry[id];
+    gmEmplacementsPersist();
+    showNotification('🗑️ Emplacement supprimé.');
+    return true;
+}
+
 /* 🆕 Journal cumulatif : ajoute au registre les interventions du mois actuellement chargé,
    sans écraser celles déjà enregistrées lors de mois précédents. Dédoublonné par n° d'OT. */
 function gmMergeInterventionsIntoRegistry() {
@@ -2425,6 +2525,10 @@ function gmMergeInterventionsIntoRegistry() {
 }
 
 function gmRegistryCreateFromCode(code, defaultNom) {
+    if (typeof isPrestataireMode !== 'undefined' && isPrestataireMode) {
+        showNotification('Cette action est réservée au gestionnaire.', 'warning');
+        return;
+    }
     const nom = prompt('Nom stable pour ce nouvel équipement interne :\n(restera valable même si le code du prestataire change)', defaultNom || code);
     if (!nom || !nom.trim()) return;
     const id = gmGenerateRegistryId();
@@ -2444,6 +2548,10 @@ function gmRegistryCreateFromCode(code, defaultNom) {
 }
 
 function gmRegistryAssociateSelected(code) {
+    if (typeof isPrestataireMode !== 'undefined' && isPrestataireMode) {
+        showNotification('Cette action est réservée au gestionnaire.', 'warning');
+        return;
+    }
     const sel = document.getElementById('gmAssociateSelect');
     if (!sel || !sel.value) { showNotification('Choisissez un équipement dans la liste.', 'warning'); return; }
     const id = sel.value;
@@ -2464,19 +2572,113 @@ function gmToggleAssociatePanel() {
     gmSelectEquipement(gmSelectedEquipement);
 }
 
+/* ============================================
+   🆕 Chantier 5B — Panneau de gestion des emplacements (admin-only, en plus du
+   masquage CSS .internal-only sur le bouton qui l'ouvre : défense en profondeur,
+   même schéma que Phase 1-4 et l'audit rôles/équipements). Liste plate avec
+   indication du parent + formulaire d'ajout (nom + parent optionnel).
+   ============================================ */
+function gmToggleEmplacementsPanel() {
+    if (typeof isPrestataireMode !== 'undefined' && isPrestataireMode) {
+        showNotification('Cette action est réservée au gestionnaire.', 'warning');
+        return;
+    }
+    gmEmplacementsPanelOpen = !gmEmplacementsPanelOpen;
+    gmRenderEmplacementsPanel();
+}
+
+function gmRenderEmplacementsPanel() {
+    const el = document.getElementById('gmEmplacementsPanel');
+    if (!el) return;
+    if (!gmEmplacementsPanelOpen || (typeof isPrestataireMode !== 'undefined' && isPrestataireMode)) {
+        el.innerHTML = '';
+        return;
+    }
+    const list = Object.values(emplacementsRegistry || {}).sort(function(a, b) {
+        return gmEmplacementLabel(a.id).localeCompare(gmEmplacementLabel(b.id));
+    });
+    const parentOptions = '<option value="">— Aucun (racine) —</option>' + list.map(function(e) {
+        return '<option value="' + escapeAttr(e.id) + '">' + escapeHtml(gmEmplacementLabel(e.id)) + '</option>';
+    }).join('');
+    const rows = list.length === 0
+        ? '<div style="color:#9ca3af; font-size:11px; padding:4px 0;">Aucun emplacement défini.</div>'
+        : list.map(function(e) {
+            return '<div style="display:flex; justify-content:space-between; align-items:center; padding:3px 0; font-size:11px;">' +
+                '<span>' + escapeHtml(gmEmplacementLabel(e.id)) + '</span>' +
+                '<button type="button" onclick="gmDeleteEmplacement(' + escapeAttr(JSON.stringify(e.id)) + '); gmRenderEmplacementsPanel(); gmPopulateEquipFilters();" ' +
+                    'style="border:none; background:none; color:#ef4444; cursor:pointer; font-size:12px;">✕</button>' +
+                '</div>';
+        }).join('');
+    el.innerHTML = '<div style="border:1px solid #e5e7eb; border-radius:8px; padding:8px; margin-bottom:8px; background:#f9fafb;">' +
+        '<div style="font-size:11px; font-weight:600; margin-bottom:6px;">📍 Emplacements</div>' +
+        rows +
+        '<div style="display:flex; gap:4px; margin-top:6px;">' +
+            '<input type="text" id="gmNewEmplacementNom" placeholder="Nouveau (ex: Bâtiment A)" style="flex:1; padding:4px 6px; border:1px solid #d1d5db; border-radius:5px; font-size:11px;">' +
+            '<button type="button" onclick="gmSubmitNewEmplacement()" style="padding:4px 8px; border:none; background:#2563eb; color:#fff; border-radius:5px; cursor:pointer; font-size:11px;">+</button>' +
+        '</div>' +
+        '<select id="gmNewEmplacementParent" style="width:100%; margin-top:4px; padding:4px 6px; border:1px solid #d1d5db; border-radius:5px; font-size:11px;">' + parentOptions + '</select>' +
+        '</div>';
+}
+
+function gmSubmitNewEmplacement() {
+    const nomEl = document.getElementById('gmNewEmplacementNom');
+    const parentEl = document.getElementById('gmNewEmplacementParent');
+    const id = gmCreateEmplacement(nomEl ? nomEl.value : '', parentEl ? parentEl.value : '');
+    if (!id) return;
+    if (nomEl) nomEl.value = '';
+    gmRenderEmplacementsPanel();
+    gmPopulateEquipFilters();
+}
+
+/** Peuple les listes déroulantes de filtre (étiquettes déduites des équipements liés,
+ *  emplacements depuis emplacementsRegistry). Ouvert aux deux rôles : filtrer est une
+ *  action de lecture, sans risque, contrairement à créer/éditer. */
+function gmPopulateEquipFilters() {
+    const tagSel = document.getElementById('gmEquipFilterTagSel');
+    if (tagSel) {
+        const allTags = new Set();
+        Object.values(equipementsRegistry || {}).forEach(function(e) { (e.etiquettes || []).forEach(function(t) { allTags.add(t); }); });
+        const sorted = Array.from(allTags).sort(function(a, b) { return a.localeCompare(b); });
+        tagSel.innerHTML = '<option value="">🏷️ Toutes étiquettes</option>' +
+            sorted.map(function(t) { return '<option value="' + escapeAttr(t) + '">' + escapeHtml(t) + '</option>'; }).join('');
+        tagSel.value = gmEquipFilterTag;
+    }
+    const emplSel = document.getElementById('gmEquipFilterEmplacementSel');
+    if (emplSel) {
+        const list = Object.values(emplacementsRegistry || {}).sort(function(a, b) {
+            return gmEmplacementLabel(a.id).localeCompare(gmEmplacementLabel(b.id));
+        });
+        emplSel.innerHTML = '<option value="">📍 Tous emplacements</option>' +
+            list.map(function(e) { return '<option value="' + escapeAttr(e.id) + '">' + escapeHtml(gmEmplacementLabel(e.id)) + '</option>'; }).join('');
+        emplSel.value = gmEquipFilterEmplacement;
+    }
+}
+
 /* 🆕 Phase B2 — Fiche enrichie : catégorie, criticité, localisation, notes.
    Ces champs vivent sur l'équipement interne (equipementsRegistry), pas sur le code
    du prestataire, donc ils survivent eux aussi à un changement de contrat. */
 function gmSaveFicheEquipement(id) {
+    if (typeof isPrestataireMode !== 'undefined' && isPrestataireMode) {
+        showNotification('Cette action est réservée au gestionnaire.', 'warning');
+        return;
+    }
     if (!equipementsRegistry[id]) return;
     const catEl = document.getElementById('gmFicheCategorie');
     const critEl = document.getElementById('gmFicheCriticite');
     const locEl = document.getElementById('gmFicheLocalisation');
     const notesEl = document.getElementById('gmFicheNotes');
+    const emplEl = document.getElementById('gmFicheEmplacement');
+    const etiquettesEl = document.getElementById('gmFicheEtiquettes');
     equipementsRegistry[id].categorie = catEl ? catEl.value.trim() : '';
     equipementsRegistry[id].criticite = critEl ? critEl.value : '';
     equipementsRegistry[id].localisation = locEl ? locEl.value.trim() : '';
     equipementsRegistry[id].notes = notesEl ? notesEl.value : '';
+    // 🆕 Chantier 5 : emplacement structuré (référence vers emplacementsRegistry) + étiquettes
+    // (parsées depuis une saisie texte séparée par virgules, dédupliquées, vides retirées)
+    equipementsRegistry[id].emplacementId = (emplEl && emplEl.value) ? emplEl.value : null;
+    equipementsRegistry[id].etiquettes = etiquettesEl
+        ? Array.from(new Set(etiquettesEl.value.split(',').map(function(t) { return t.trim(); }).filter(Boolean)))
+        : (equipementsRegistry[id].etiquettes || []);
     equipementsRegistry[id].updatedAt = new Date().toISOString();
     gmRegistryPersist();
     showNotification('✅ Fiche équipement enregistrée.');
@@ -2680,6 +2882,10 @@ async function gmUploadPhoto(registryId, inputEl) {
 }
 
 async function gmDeletePhoto(registryId, photoId) {
+    if (typeof isPrestataireMode !== 'undefined' && isPrestataireMode) {
+        showNotification('Cette action est réservée au gestionnaire.', 'warning');
+        return;
+    }
     if (!confirm('Supprimer cette photo ?')) return;
     try {
         await gmDeletePhotoBlob(registryId, photoId);
@@ -2722,8 +2928,14 @@ function gmRenderEquipementsList(filter) {
     if (!listEl) return;
     const q = (filter || '').toLowerCase().trim();
     const items = Object.values(gmEquipementsIndex).filter(function(eq) {
-        if (!q) return true;
-        return (eq.materiel + ' ' + eq.libelle).toLowerCase().indexOf(q) !== -1;
+        if (q && (eq.materiel + ' ' + eq.libelle).toLowerCase().indexOf(q) === -1) return false;
+        // 🆕 Chantier 5 : filtre par étiquette / emplacement (lus sur l'entrée registre liée, si elle existe)
+        if (gmEquipFilterTag || gmEquipFilterEmplacement) {
+            const entry = eq.registryId ? equipementsRegistry[eq.registryId] : null;
+            if (gmEquipFilterTag && (!entry || (entry.etiquettes || []).indexOf(gmEquipFilterTag) === -1)) return false;
+            if (gmEquipFilterEmplacement && (!entry || entry.emplacementId !== gmEquipFilterEmplacement)) return false;
+        }
+        return true;
     }).sort(function(a, b) { return a.materiel.localeCompare(b.materiel); });
 
     if (items.length === 0) {
@@ -2735,6 +2947,12 @@ function gmRenderEquipementsList(filter) {
         const linkBadge = eq.registryId
             ? '<span style="font-size:10px; color:#059669;">🔗 lié</span>'
             : '<span style="font-size:10px; color:#d97706;">⚠️ non lié</span>';
+        const entry = eq.registryId ? equipementsRegistry[eq.registryId] : null;
+        const tagsChips = (entry && entry.etiquettes && entry.etiquettes.length)
+            ? '<div style="margin-top:2px;">' + entry.etiquettes.map(function(t) {
+                return '<span style="display:inline-block; font-size:9px; background:#eef2ff; color:#4338ca; border-radius:4px; padding:1px 5px; margin-right:3px;">' + escapeHtml(t) + '</span>';
+            }).join('') + '</div>'
+            : '';
         return '<button type="button" onclick="gmSelectEquipement(' + escapeAttr(JSON.stringify(eq.materiel)) + ')" ' +
             'style="display:block; width:100%; text-align:left; padding:8px 10px; margin-bottom:4px; border:none; border-radius:8px; cursor:pointer; ' +
             'background:' + (isActive ? '#eff6ff' : 'transparent') + '; color:' + (isActive ? '#2563eb' : '#374151') + ';">' +
@@ -2742,6 +2960,7 @@ function gmRenderEquipementsList(filter) {
                 '<div style="font-size:12px; font-weight:600;">' + escapeHtml(eq.materiel) + '</div>' + linkBadge +
             '</div>' +
             '<div style="font-size:11px; color:#9ca3af;">' + escapeHtml(eq.libelle || '') + ' · ' + eq.interventions.length + ' intervention(s)</div>' +
+            tagsChips +
             '</button>';
     }).join('');
 }
@@ -2777,33 +2996,65 @@ function gmSwitchTab(tab) {
 }
 
 function gmRenderTabFiche(eq, entry) {
+    // 🆕 Audit rôles : édition de fiche + création/association au registre = tâches
+    // d'organisation interne, réservées au gestionnaire. Le prestataire reste en lecture seule.
+    const ficheReadOnly = (typeof isPrestataireMode !== 'undefined' && isPrestataireMode);
     if (entry) {
         const CRITICITES = ['', 'Faible', 'Moyenne', 'Haute', 'Critique'];
         const critOptions = CRITICITES.map(function(c) {
             return '<option value="' + escapeAttr(c) + '"' + (entry.criticite === c ? ' selected' : '') + '>' + (c || '—') + '</option>';
         }).join('');
+        const disabledAttr = ficheReadOnly ? ' disabled' : '';
+        // 🆕 Chantier 5 : sélecteur d'emplacement structuré (registre hiérarchique)
+        const emplList = Object.values(emplacementsRegistry || {}).sort(function(a, b) {
+            return gmEmplacementLabel(a.id).localeCompare(gmEmplacementLabel(b.id));
+        });
+        const emplOptions = '<option value="">— Aucun —</option>' + emplList.map(function(e) {
+            return '<option value="' + escapeAttr(e.id) + '"' + (entry.emplacementId === e.id ? ' selected' : '') + '>' + escapeHtml(gmEmplacementLabel(e.id)) + '</option>';
+        }).join('');
+        // 🆕 Chantier 5 : étiquettes libres, saisie simple séparée par virgules
+        const etiquettesValue = (entry.etiquettes || []).join(', ');
+        const etiquettesChips = (entry.etiquettes || []).length
+            ? '<div style="margin-top:4px;">' + entry.etiquettes.map(function(t) {
+                return '<span style="display:inline-block; font-size:10px; background:#eef2ff; color:#4338ca; border-radius:4px; padding:2px 6px; margin-right:4px;">🏷️ ' + escapeHtml(t) + '</span>';
+            }).join('') + '</div>'
+            : '';
         return '<div style="background:#ecfdf5; border:1px solid #a7f3d0; border-radius:8px; padding:10px 12px; margin-bottom:14px; font-size:12px;">' +
             '🔗 <strong>Identité stable :</strong> ' + escapeHtml(entry.nom || '') +
             '<div style="color:#6b7280; margin-top:2px;">Alias connus : ' + escapeHtml((entry.aliases || []).join(', ')) + '</div>' +
+            (entry.emplacementId ? '<div style="color:#6b7280; margin-top:2px;">📍 ' + escapeHtml(gmEmplacementLabel(entry.emplacementId)) + '</div>' : '') +
             '</div>' +
             '<div style="border:1px solid #e5e7eb; border-radius:8px; padding:12px;">' +
                 '<h4 style="margin:0 0 10px; font-size:13px;">📋 Fiche équipement</h4>' +
                 '<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">' +
                     '<label style="font-size:11px; color:#6b7280;">Catégorie' +
-                        '<input type="text" id="gmFicheCategorie" value="' + escapeAttr(entry.categorie || '') + '" placeholder="ex: Ascenseur, Climatisation..." ' +
+                        '<input type="text" id="gmFicheCategorie" value="' + escapeAttr(entry.categorie || '') + '" placeholder="ex: Ascenseur, Climatisation..."' + disabledAttr + ' ' +
                         'style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;"></label>' +
                     '<label style="font-size:11px; color:#6b7280;">Criticité' +
-                        '<select id="gmFicheCriticite" style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;">' + critOptions + '</select></label>' +
-                    '<label style="font-size:11px; color:#6b7280; grid-column:1 / -1;">Localisation' +
-                        '<input type="text" id="gmFicheLocalisation" value="' + escapeAttr(entry.localisation || '') + '" placeholder="ex: Bâtiment A, RDC..." ' +
+                        '<select id="gmFicheCriticite"' + disabledAttr + ' style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;">' + critOptions + '</select></label>' +
+                    '<label style="font-size:11px; color:#6b7280;">Localisation (texte libre)' +
+                        '<input type="text" id="gmFicheLocalisation" value="' + escapeAttr(entry.localisation || '') + '" placeholder="ex: Bâtiment A, RDC..."' + disabledAttr + ' ' +
                         'style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;"></label>' +
+                    '<label style="font-size:11px; color:#6b7280;">📍 Emplacement (registre)' +
+                        '<select id="gmFicheEmplacement"' + disabledAttr + ' style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;">' + emplOptions + '</select></label>' +
+                    '<label style="font-size:11px; color:#6b7280; grid-column:1 / -1;">🏷️ Étiquettes (séparées par des virgules)' +
+                        '<input type="text" id="gmFicheEtiquettes" value="' + escapeAttr(etiquettesValue) + '" placeholder="ex: urgent, contrat A, extérieur"' + disabledAttr + ' ' +
+                        'style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;">' +
+                        etiquettesChips +
+                    '</label>' +
                 '</div>' +
                 '<label style="font-size:11px; color:#6b7280;">Notes' +
-                    '<textarea id="gmFicheNotes" rows="3" placeholder="Remarques, historique particulier, points d\'attention..." ' +
+                    '<textarea id="gmFicheNotes" rows="3" placeholder="Remarques, historique particulier, points d\'attention..."' + disabledAttr + ' ' +
                     'style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px; resize:vertical;">' + escapeHtml(entry.notes || '') + '</textarea></label>' +
+                (ficheReadOnly ? '' :
                 '<button type="button" onclick="gmSaveFicheEquipement(' + escapeAttr(JSON.stringify(entry.id)) + ')" ' +
-                    'style="margin-top:10px; padding:6px 12px; border:none; background:#1f3864; color:#fff; border-radius:6px; cursor:pointer; font-size:12px;">💾 Enregistrer la fiche</button>' +
+                    'style="margin-top:10px; padding:6px 12px; border:none; background:#1f3864; color:#fff; border-radius:6px; cursor:pointer; font-size:12px;">💾 Enregistrer la fiche</button>') +
                 (entry.updatedAt ? '<span style="margin-left:10px; font-size:11px; color:#9ca3af;">Dernière mise à jour : ' + escapeHtml(new Date(entry.updatedAt).toLocaleString('fr-FR')) + '</span>' : '') +
+            '</div>';
+    }
+    if (ficheReadOnly) {
+        return '<div style="background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:10px 12px; font-size:12px;">' +
+            '⚠️ Ce code n\'est pas encore lié à un équipement interne stable. Cette association est gérée par le gestionnaire.' +
             '</div>';
     }
     return '<div style="background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:10px 12px; font-size:12px;">' +
@@ -2922,11 +3173,13 @@ function gmRenderTabPhotos(eq, entry) {
         return '<div style="color:#9ca3af; font-size:13px;">Liez d\'abord cet équipement à une identité stable (onglet Fiche) pour pouvoir y ajouter des photos.</div>';
     }
     const photos = entry.photos || [];
+    // 🆕 Audit rôles : suppression réservée au gestionnaire (traçabilité), l'ajout reste ouvert au prestataire.
+    const photoDeleteAllowed = !(typeof isPrestataireMode !== 'undefined' && isPrestataireMode);
     const gallery = photos.map(function(p) {
         return '<div style="position:relative; width:100px; height:100px;">' +
             '<div id="gmPhotoThumb_' + escapeAttr(p.id) + '" style="width:100px; height:100px; border-radius:8px; background:#f3f4f6; display:flex; align-items:center; justify-content:center; overflow:hidden; font-size:11px; color:#9ca3af;">…</div>' +
-            '<button type="button" onclick="gmDeletePhoto(' + escapeAttr(JSON.stringify(entry.id)) + ', ' + escapeAttr(JSON.stringify(p.id)) + ')" ' +
-                'style="position:absolute; top:-6px; right:-6px; width:20px; height:20px; border-radius:50%; border:none; background:#ef4444; color:#fff; cursor:pointer; font-size:11px; line-height:20px; text-align:center; padding:0;">✕</button>' +
+            (photoDeleteAllowed ? ('<button type="button" onclick="gmDeletePhoto(' + escapeAttr(JSON.stringify(entry.id)) + ', ' + escapeAttr(JSON.stringify(p.id)) + ')" ' +
+                'style="position:absolute; top:-6px; right:-6px; width:20px; height:20px; border-radius:50%; border:none; background:#ef4444; color:#fff; cursor:pointer; font-size:11px; line-height:20px; text-align:center; padding:0;">✕</button>') : '') +
             '</div>';
     }).join('');
     return '<div style="margin-bottom:12px;">' +
@@ -2987,8 +3240,9 @@ function gmRenderTabCorrectif(eq, entry) {
             '<td style="padding:6px 8px; font-size:12px;">' + escapeHtml(p.actionCorrective || '-') + '</td>' +
             '<td style="padding:6px 8px; font-size:12px; text-align:right;">' + (p.cout != null ? escapeHtml(String(p.cout)) + ' MAD' : '-') + '</td>' +
             '<td style="padding:6px 8px; font-size:12px;">' + escapeHtml(p.technicien || '-') + '</td>' +
-            '<td style="padding:6px 8px;"><button type="button" onclick="gmDeletePanne(' + escapeAttr(JSON.stringify(entry.id)) + ', ' + escapeAttr(JSON.stringify(p.id)) + ')" ' +
-                'style="border:none; background:none; color:#ef4444; cursor:pointer; font-size:13px;">✕</button></td>' +
+            '<td style="padding:6px 8px;">' + ((typeof isPrestataireMode !== 'undefined' && isPrestataireMode) ? '' :
+                ('<button type="button" onclick="gmDeletePanne(' + escapeAttr(JSON.stringify(entry.id)) + ', ' + escapeAttr(JSON.stringify(p.id)) + ')" ' +
+                'style="border:none; background:none; color:#ef4444; cursor:pointer; font-size:13px;">✕</button>')) + '</td>' +
             '</tr>';
     }).join('');
 
@@ -3041,6 +3295,10 @@ function gmAddPanne(registryId) {
 
 /** Supprime une panne (avec confirmation, comme pour les photos). */
 function gmDeletePanne(registryId, panneId) {
+    if (typeof isPrestataireMode !== 'undefined' && isPrestataireMode) {
+        showNotification('Cette action est réservée au gestionnaire.', 'warning');
+        return;
+    }
     if (!confirm('Supprimer cette panne ?')) return;
     const entry = equipementsRegistry[registryId];
     if (!entry || !entry.pannes) return;
@@ -3087,12 +3345,16 @@ async function openEquipementsModal() {
     if (detailElLoading) detailElLoading.innerHTML = '<div style="color:#9ca3af; padding:20px;">Chargement du registre équipements…</div>';
 
     await gmLoadEquipRegistry();
+    await gmLoadEmplacementsRegistry();
     gmMergeInterventionsIntoRegistry();
     gmRegistryPersist();
 
     gmEquipementsIndex = gmBuildEquipementsIndex();
     gmSelectedEquipement = null;
     gmAssociatePanelOpen = false;
+    gmEmplacementsPanelOpen = false;
+    gmEquipFilterTag = '';
+    gmEquipFilterEmplacement = '';
     gmActiveTab = 'fiche';
     const hasEquip = Object.keys(gmEquipementsIndex).length > 0;
     const emptyEl = document.getElementById('gmEquipEmptyState');
@@ -3111,6 +3373,8 @@ async function openEquipementsModal() {
     }
     const searchEl = document.getElementById('gmEquipSearch');
     if (searchEl) searchEl.value = '';
+    gmPopulateEquipFilters();
+    gmRenderEmplacementsPanel();
     gmRenderEquipementsList('');
     const detailEl = document.getElementById('gmEquipDetail');
     if (detailEl) detailEl.innerHTML = '<div style="color:#9ca3af; padding:20px;">Sélectionnez un équipement dans la liste.</div>';

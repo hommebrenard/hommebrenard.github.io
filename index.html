@@ -2237,6 +2237,10 @@ body.mode-prestataire .internal-only {
                 onclick="gmSidebarNavigate('equip', this); openEquipementsModal();">
             <span class="gm-sidebar-item-icon">🏭</span> Équipements
         </button>
+        <button type="button" class="gm-sidebar-item internal-only" id="gmNavBiblio"
+                onclick="gmSidebarNavigate('biblio', this); openBibliothequeModal();">
+            <span class="gm-sidebar-item-icon">📚</span> Bibliothèque
+        </button>
     </div>
 
     <div class="gm-sidebar-section">
@@ -3394,6 +3398,207 @@ async function voirFicheEquipementDepuisOT() {
     } else {
         showNotification('⚠️ Équipement "' + materielCible + '" introuvable dans le registre.', 'warning');
     }
+}
+</script>
+
+<!-- ============================================================
+     🆕 Chantier "Bibliothèque : Modèles d'ordre de travail + Procédures" — Phase 1 (fondation)
+     Formalise les gammes (checklistData, issues de l'import Excel) en une vraie bibliothèque de
+     modèles PERSISTANTE et RÉUTILISABLE (gmGammesLibrary), stockée indépendamment des données de
+     site (clé localStorage dédiée gmGammesLibrary_v1) pour survivre aux imports/réinitialisations
+     de planning. Ne modifie JAMAIS checklistData (gammes actives toujours intactes, lecture seule
+     ici) : la bibliothèque est un espace de duplication/travail à part, sans effet de bord sur les
+     OT existants ni sur gmComputeEffectiveActions(). Module additif, isolé (préfixe gm-), suit le
+     même schéma que le module Équipements (modal-overlay + script dédié).
+     ============================================================ -->
+<style>
+.gm-biblio-section-title {
+    font-size: 13px; font-weight: 700; color: #374151; margin: 4px 0 10px;
+    display: flex; align-items: center; gap: 6px;
+}
+.gm-biblio-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
+.gm-biblio-card {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 14px;
+    flex-wrap: wrap;
+}
+.gm-biblio-card-title { font-size: 13px; font-weight: 600; color: #111827; }
+.gm-biblio-card-sub { font-size: 11px; color: #6b7280; margin-top: 2px; }
+.gm-biblio-card-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+</style>
+<div class="modal-overlay" id="gmBibliothequeModalOverlay" role="dialog" aria-modal="true" aria-labelledby="gmBibliothequeModalTitle">
+    <div class="modal" style="max-width: 900px;">
+        <div class="modal-header">
+            <div>
+                <h2 id="gmBibliothequeModalTitle">📚 Bibliothèque de modèles</h2>
+                <div class="info">Modèles d'ordre de travail réutilisables, indépendants des gammes actives</div>
+            </div>
+            <button class="close-btn" onclick="closeBibliothequeModal()" aria-label="Fermer">✕</button>
+        </div>
+        <div class="modal-body">
+            <div class="gm-biblio-section-title">🗂️ Gammes actives (issues des check-lists chargées)</div>
+            <div id="gmBiblioActives" class="gm-biblio-list"></div>
+
+            <div class="gm-biblio-section-title">📚 Modèles de la bibliothèque</div>
+            <div id="gmBiblioModeles" class="gm-biblio-list"></div>
+        </div>
+    </div>
+</div>
+<script>
+/* 🆕 Bibliothèque de modèles — état + persistance dédiée (indépendante des sites/OT). */
+var gmGammesLibrary = {};
+
+function gmLoadGammesLibrary() {
+    try {
+        var raw = localStorage.getItem('gmGammesLibrary_v1');
+        gmGammesLibrary = raw ? JSON.parse(raw) : {};
+    } catch (e) {
+        console.warn('⚠️ Bibliothèque de modèles illisible, réinitialisation.', e);
+        gmGammesLibrary = {};
+    }
+}
+
+function gmPersistGammesLibrary() {
+    try {
+        localStorage.setItem('gmGammesLibrary_v1', JSON.stringify(gmGammesLibrary));
+    } catch (e) {
+        showNotification('Erreur sauvegarde bibliothèque : ' + e.message, 'error');
+    }
+}
+
+/** Génère un identifiant de modèle qui ne collisionne jamais avec les modèles déjà présents. */
+function gmGenerateModeleId() {
+    var n = Object.keys(gmGammesLibrary).length + 1;
+    var id = 'MOD-' + String(n).padStart(3, '0');
+    while (gmGammesLibrary[id]) { n++; id = 'MOD-' + String(n).padStart(3, '0'); }
+    return id;
+}
+
+/** Duplique une gamme active (checklistData[cle]) vers la bibliothèque : copie profonde des
+ *  actions (jamais de référence partagée), checklistData reste totalement intact. */
+function gmDupliquerGammeVersBibliotheque(cle) {
+    var gamme = checklistData[cle];
+    if (!gamme) { showNotification('Gamme introuvable.', 'error'); return null; }
+    var id = gmGenerateModeleId();
+    var nowIso = new Date().toISOString();
+    gmGammesLibrary[id] = {
+        id: id,
+        nom: (gamme.equipement || cle) + ' — ' + (gamme.intervention || ''),
+        actions: gamme.actions.map(function(a) { return { code: a.code, desc: a.desc }; }),
+        origineCle: cle,
+        origineLabel: 'Dupliqué depuis la gamme active : ' + (gamme.equipement || cle),
+        createdAt: nowIso,
+        updatedAt: nowIso
+    };
+    gmPersistGammesLibrary();
+    return id;
+}
+
+/** Duplique un modèle déjà présent dans la bibliothèque (copie profonde, aucune référence
+ *  partagée avec l'original : modifier la copie n'affecte jamais le modèle source). */
+function gmDupliquerModele(modeleId) {
+    var src = gmGammesLibrary[modeleId];
+    if (!src) { showNotification('Modèle introuvable.', 'error'); return null; }
+    var id = gmGenerateModeleId();
+    var nowIso = new Date().toISOString();
+    gmGammesLibrary[id] = {
+        id: id,
+        nom: src.nom + ' (copie)',
+        actions: src.actions.map(function(a) { return { code: a.code, desc: a.desc }; }),
+        origineCle: null,
+        origineLabel: 'Copie de : ' + src.nom,
+        createdAt: nowIso,
+        updatedAt: nowIso
+    };
+    gmPersistGammesLibrary();
+    return id;
+}
+
+function gmRenommerModele(modeleId) {
+    var modele = gmGammesLibrary[modeleId];
+    if (!modele) return;
+    var nouveauNom = String(prompt('Nouveau nom du modèle :', modele.nom) || '').trim();
+    if (!nouveauNom || nouveauNom === modele.nom) return;
+    modele.nom = nouveauNom;
+    modele.updatedAt = new Date().toISOString();
+    gmPersistGammesLibrary();
+    gmRenderBibliothequeContent();
+    showNotification('✅ Modèle renommé.');
+}
+
+function gmSupprimerModele(modeleId) {
+    var modele = gmGammesLibrary[modeleId];
+    if (!modele) return;
+    if (!confirm('Supprimer le modèle "' + modele.nom + '" de la bibliothèque ?\n\n(Cette action ne modifie aucune gamme active ni aucun OT existant.)')) return;
+    delete gmGammesLibrary[modeleId];
+    gmPersistGammesLibrary();
+    gmRenderBibliothequeContent();
+    showNotification('🗑️ Modèle supprimé de la bibliothèque.');
+}
+
+function gmDupliquerGammeVersBibliothequeUI(cle) {
+    var id = gmDupliquerGammeVersBibliotheque(cle);
+    if (id) { gmRenderBibliothequeContent(); showNotification('✅ Gamme ajoutée à la bibliothèque.'); }
+}
+
+function gmDupliquerModeleUI(modeleId) {
+    var id = gmDupliquerModele(modeleId);
+    if (id) { gmRenderBibliothequeContent(); showNotification('✅ Modèle dupliqué.'); }
+}
+
+function gmRenderBibliothequeContent() {
+    var activesContainer = document.getElementById('gmBiblioActives');
+    var modelesContainer = document.getElementById('gmBiblioModeles');
+    if (!activesContainer || !modelesContainer) return;
+
+    var cles = Object.keys((typeof checklistData !== 'undefined' && checklistData) || {});
+    if (cles.length === 0) {
+        activesContainer.innerHTML = '<div style="color:#9ca3af; padding:14px; font-style:italic;">Aucune check-list chargée pour le moment.</div>';
+    } else {
+        activesContainer.innerHTML = cles.map(function(cle) {
+            var g = checklistData[cle];
+            var nbActions = (g.actions || []).length;
+            return '<div class="gm-biblio-card">'
+                + '<div class="gm-biblio-card-main">'
+                + '<div class="gm-biblio-card-title">' + escapeHtml(g.equipement || cle) + '</div>'
+                + '<div class="gm-biblio-card-sub">' + escapeHtml(g.intervention || '') + ' · ' + nbActions + ' action' + (nbActions > 1 ? 's' : '') + '</div>'
+                + '</div>'
+                + '<button type="button" class="btn btn-secondary" style="min-height:32px; padding:6px 10px; font-size:11px;" onclick="gmDupliquerGammeVersBibliothequeUI(' + escapeAttr(JSON.stringify(cle)) + ')">📚 Ajouter à la bibliothèque</button>'
+                + '</div>';
+        }).join('');
+    }
+
+    var ids = Object.keys(gmGammesLibrary || {}).sort(function(a, b) {
+        return (gmGammesLibrary[b].updatedAt || '').localeCompare(gmGammesLibrary[a].updatedAt || '');
+    });
+    if (ids.length === 0) {
+        modelesContainer.innerHTML = '<div style="color:#9ca3af; padding:14px; font-style:italic;">Aucun modèle enregistré. Dupliquez une gamme active ci-dessus pour commencer.</div>';
+    } else {
+        modelesContainer.innerHTML = ids.map(function(id) {
+            var m = gmGammesLibrary[id];
+            var nbActions = (m.actions || []).length;
+            var dateLabel = m.updatedAt ? new Date(m.updatedAt).toLocaleDateString('fr-FR') : '';
+            return '<div class="gm-biblio-card">'
+                + '<div class="gm-biblio-card-main">'
+                + '<div class="gm-biblio-card-title">' + escapeHtml(m.nom) + '</div>'
+                + '<div class="gm-biblio-card-sub">' + nbActions + ' action' + (nbActions > 1 ? 's' : '') + ' · maj ' + dateLabel + '</div>'
+                + '</div>'
+                + '<div class="gm-biblio-card-actions">'
+                + '<button type="button" class="btn btn-secondary" style="min-height:32px; padding:6px 10px; font-size:11px;" onclick="gmRenommerModele(' + escapeAttr(JSON.stringify(id)) + ')">✏️ Renommer</button>'
+                + '<button type="button" class="btn btn-info" style="min-height:32px; padding:6px 10px; font-size:11px;" onclick="gmDupliquerModeleUI(' + escapeAttr(JSON.stringify(id)) + ')">📋 Dupliquer</button>'
+                + '<button type="button" class="btn btn-danger" style="min-height:32px; padding:6px 10px; font-size:11px;" onclick="gmSupprimerModele(' + escapeAttr(JSON.stringify(id)) + ')">🗑️ Supprimer</button>'
+                + '</div>'
+                + '</div>';
+        }).join('');
+    }
+}
+
+function openBibliothequeModal() {
+    document.getElementById('gmBibliothequeModalOverlay').classList.add('active');
+    gmRenderBibliothequeContent();
+}
+function closeBibliothequeModal() {
+    document.getElementById('gmBibliothequeModalOverlay').classList.remove('active');
 }
 </script>
 
@@ -10369,6 +10574,9 @@ window.onload = async function() {
 
          // 🔑 Vérifier si la clé a été sauvegardée (rappel de sécurité)
     checkKeyBackupReminder();
+
+    // 🆕 Chantier "Bibliothèque" — Phase 1 : charge les modèles persistants (indépendants des sites)
+    try { gmLoadGammesLibrary(); } catch (e) { console.warn('⚠️ Chargement bibliothèque impossible :', e); }
      
     // 🆕 Nettoyage des anciennes entrées (avant la correction de l'appariement des noms de fichiers)
     try {

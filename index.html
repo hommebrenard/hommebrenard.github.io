@@ -2280,11 +2280,11 @@ function gmSidebarNavigate(id, btnEl) {
                            oninput="gmRenderEquipementsList(this.value)"
                            style="width:100%; padding:8px 10px; margin-bottom:8px; border:1px solid #d1d5db; border-radius:8px; font-size:13px;">
                     <div style="display:flex; gap:6px; margin-bottom:6px;">
-                        <select id="gmEquipFilterTagSel" onchange="gmEquipFilterTag = this.value; gmRenderEquipementsList(document.getElementById('gmEquipSearch').value);"
+                        <select id="gmEquipFilterTagSel" aria-label="Filtrer par étiquette" onchange="gmEquipFilterTag = this.value; gmRenderEquipementsList(document.getElementById('gmEquipSearch').value);"
                                 style="flex:1; padding:5px 6px; border:1px solid #d1d5db; border-radius:6px; font-size:11px;">
                             <option value="">🏷️ Toutes étiquettes</option>
                         </select>
-                        <select id="gmEquipFilterEmplacementSel" onchange="gmEquipFilterEmplacement = this.value; gmRenderEquipementsList(document.getElementById('gmEquipSearch').value);"
+                        <select id="gmEquipFilterEmplacementSel" aria-label="Filtrer par emplacement" onchange="gmEquipFilterEmplacement = this.value; gmRenderEquipementsList(document.getElementById('gmEquipSearch').value);"
                                 style="flex:1; padding:5px 6px; border:1px solid #d1d5db; border-radius:6px; font-size:11px;">
                             <option value="">📍 Tous emplacements</option>
                         </select>
@@ -2613,10 +2613,10 @@ function gmRenderEmplacementsPanel() {
         '<div style="font-size:11px; font-weight:600; margin-bottom:6px;">📍 Emplacements</div>' +
         rows +
         '<div style="display:flex; gap:4px; margin-top:6px;">' +
-            '<input type="text" id="gmNewEmplacementNom" placeholder="Nouveau (ex: Bâtiment A)" style="flex:1; padding:4px 6px; border:1px solid #d1d5db; border-radius:5px; font-size:11px;">' +
+            '<input type="text" id="gmNewEmplacementNom" aria-label="Nom du nouvel emplacement" placeholder="Nouveau (ex: Bâtiment A)" style="flex:1; padding:4px 6px; border:1px solid #d1d5db; border-radius:5px; font-size:11px;">' +
             '<button type="button" onclick="gmSubmitNewEmplacement()" style="padding:4px 8px; border:none; background:#2563eb; color:#fff; border-radius:5px; cursor:pointer; font-size:11px;">+</button>' +
         '</div>' +
-        '<select id="gmNewEmplacementParent" style="width:100%; margin-top:4px; padding:4px 6px; border:1px solid #d1d5db; border-radius:5px; font-size:11px;">' + parentOptions + '</select>' +
+        '<select id="gmNewEmplacementParent" aria-label="Emplacement parent" style="width:100%; margin-top:4px; padding:4px 6px; border:1px solid #d1d5db; border-radius:5px; font-size:11px;">' + parentOptions + '</select>' +
         '</div>';
 }
 

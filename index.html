@@ -3441,6 +3441,27 @@ async function voirFicheEquipementDepuisOT() {
 }
 .gm-biblio-action-desc { flex: 1; color: #374151; }
 .gm-biblio-action-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.gm-biblio-proc-block {
+    margin: 4px 2px 8px; padding: 8px 10px; background: #fafafa; border-radius: 6px;
+    border: 1px solid #f0f0f0;
+}
+.gm-biblio-proc-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.gm-biblio-proc-texte { font-size: 12px; color: #4b5563; white-space: pre-wrap; margin-bottom: 6px; }
+.gm-biblio-proc-texte.empty { color: #9ca3af; font-style: italic; }
+.gm-biblio-proc-photos { display: flex; gap: 8px; flex-wrap: wrap; }
+.gm-biblio-proc-photo {
+    position: relative; width: 56px; height: 56px; border-radius: 6px; overflow: hidden;
+    border: 1px solid #e5e7eb; background: #f3f4f6; display: flex; align-items: center; justify-content: center;
+}
+.gm-biblio-proc-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gm-biblio-proc-photo button {
+    position: absolute; top: 1px; right: 1px; background: rgba(0,0,0,0.55); color: #fff;
+    border: none; border-radius: 3px; font-size: 9px; padding: 1px 3px; cursor: pointer;
+}
+.gm-biblio-cible-block {
+    margin-top: 10px; padding-top: 10px; border-top: 1px dashed #e5e7eb;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
 </style>
 <div class="modal-overlay" id="gmBibliothequeModalOverlay" role="dialog" aria-modal="true" aria-labelledby="gmBibliothequeModalTitle">
     <div class="modal" style="max-width: 900px;">
@@ -3512,7 +3533,12 @@ function gmDupliquerGammeVersBibliotheque(cle) {
 }
 
 /** Duplique un modèle déjà présent dans la bibliothèque (copie profonde, aucune référence
- *  partagée avec l'original : modifier la copie n'affecte jamais le modèle source). */
+ *  partagée avec l'original : modifier la copie n'affecte jamais le modèle source).
+ *  🆕 Phase 3 : le texte de procédure est conservé (copie profonde), mais jamais les photos —
+ *  les photos vivent dans IndexedDB sous une clé (modeleId + code), donc les recopier telles
+ *  quelles ferait pointer la copie vers les MÊMES blobs que l'original : supprimer une photo
+ *  depuis la copie supprimerait alors aussi la photo de l'original. On repart donc avec des
+ *  photos vides sur la copie ; le texte, lui, ne présente aucun risque de ce type. */
 function gmDupliquerModele(modeleId) {
     var src = gmGammesLibrary[modeleId];
     if (!src) { showNotification('Modèle introuvable.', 'error'); return null; }
@@ -3521,7 +3547,13 @@ function gmDupliquerModele(modeleId) {
     gmGammesLibrary[id] = {
         id: id,
         nom: src.nom + ' (copie)',
-        actions: src.actions.map(function(a) { return { code: a.code, desc: a.desc }; }),
+        actions: src.actions.map(function(a) {
+            var copie = { code: a.code, desc: a.desc };
+            if (a.procedure && a.procedure.texte) {
+                copie.procedure = { texte: a.procedure.texte, photoIds: [] };
+            }
+            return copie;
+        }),
         origineCle: null,
         origineLabel: 'Copie de : ' + src.nom,
         createdAt: nowIso,
@@ -3547,6 +3579,7 @@ function gmSupprimerModele(modeleId) {
     var modele = gmGammesLibrary[modeleId];
     if (!modele) return;
     if (!confirm('Supprimer le modèle "' + modele.nom + '" de la bibliothèque ?\n\n(Cette action ne modifie aucune gamme active ni aucun OT existant.)')) return;
+    gmNettoyerPhotosProcedureModele(modeleId, modele); // 🆕 Phase 3 : best-effort, ne bloque jamais la suppression
     delete gmGammesLibrary[modeleId];
     if (gmBiblioExpandedModele === modeleId) gmBiblioExpandedModele = null;
     gmPersistGammesLibrary();
@@ -3625,31 +3658,346 @@ function gmSupprimerActionModele(modeleId, code) {
     if (!modele) return;
     if (modele.actions.length <= 1) { showNotification('Un modèle doit conserver au moins une action.', 'warning'); return; }
     if (!confirm('Supprimer cette action du modèle ?')) return;
+    var action = modele.actions.find(function(a) { return a.code === code; });
+    if (action) gmNettoyerPhotosProcedureAction(modeleId, action); // 🆕 Phase 3 : best-effort
     modele.actions = modele.actions.filter(function(a) { return a.code !== code; });
     modele.updatedAt = new Date().toISOString();
     gmBiblioExpandedModele = modeleId;
+    if (gmBiblioExpandedProcedureCode === code) gmBiblioExpandedProcedureCode = null;
     gmPersistGammesLibrary();
     gmRenderBibliothequeContent();
     showNotification('🗑️ Action supprimée du modèle.');
 }
 
-/** Rendu du panneau d'actions déplié pour un modèle (liste + bouton d'ajout). */
+// ============================================================
+// 🆕 Chantier "Bibliothèque" — Phase 3 : fiches procédure (texte + photo) par action
+// Chaque action d'un modèle peut porter une procédure détaillée : un texte libre et des photos.
+// Le texte est stocké directement dans gmGammesLibrary (léger). Les photos, potentiellement
+// lourdes, sont stockées dans une base IndexedDB DÉDIÉE à la bibliothèque (gmBibliothequeDB),
+// totalement séparée de la base des pièces jointes d'OT (otAttachmentsDB) : zéro risque de
+// collision de clé ou d'interférence avec le système de pièces jointes existant. Seules les
+// métadonnées (id, nom, date) vivent dans gmGammesLibrary ; jamais checklistData ni otStates
+// ne sont touchés par ce module.
+// ============================================================
+
+var GM_PROC_DB_NAME = 'gmBibliothequeDB';
+var GM_PROC_DB_VERSION = 1;
+var GM_PROC_STORE_NAME = 'procedurePhotos';
+var _gmProcDbPromise = null;
+var gmBiblioExpandedProcedureCode = null; // code de l'action dont la procédure est dépliée (dans le modèle déplié)
+
+/** Ouvre (ou crée) la base IndexedDB dédiée à la bibliothèque. Réutilise la connexion entre appels. */
+function gmOpenProcedureDB() {
+    if (_gmProcDbPromise) return _gmProcDbPromise;
+    _gmProcDbPromise = new Promise(function(resolve, reject) {
+        if (!window.indexedDB) { reject(new Error('IndexedDB non disponible dans ce navigateur')); return; }
+        var request = indexedDB.open(GM_PROC_DB_NAME, GM_PROC_DB_VERSION);
+        request.onupgradeneeded = function(event) {
+            var db = event.target.result;
+            if (!db.objectStoreNames.contains(GM_PROC_STORE_NAME)) db.createObjectStore(GM_PROC_STORE_NAME);
+        };
+        request.onsuccess = function(event) { resolve(event.target.result); };
+        request.onerror = function(event) { reject((event.target && event.target.error) || new Error('Erreur ouverture IndexedDB bibliothèque')); };
+    });
+    return _gmProcDbPromise;
+}
+
+function gmProcedurePhotoKey(modeleId, actionCode, photoId) {
+    return String(modeleId || '') + '::' + String(actionCode || '') + '::' + String(photoId || '');
+}
+
+async function gmSaveProcedurePhoto(modeleId, actionCode, photoId, base64Data) {
+    var db = await gmOpenProcedureDB();
+    return new Promise(function(resolve, reject) {
+        var tx = db.transaction(GM_PROC_STORE_NAME, 'readwrite');
+        var store = tx.objectStore(GM_PROC_STORE_NAME);
+        var req = store.put(base64Data, gmProcedurePhotoKey(modeleId, actionCode, photoId));
+        req.onsuccess = function() { resolve(true); };
+        req.onerror = function(event) { reject((event.target && event.target.error) || new Error("Erreur écriture photo procédure")); };
+    });
+}
+
+async function gmGetProcedurePhoto(modeleId, actionCode, photoId) {
+    var db = await gmOpenProcedureDB();
+    return new Promise(function(resolve, reject) {
+        var tx = db.transaction(GM_PROC_STORE_NAME, 'readonly');
+        var store = tx.objectStore(GM_PROC_STORE_NAME);
+        var req = store.get(gmProcedurePhotoKey(modeleId, actionCode, photoId));
+        req.onsuccess = function(event) { resolve(event.target.result !== undefined ? event.target.result : null); };
+        req.onerror = function(event) { reject((event.target && event.target.error) || new Error('Erreur lecture photo procédure')); };
+    });
+}
+
+async function gmDeleteProcedurePhoto(modeleId, actionCode, photoId) {
+    var db = await gmOpenProcedureDB();
+    return new Promise(function(resolve, reject) {
+        var tx = db.transaction(GM_PROC_STORE_NAME, 'readwrite');
+        var store = tx.objectStore(GM_PROC_STORE_NAME);
+        var req = store.delete(gmProcedurePhotoKey(modeleId, actionCode, photoId));
+        req.onsuccess = function() { resolve(true); };
+        req.onerror = function(event) { reject((event.target && event.target.error) || new Error('Erreur suppression photo procédure')); };
+    });
+}
+
+function gmSanitizeDomId(s) {
+    return String(s || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+function gmGetActionInModele(modeleId, code) {
+    var modele = gmGammesLibrary[modeleId];
+    if (!modele) return null;
+    return (modele.actions || []).find(function(a) { return a.code === code; }) || null;
+}
+
+function gmEnsureProcedure(action) {
+    if (!action.procedure) action.procedure = { texte: '', photoIds: [] };
+    if (!action.procedure.photoIds) action.procedure.photoIds = [];
+    return action.procedure;
+}
+
+/** Best-effort : supprime toutes les photos de procédure d'UNE action (avant suppression de
+ *  cette action). N'échoue jamais bruyamment — une erreur IndexedDB isolée ne doit jamais
+ *  empêcher l'utilisateur de continuer à travailler sur son modèle. */
+function gmNettoyerPhotosProcedureAction(modeleId, action) {
+    if (!action || !action.procedure || !action.procedure.photoIds) return;
+    action.procedure.photoIds.forEach(function(p) {
+        gmDeleteProcedurePhoto(modeleId, action.code, p.id).catch(function(e) {
+            console.warn('⚠️ Nettoyage photo procédure impossible :', e);
+        });
+    });
+}
+
+/** Best-effort : supprime toutes les photos de procédure de TOUTES les actions d'un modèle
+ *  (avant suppression complète du modèle). Même logique de tolérance aux erreurs que ci-dessus. */
+function gmNettoyerPhotosProcedureModele(modeleId, modele) {
+    (modele.actions || []).forEach(function(a) { gmNettoyerPhotosProcedureAction(modeleId, a); });
+}
+
+function gmToggleProcedure(code) {
+    gmBiblioExpandedProcedureCode = (gmBiblioExpandedProcedureCode === code) ? null : code;
+    gmRenderBibliothequeContent();
+    if (gmBiblioExpandedProcedureCode) gmHydrateProcedurePhotos(gmBiblioExpandedModele, gmBiblioExpandedProcedureCode);
+}
+
+function gmModifierProcedureTexte(modeleId, code) {
+    var modele = gmGammesLibrary[modeleId];
+    var action = gmGetActionInModele(modeleId, code);
+    if (!modele || !action) return;
+    var proc = gmEnsureProcedure(action);
+    var nouveauTexte = String(prompt('Procédure détaillée pour cette action :', proc.texte || '') || '').trim();
+    if (!nouveauTexte || nouveauTexte === proc.texte) return;
+    proc.texte = nouveauTexte;
+    modele.updatedAt = new Date().toISOString();
+    gmBiblioExpandedModele = modeleId;
+    gmBiblioExpandedProcedureCode = code;
+    gmPersistGammesLibrary();
+    gmRenderBibliothequeContent();
+    showNotification('✅ Procédure enregistrée.');
+}
+
+/** Génère un identifiant de photo qui ne collisionne jamais avec les photos déjà présentes
+ *  sur CETTE action (chaque action a son propre espace d'identifiants de photo). */
+function gmGenerateProcedurePhotoId(action) {
+    var proc = gmEnsureProcedure(action);
+    var used = {};
+    proc.photoIds.forEach(function(p) { used[p.id] = true; });
+    var n = proc.photoIds.length + 1;
+    var id = 'PH' + n;
+    while (used[id]) { n++; id = 'PH' + n; }
+    return id;
+}
+
+/** Ajoute une photo à la procédure d'une action : valide le fichier, l'enregistre dans
+ *  IndexedDB (jamais dans localStorage, pour ne pas saturer son quota), puis ajoute
+ *  uniquement la métadonnée (id/nom/date) dans gmGammesLibrary. */
+async function gmAjouterPhotoProcedure(modeleId, code, file) {
+    var modele = gmGammesLibrary[modeleId];
+    var action = gmGetActionInModele(modeleId, code);
+    if (!modele || !action || !file) return;
+    if (!file.type || file.type.indexOf('image/') !== 0) { showNotification('Seules les images sont acceptées.', 'warning'); return; }
+    if (file.size > 5 * 1024 * 1024) { showNotification('Image trop volumineuse (max 5 Mo).', 'warning'); return; }
+    var proc = gmEnsureProcedure(action);
+    var photoId = gmGenerateProcedurePhotoId(action);
+    var reader = new FileReader();
+    reader.onload = async function(e) {
+        try {
+            await gmSaveProcedurePhoto(modeleId, code, photoId, e.target.result);
+            proc.photoIds.push({ id: photoId, name: file.name, addedAt: new Date().toISOString() });
+            modele.updatedAt = new Date().toISOString();
+            gmBiblioExpandedModele = modeleId;
+            gmBiblioExpandedProcedureCode = code;
+            gmPersistGammesLibrary();
+            gmRenderBibliothequeContent();
+            gmHydrateProcedurePhotos(modeleId, code);
+            showNotification('✅ Photo ajoutée à la procédure.');
+        } catch (err) {
+            showNotification('Erreur enregistrement photo : ' + err.message, 'error');
+        }
+    };
+    reader.readAsDataURL(file);
+}
+
+/** Point d'entrée du champ <input type="file"> : lit le fichier choisi puis délègue à
+ *  gmAjouterPhotoProcedure(), et réinitialise le champ pour permettre de re-choisir le même fichier. */
+function gmHandlePhotoInputChange(inputEl, modeleId, code) {
+    var file = inputEl.files && inputEl.files[0];
+    inputEl.value = '';
+    if (!file) return;
+    gmAjouterPhotoProcedure(modeleId, code, file);
+}
+
+async function gmSupprimerPhotoProcedure(modeleId, code, photoId) {
+    var action = gmGetActionInModele(modeleId, code);
+    var modele = gmGammesLibrary[modeleId];
+    if (!modele || !action || !action.procedure) return;
+    if (!confirm('Supprimer cette photo de la procédure ?')) return;
+    try { await gmDeleteProcedurePhoto(modeleId, code, photoId); } catch (e) { console.warn('⚠️ Suppression IDB photo procédure échouée :', e); }
+    action.procedure.photoIds = action.procedure.photoIds.filter(function(p) { return p.id !== photoId; });
+    modele.updatedAt = new Date().toISOString();
+    gmBiblioExpandedModele = modeleId;
+    gmBiblioExpandedProcedureCode = code;
+    gmPersistGammesLibrary();
+    gmRenderBibliothequeContent();
+    showNotification('🗑️ Photo supprimée.');
+}
+
+/** Charge de façon asynchrone les vignettes photo d'une procédure dépliée (appelé après le
+ *  rendu HTML, puisque la lecture IndexedDB est asynchrone et ne peut pas se faire pendant
+ *  la construction synchrone du innerHTML). */
+async function gmHydrateProcedurePhotos(modeleId, code) {
+    var action = gmGetActionInModele(modeleId, code);
+    if (!action || !action.procedure) return;
+    var photoIds = action.procedure.photoIds || [];
+    for (var i = 0; i < photoIds.length; i++) {
+        var p = photoIds[i];
+        var elId = 'gmProcPhoto_' + gmSanitizeDomId(modeleId) + '_' + gmSanitizeDomId(code) + '_' + gmSanitizeDomId(p.id);
+        var el = document.getElementById(elId);
+        if (!el) continue;
+        try {
+            var data = await gmGetProcedurePhoto(modeleId, code, p.id);
+            if (data) {
+                el.innerHTML = '<img src="' + data + '" alt="' + escapeAttr(p.name || '') + '">'
+                    + '<button type="button" onclick="gmSupprimerPhotoProcedure(' + escapeAttr(JSON.stringify(modeleId)) + ', ' + escapeAttr(JSON.stringify(code)) + ', ' + escapeAttr(JSON.stringify(p.id)) + ')" aria-label="Supprimer cette photo">✕</button>';
+            } else {
+                el.innerHTML = '<span style="font-size:9px; color:#ef4444;">?</span>';
+            }
+        } catch (e) {
+            console.warn('⚠️ Chargement photo procédure impossible :', e);
+        }
+    }
+}
+
+// ============================================================
+// 🆕 Chantier "Bibliothèque" — Phase 4 : appliquer un modèle à une gamme active
+// NOTE DE CONCEPTION : le découpage initial envisageait une association automatique aux
+// FUTURS imports Excel. Par précaution, on a préféré ne PAS toucher au pipeline d'import
+// (loadChecklistFile / parseChecklistData), qui est un chemin critique déjà validé — le
+// risque d'y introduire une régression dépasse le bénéfice. Cette Phase 4 offre à la place
+// une application MANUELLE, explicite et sur confirmation, à une gamme déjà chargée : c'est
+// la SEULE fonction de tout le module Bibliothèque qui écrit dans checklistData, et unique-
+// ment de façon additive (elle n'écrase et ne supprime JAMAIS une action existante de la
+// gamme). Après application, checklistData est modifié en mémoire comme après un import :
+// le bouton 💾 Sauvegarder existant de l'application se charge de le persister, comme pour
+// n'importe quelle autre modification de gamme.
+// ============================================================
+
+/** Génère un code d'action qui ne collisionne jamais avec les actions déjà présentes dans une
+ *  gamme active donnée. */
+function gmGenerateChecklistActionCode(actionsExistantes, codeSouhaite) {
+    var used = {};
+    (actionsExistantes || []).forEach(function(a) { used[a.code] = true; });
+    if (!used[codeSouhaite]) return codeSouhaite;
+    var n = 2;
+    var code = codeSouhaite + '-' + n;
+    while (used[code]) { n++; code = codeSouhaite + '-' + n; }
+    return code;
+}
+
+/** Applique (ajoute) les actions d'un modèle de bibliothèque à une gamme active
+ *  (checklistData[cle]). skipConfirm est réservé aux tests automatisés. */
+function gmAppliquerModeleAGamme(modeleId, cle, skipConfirm) {
+    var modele = gmGammesLibrary[modeleId];
+    var gamme = (typeof checklistData !== 'undefined' && checklistData) ? checklistData[cle] : null;
+    if (!modele) { showNotification('Modèle introuvable.', 'error'); return 0; }
+    if (!gamme) { showNotification('Gamme active introuvable.', 'error'); return 0; }
+    if (!skipConfirm && !confirm('Ajouter les ' + modele.actions.length + ' action(s) du modèle "' + modele.nom + '" à la gamme "' + (gamme.equipement || cle) + '" ?\n\n(Les actions existantes de la gamme ne sont jamais modifiées ni supprimées — uniquement des ajouts.)')) return 0;
+    if (!gamme.actions) gamme.actions = [];
+    var ajoutees = 0;
+    modele.actions.forEach(function(a) {
+        var code = gmGenerateChecklistActionCode(gamme.actions, a.code);
+        gamme.actions.push({ code: code, desc: a.desc });
+        ajoutees++;
+    });
+    gmRenderBibliothequeContent();
+    showNotification('✅ ' + ajoutees + " action(s) ajoutée(s) à la gamme depuis le modèle. Pensez à cliquer sur 💾 Sauvegarder pour conserver ce changement.");
+    return ajoutees;
+}
+
+function gmAppliquerModeleAGammeUI(modeleId, selectId) {
+    var sel = document.getElementById(selectId);
+    if (!sel || !sel.value) { showNotification('Sélectionnez une gamme cible.', 'warning'); return; }
+    gmAppliquerModeleAGamme(modeleId, sel.value);
+}
+
+/** Rendu du bloc "Appliquer ce modèle à une gamme active" (bas du panneau d'actions). */
+function gmRenderAppliquerAGammeBlock(modeleId) {
+    var cles = Object.keys((typeof checklistData !== 'undefined' && checklistData) || {});
+    if (cles.length === 0) {
+        return '<div class="gm-biblio-cible-block"><span style="font-size:11px; color:#9ca3af; font-style:italic;">Aucune gamme active chargée pour appliquer ce modèle.</span></div>';
+    }
+    var selectId = 'gmBiblioCibleSelect_' + gmSanitizeDomId(modeleId);
+    var options = cles.map(function(cle) {
+        var g = checklistData[cle];
+        return '<option value="' + escapeAttr(cle) + '">' + escapeHtml((g.equipement || cle) + ' — ' + (g.intervention || '')) + '</option>';
+    }).join('');
+    return '<div class="gm-biblio-cible-block">'
+        + '<label for="' + selectId + '" style="font-size:11px; color:#374151; font-weight:600;">🔗 Appliquer ce modèle à :</label>'
+        + '<select id="' + selectId + '" style="flex:1; min-width:180px; padding:5px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:11px;">' + options + '</select>'
+        + '<button type="button" class="btn btn-primary" style="min-height:28px; padding:5px 10px; font-size:11px;" onclick="gmAppliquerModeleAGammeUI(' + escapeAttr(JSON.stringify(modeleId)) + ', ' + escapeAttr(JSON.stringify(selectId)) + ')">Appliquer</button>'
+        + '</div>';
+}
+
+/** Rendu du panneau d'actions déplié pour un modèle : liste des actions (avec, pour chacune,
+ *  un accès à sa procédure — Phase 3), bouton d'ajout, et bloc d'application à une gamme active
+ *  (Phase 4) en pied de panneau. */
 function gmRenderModeleActionsPanel(modeleId) {
     var modele = gmGammesLibrary[modeleId];
     if (!modele) return '';
     var rows = (modele.actions || []).map(function(a) {
-        return '<div class="gm-biblio-action-row">'
+        var procExpanded = gmBiblioExpandedProcedureCode === a.code;
+        var proc = a.procedure || { texte: '', photoIds: [] };
+        var nbPhotos = (proc.photoIds || []).length;
+        var row = '<div class="gm-biblio-action-row">'
             + '<span class="gm-biblio-action-code">' + escapeHtml(a.code) + '</span>'
             + '<span class="gm-biblio-action-desc">' + escapeHtml(a.desc) + '</span>'
             + '<div class="gm-biblio-action-actions">'
+            + '<button type="button" class="btn ' + (procExpanded ? 'btn-primary' : 'btn-secondary') + '" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmToggleProcedure(' + escapeAttr(JSON.stringify(a.code)) + ')" aria-label="Procédure de cette action">📋' + (nbPhotos ? ' ' + nbPhotos : '') + '</button>'
             + '<button type="button" class="btn btn-secondary" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmModifierActionModele(' + escapeAttr(JSON.stringify(modeleId)) + ', ' + escapeAttr(JSON.stringify(a.code)) + ')" aria-label="Modifier cette action">✏️</button>'
             + '<button type="button" class="btn btn-danger" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmSupprimerActionModele(' + escapeAttr(JSON.stringify(modeleId)) + ', ' + escapeAttr(JSON.stringify(a.code)) + ')" aria-label="Supprimer cette action">🗑️</button>'
             + '</div>'
             + '</div>';
+        if (procExpanded) {
+            var inputId = 'gmProcPhotoInput_' + gmSanitizeDomId(modeleId) + '_' + gmSanitizeDomId(a.code);
+            var photosHtml = (proc.photoIds || []).map(function(p) {
+                var elId = 'gmProcPhoto_' + gmSanitizeDomId(modeleId) + '_' + gmSanitizeDomId(a.code) + '_' + gmSanitizeDomId(p.id);
+                return '<div class="gm-biblio-proc-photo" id="' + elId + '"><span style="font-size:9px; color:#9ca3af;">…</span></div>';
+            }).join('');
+            row += '<div class="gm-biblio-proc-block">'
+                + '<div class="gm-biblio-proc-header">'
+                + '<button type="button" class="btn btn-secondary" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmModifierProcedureTexte(' + escapeAttr(JSON.stringify(modeleId)) + ', ' + escapeAttr(JSON.stringify(a.code)) + ')">✏️ Éditer le texte</button>'
+                + '<label for="' + inputId + '" class="btn btn-secondary" style="min-height:28px; padding:4px 8px; font-size:10px;">📷 Ajouter une photo</label>'
+                + '<input type="file" id="' + inputId + '" accept="image/*" style="display:none" onchange="gmHandlePhotoInputChange(this, ' + escapeAttr(JSON.stringify(modeleId)) + ', ' + escapeAttr(JSON.stringify(a.code)) + ')">'
+                + '</div>'
+                + '<div class="gm-biblio-proc-texte' + (proc.texte ? '' : ' empty') + '">' + (proc.texte ? escapeHtml(proc.texte) : 'Aucune procédure détaillée pour le moment.') + '</div>'
+                + (photosHtml ? '<div class="gm-biblio-proc-photos">' + photosHtml + '</div>' : '')
+                + '</div>';
+        }
+        return row;
     }).join('');
     return '<div class="gm-biblio-actions-panel">'
         + rows
         + '<button type="button" class="btn btn-primary" style="min-height:30px; padding:6px 10px; font-size:11px; margin-top:8px;" onclick="gmAjouterActionModele(' + escapeAttr(JSON.stringify(modeleId)) + ')">+ Ajouter une action</button>'
+        + gmRenderAppliquerAGammeBlock(modeleId)
         + '</div>';
 }
 

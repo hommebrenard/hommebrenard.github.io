@@ -3425,6 +3425,22 @@ async function voirFicheEquipementDepuisOT() {
 .gm-biblio-card-title { font-size: 13px; font-weight: 600; color: #111827; }
 .gm-biblio-card-sub { font-size: 11px; color: #6b7280; margin-top: 2px; }
 .gm-biblio-card-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.gm-biblio-modele-block { display: flex; flex-direction: column; gap: 0; margin-bottom: 8px; }
+.gm-biblio-actions-panel {
+    background: white; border: 1px dashed #d1d5db; border-radius: 8px;
+    padding: 10px 12px; margin-top: 6px;
+}
+.gm-biblio-action-row {
+    display: flex; align-items: center; gap: 10px; padding: 6px 2px;
+    border-bottom: 1px solid #f3f4f6; font-size: 12px;
+}
+.gm-biblio-action-row:last-child { border-bottom: none; }
+.gm-biblio-action-code {
+    font-family: 'Consolas', 'Courier New', monospace; font-weight: 700; color: #4f46e5;
+    background: #eef2ff; padding: 2px 6px; border-radius: 4px; flex-shrink: 0; min-width: 42px; text-align: center;
+}
+.gm-biblio-action-desc { flex: 1; color: #374151; }
+.gm-biblio-action-actions { display: flex; gap: 4px; flex-shrink: 0; }
 </style>
 <div class="modal-overlay" id="gmBibliothequeModalOverlay" role="dialog" aria-modal="true" aria-labelledby="gmBibliothequeModalTitle">
     <div class="modal" style="max-width: 900px;">
@@ -3447,6 +3463,7 @@ async function voirFicheEquipementDepuisOT() {
 <script>
 /* 🆕 Bibliothèque de modèles — état + persistance dédiée (indépendante des sites/OT). */
 var gmGammesLibrary = {};
+var gmBiblioExpandedModele = null; // 🆕 Phase 2 : id du modèle dont le panneau d'actions est déplié
 
 function gmLoadGammesLibrary() {
     try {
@@ -3531,6 +3548,7 @@ function gmSupprimerModele(modeleId) {
     if (!modele) return;
     if (!confirm('Supprimer le modèle "' + modele.nom + '" de la bibliothèque ?\n\n(Cette action ne modifie aucune gamme active ni aucun OT existant.)')) return;
     delete gmGammesLibrary[modeleId];
+    if (gmBiblioExpandedModele === modeleId) gmBiblioExpandedModele = null;
     gmPersistGammesLibrary();
     gmRenderBibliothequeContent();
     showNotification('🗑️ Modèle supprimé de la bibliothèque.');
@@ -3544,6 +3562,95 @@ function gmDupliquerGammeVersBibliothequeUI(cle) {
 function gmDupliquerModeleUI(modeleId) {
     var id = gmDupliquerModele(modeleId);
     if (id) { gmRenderBibliothequeContent(); showNotification('✅ Modèle dupliqué.'); }
+}
+
+// ============================================================
+// 🆕 Chantier "Bibliothèque" — Phase 2 : édition des actions d'un modèle
+// Permet d'ajouter/modifier/supprimer les actions D'UN MODÈLE DE LA BIBLIOTHÈQUE, totalement
+// indépendamment des gammes actives (checklistData) et des OT (otStates) : aucune des fonctions
+// ci-dessous ne touche à ces deux structures. Réutilise gmPersistGammesLibrary() (Phase 1) pour
+// la sauvegarde et gmRenderBibliothequeContent() (Phase 1) pour le rafraîchissement d'affichage.
+// ============================================================
+
+/** Génère un code d'action qui ne collisionne jamais avec les actions déjà présentes sur CE
+ *  modèle (chaque modèle a son propre espace de codes, indépendant des autres modèles/gammes). */
+function gmGenerateModeleActionCode(modeleId) {
+    var modele = gmGammesLibrary[modeleId];
+    var actions = (modele && modele.actions) || [];
+    var used = {};
+    actions.forEach(function(a) { used[a.code] = true; });
+    var n = actions.length + 1;
+    var code = 'A' + n;
+    while (used[code]) { n++; code = 'A' + n; }
+    return code;
+}
+
+/** Ouvre/ferme le panneau d'édition des actions d'un modèle (un seul déplié à la fois). */
+function gmToggleModeleActions(modeleId) {
+    gmBiblioExpandedModele = (gmBiblioExpandedModele === modeleId) ? null : modeleId;
+    gmRenderBibliothequeContent();
+}
+
+function gmAjouterActionModele(modeleId) {
+    var modele = gmGammesLibrary[modeleId];
+    if (!modele) return;
+    var desc = String(prompt('Description de la nouvelle action :', '') || '').trim();
+    if (!desc) return;
+    var code = gmGenerateModeleActionCode(modeleId);
+    modele.actions.push({ code: code, desc: desc });
+    modele.updatedAt = new Date().toISOString();
+    gmBiblioExpandedModele = modeleId;
+    gmPersistGammesLibrary();
+    gmRenderBibliothequeContent();
+    showNotification('✅ Action ajoutée au modèle.');
+}
+
+function gmModifierActionModele(modeleId, code) {
+    var modele = gmGammesLibrary[modeleId];
+    if (!modele) return;
+    var action = modele.actions.find(function(a) { return a.code === code; });
+    if (!action) return;
+    var nouveauLibelle = String(prompt('Modifier le libellé de cette action :', action.desc) || '').trim();
+    if (!nouveauLibelle || nouveauLibelle === action.desc) return;
+    action.desc = nouveauLibelle;
+    modele.updatedAt = new Date().toISOString();
+    gmBiblioExpandedModele = modeleId;
+    gmPersistGammesLibrary();
+    gmRenderBibliothequeContent();
+    showNotification('✅ Action modifiée.');
+}
+
+function gmSupprimerActionModele(modeleId, code) {
+    var modele = gmGammesLibrary[modeleId];
+    if (!modele) return;
+    if (modele.actions.length <= 1) { showNotification('Un modèle doit conserver au moins une action.', 'warning'); return; }
+    if (!confirm('Supprimer cette action du modèle ?')) return;
+    modele.actions = modele.actions.filter(function(a) { return a.code !== code; });
+    modele.updatedAt = new Date().toISOString();
+    gmBiblioExpandedModele = modeleId;
+    gmPersistGammesLibrary();
+    gmRenderBibliothequeContent();
+    showNotification('🗑️ Action supprimée du modèle.');
+}
+
+/** Rendu du panneau d'actions déplié pour un modèle (liste + bouton d'ajout). */
+function gmRenderModeleActionsPanel(modeleId) {
+    var modele = gmGammesLibrary[modeleId];
+    if (!modele) return '';
+    var rows = (modele.actions || []).map(function(a) {
+        return '<div class="gm-biblio-action-row">'
+            + '<span class="gm-biblio-action-code">' + escapeHtml(a.code) + '</span>'
+            + '<span class="gm-biblio-action-desc">' + escapeHtml(a.desc) + '</span>'
+            + '<div class="gm-biblio-action-actions">'
+            + '<button type="button" class="btn btn-secondary" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmModifierActionModele(' + escapeAttr(JSON.stringify(modeleId)) + ', ' + escapeAttr(JSON.stringify(a.code)) + ')" aria-label="Modifier cette action">✏️</button>'
+            + '<button type="button" class="btn btn-danger" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmSupprimerActionModele(' + escapeAttr(JSON.stringify(modeleId)) + ', ' + escapeAttr(JSON.stringify(a.code)) + ')" aria-label="Supprimer cette action">🗑️</button>'
+            + '</div>'
+            + '</div>';
+    }).join('');
+    return '<div class="gm-biblio-actions-panel">'
+        + rows
+        + '<button type="button" class="btn btn-primary" style="min-height:30px; padding:6px 10px; font-size:11px; margin-top:8px;" onclick="gmAjouterActionModele(' + escapeAttr(JSON.stringify(modeleId)) + ')">+ Ajouter une action</button>'
+        + '</div>';
 }
 
 function gmRenderBibliothequeContent() {
@@ -3578,16 +3685,21 @@ function gmRenderBibliothequeContent() {
             var m = gmGammesLibrary[id];
             var nbActions = (m.actions || []).length;
             var dateLabel = m.updatedAt ? new Date(m.updatedAt).toLocaleDateString('fr-FR') : '';
-            return '<div class="gm-biblio-card">'
+            var estDeplie = gmBiblioExpandedModele === id;
+            return '<div class="gm-biblio-modele-block">'
+                + '<div class="gm-biblio-card">'
                 + '<div class="gm-biblio-card-main">'
                 + '<div class="gm-biblio-card-title">' + escapeHtml(m.nom) + '</div>'
                 + '<div class="gm-biblio-card-sub">' + nbActions + ' action' + (nbActions > 1 ? 's' : '') + ' · maj ' + dateLabel + '</div>'
                 + '</div>'
                 + '<div class="gm-biblio-card-actions">'
+                + '<button type="button" class="btn ' + (estDeplie ? 'btn-primary' : 'btn-info') + '" style="min-height:32px; padding:6px 10px; font-size:11px;" onclick="gmToggleModeleActions(' + escapeAttr(JSON.stringify(id)) + ')">📝 Actions (' + nbActions + ')</button>'
                 + '<button type="button" class="btn btn-secondary" style="min-height:32px; padding:6px 10px; font-size:11px;" onclick="gmRenommerModele(' + escapeAttr(JSON.stringify(id)) + ')">✏️ Renommer</button>'
                 + '<button type="button" class="btn btn-info" style="min-height:32px; padding:6px 10px; font-size:11px;" onclick="gmDupliquerModeleUI(' + escapeAttr(JSON.stringify(id)) + ')">📋 Dupliquer</button>'
                 + '<button type="button" class="btn btn-danger" style="min-height:32px; padding:6px 10px; font-size:11px;" onclick="gmSupprimerModele(' + escapeAttr(JSON.stringify(id)) + ')">🗑️ Supprimer</button>'
                 + '</div>'
+                + '</div>'
+                + (estDeplie ? gmRenderModeleActionsPanel(id) : '')
                 + '</div>';
         }).join('');
     }

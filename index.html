@@ -2241,6 +2241,10 @@ body.mode-prestataire .internal-only {
                 onclick="gmSidebarNavigate('biblio', this); openBibliothequeModal();">
             <span class="gm-sidebar-item-icon">📚</span> Bibliothèque
         </button>
+        <button type="button" class="gm-sidebar-item internal-only" id="gmNavCompteurs"
+                onclick="gmSidebarNavigate('compteurs', this); openCompteursModal();">
+            <span class="gm-sidebar-item-icon">🔢</span> Compteurs
+        </button>
     </div>
 
     <div class="gm-sidebar-section">
@@ -4059,6 +4063,429 @@ function openBibliothequeModal() {
 }
 function closeBibliothequeModal() {
     document.getElementById('gmBibliothequeModalOverlay').classList.remove('active');
+}
+</script>
+
+<!-- ============================================================
+     🆕 Chantier 7 "Compteurs + Maintenance préventive" — Phase 1 (fondation commune)
+     Registre de compteurs par équipement, DEUX familles dès le départ :
+       - "technique"    : heures moteur, km, etc. → futur déclencheur d'OT (Phases 3-4)
+       - "energetique"  : kWh, m³, etc.            → simple suivi/historique/courbe (Phase 2)
+     Stocké de façon chiffrée, scopé au SITE PHYSIQUE (même mécanisme que emplacementsRegistry
+     et equipementsRegistry : sa propre clé localStorage, jamais mélangé aux autres registres).
+     Chaque compteur référence un équipement du registre stable (equipementsRegistry) par son id
+     — jamais par son code prestataire, pour rester valable même si ce code change. Module additif
+     et isolé (préfixe gm-), suit le même schéma que les modules Équipements/Bibliothèque.
+     ============================================================ -->
+<style>
+.gm-cpt-equip-card { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 14px; margin-bottom: 8px; }
+.gm-cpt-equip-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.gm-cpt-equip-title { font-size: 13px; font-weight: 600; color: #111827; }
+.gm-cpt-equip-sub { font-size: 11px; color: #6b7280; margin-top: 2px; }
+.gm-cpt-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.gm-cpt-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    background: white; border: 1px solid #eef0f2; border-radius: 6px; padding: 8px 10px;
+}
+.gm-cpt-badge {
+    font-size: 9px; font-weight: 700; text-transform: uppercase; padding: 2px 6px; border-radius: 4px; letter-spacing: 0.3px;
+}
+.gm-cpt-badge.technique { background: #eef2ff; color: #4f46e5; }
+.gm-cpt-badge.energetique { background: #ecfdf5; color: #059669; }
+.gm-cpt-row-main { display: flex; flex-direction: column; gap: 2px; }
+.gm-cpt-row-nom { font-size: 12px; font-weight: 600; color: #1f2937; }
+.gm-cpt-row-sub { font-size: 11px; color: #6b7280; }
+.gm-cpt-row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.gm-cpt-releves-panel { background: #fafafa; border: 1px dashed #d1d5db; border-radius: 6px; padding: 8px 10px; margin-top: 6px; width: 100%; }
+.gm-cpt-releve-row { display: flex; align-items: center; gap: 10px; padding: 4px 2px; font-size: 11px; border-bottom: 1px solid #f3f4f6; }
+.gm-cpt-releve-row:last-child { border-bottom: none; }
+.gm-cpt-releve-date { color: #6b7280; min-width: 82px; }
+.gm-cpt-releve-valeur { font-weight: 600; color: #111827; flex: 1; }
+.gm-cpt-releve-delta { color: #059669; font-size: 10px; }
+</style>
+<div class="modal-overlay" id="gmCompteursModalOverlay" role="dialog" aria-modal="true" aria-labelledby="gmCompteursModalTitle">
+    <div class="modal" style="max-width: 900px;">
+        <div class="modal-header">
+            <div>
+                <h2 id="gmCompteursModalTitle">🔢 Compteurs</h2>
+                <div class="info">Relevés techniques (heures, km…) et énergétiques (kWh, m³…) par équipement</div>
+            </div>
+            <button class="close-btn" onclick="closeCompteursModal()" aria-label="Fermer">✕</button>
+        </div>
+        <div class="modal-body">
+            <div id="gmCompteursListe"></div>
+        </div>
+    </div>
+</div>
+<script>
+/* 🆕 Compteurs — état + persistance dédiée (chiffrée, scopée au site physique). */
+var compteursRegistry = {};
+var gmCompteursExpandedEquip = null;  // id équipement dont la liste de compteurs est dépliée
+var gmCompteursExpandedReleves = null; // id compteur dont l'historique des relevés est déplié
+var gmCompteursExpandedCourbe = null;  // 🆕 Phase 2 : id compteur dont la courbe est dépliée
+
+function gmCompteursStorageKey() {
+    return 'gmCompteurs_v1_' + gmPhysicalSiteKey();
+}
+
+async function gmLoadCompteursRegistry() {
+    try {
+        var data = await loadEncrypted(gmCompteursStorageKey());
+        compteursRegistry = data || {};
+    } catch (e) {
+        console.warn('⚠️ Registre compteurs : chargement impossible', e);
+        compteursRegistry = compteursRegistry || {};
+    }
+}
+
+async function gmSaveCompteursRegistry() {
+    try {
+        await saveEncrypted(gmCompteursStorageKey(), compteursRegistry);
+        return true;
+    } catch (e) {
+        console.warn('⚠️ Registre compteurs : sauvegarde impossible', e);
+        return false;
+    }
+}
+
+function gmCompteursPersist() {
+    gmSaveCompteursRegistry().catch(function(e) { console.warn('⚠️ Registre compteurs : persistance impossible', e); });
+}
+
+function gmGenerateCompteurId() {
+    return 'cpt_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function gmGenerateReleveId() {
+    return 'rel_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+/** Compteurs d'un équipement donné, triés par nom. */
+function gmGetCompteursPourEquipement(equipId) {
+    return Object.keys(compteursRegistry)
+        .map(function(id) { return compteursRegistry[id]; })
+        .filter(function(c) { return c.equipId === equipId; })
+        .sort(function(a, b) { return (a.nom || '').localeCompare(b.nom || ''); });
+}
+
+/** Relevés d'un compteur triés du plus récent au plus ancien. */
+function gmGetRelevesTries(compteur) {
+    return (compteur.releves || []).slice().sort(function(a, b) { return (b.date || '').localeCompare(a.date || ''); });
+}
+
+function gmDernierReleve(compteur) {
+    var releves = gmGetRelevesTries(compteur);
+    return releves.length ? releves[0] : null;
+}
+
+/** Création d'un compteur — réservée au gestionnaire (même garde que les autres registres). */
+function gmCreerCompteur(equipId, type, nom, unite, seuil) {
+    if (typeof isPrestataireMode !== 'undefined' && isPrestataireMode) {
+        showNotification('Cette action est réservée au gestionnaire.', 'warning');
+        return null;
+    }
+    if (!equipId || !equipementsRegistry[equipId]) { showNotification('Équipement introuvable.', 'error'); return null; }
+    if (type !== 'technique' && type !== 'energetique') { showNotification('Type de compteur invalide.', 'error'); return null; }
+    var nomFinal = String(nom || '').trim();
+    if (!nomFinal) { showNotification('Le nom du compteur est obligatoire.', 'warning'); return null; }
+    var id = gmGenerateCompteurId();
+    var nowIso = new Date().toISOString();
+    compteursRegistry[id] = {
+        id: id, equipId: equipId, type: type, nom: nomFinal, unite: String(unite || '').trim(),
+        seuil: (type === 'technique' && seuil !== undefined && seuil !== null && seuil !== '') ? Number(seuil) : null,
+        releves: [], createdAt: nowIso, updatedAt: nowIso
+    };
+    gmCompteursPersist();
+    return id;
+}
+
+function gmSupprimerCompteur(compteurId) {
+    if (typeof isPrestataireMode !== 'undefined' && isPrestataireMode) {
+        showNotification('Cette action est réservée au gestionnaire.', 'warning');
+        return;
+    }
+    var compteur = compteursRegistry[compteurId];
+    if (!compteur) return;
+    if (!confirm('Supprimer le compteur "' + compteur.nom + '" et tous ses relevés ?\n\n(Cette action ne modifie aucun OT ni aucune gamme.)')) return;
+    delete compteursRegistry[compteurId];
+    if (gmCompteursExpandedReleves === compteurId) gmCompteursExpandedReleves = null;
+    gmCompteursPersist();
+    gmRenderCompteursListe();
+    showNotification('🗑️ Compteur supprimé.');
+}
+
+/** Ajoute un relevé : valeur numérique obligatoire, date obligatoire (par défaut aujourd'hui).
+ *  Aucune contrainte de croissance imposée ici (un compteur remplacé peut redémarrer à 0) —
+ *  c'est un choix délibéré de simplicité pour cette fondation ; le calcul de delta (ci-dessous)
+ *  gère normalement une valeur décroissante en l'affichant simplement sans consommation négative. */
+function gmAjouterReleve(compteurId, dateStr, valeurStr, note) {
+    if (typeof isPrestataireMode !== 'undefined' && isPrestataireMode) {
+        showNotification('Cette action est réservée au gestionnaire.', 'warning');
+        return null;
+    }
+    var compteur = compteursRegistry[compteurId];
+    if (!compteur) { showNotification('Compteur introuvable.', 'error'); return null; }
+    var date = String(dateStr || '').trim() || new Date().toISOString().slice(0, 10);
+    var valeur = Number(valeurStr);
+    if (!isFinite(valeur)) { showNotification('Valeur de relevé invalide.', 'warning'); return null; }
+    var releveId = gmGenerateReleveId();
+    compteur.releves.push({ id: releveId, date: date, valeur: valeur, note: String(note || '').trim(), createdAt: new Date().toISOString() });
+    compteur.updatedAt = new Date().toISOString();
+    gmCompteursPersist();
+    return releveId;
+}
+
+function gmSupprimerReleve(compteurId, releveId) {
+    if (typeof isPrestataireMode !== 'undefined' && isPrestataireMode) {
+        showNotification('Cette action est réservée au gestionnaire.', 'warning');
+        return;
+    }
+    var compteur = compteursRegistry[compteurId];
+    if (!compteur) return;
+    if (!confirm('Supprimer ce relevé ?')) return;
+    compteur.releves = compteur.releves.filter(function(r) { return r.id !== releveId; });
+    compteur.updatedAt = new Date().toISOString();
+    gmCompteursPersist();
+    gmRenderCompteursListe();
+    showNotification('🗑️ Relevé supprimé.');
+}
+
+/** Delta entre les deux relevés les plus récents (consommation pour un compteur énergétique,
+ *  usage pour un compteur technique). Retourne null s'il y a moins de 2 relevés. Une valeur
+ *  décroissante (compteur remplacé) donne un delta négatif affiché tel quel, sans le masquer :
+ *  c'est un signal utile plutôt qu'une anomalie à cacher. */
+function gmCalculerDernierDelta(compteur) {
+    var releves = gmGetRelevesTries(compteur);
+    if (releves.length < 2) return null;
+    return releves[0].valeur - releves[1].valeur;
+}
+
+function gmToggleCompteursEquip(equipId) {
+    gmCompteursExpandedEquip = (gmCompteursExpandedEquip === equipId) ? null : equipId;
+    gmRenderCompteursListe();
+}
+
+function gmToggleReleves(compteurId) {
+    gmCompteursExpandedReleves = (gmCompteursExpandedReleves === compteurId) ? null : compteurId;
+    gmRenderCompteursListe();
+}
+
+function gmCreerCompteurUI(equipId) {
+    var nom = String(prompt('Nom du compteur (ex : "Compteur kWh général", "Heures moteur") :', '') || '').trim();
+    if (!nom) return;
+    var type = confirm('OK = compteur ÉNERGÉTIQUE (kWh, m³…)\nAnnuler = compteur TECHNIQUE (heures, km…)') ? 'energetique' : 'technique';
+    var unite = String(prompt('Unité (ex : kWh, m³, h, km) :', type === 'energetique' ? 'kWh' : 'h') || '').trim();
+    var seuil = null;
+    if (type === 'technique') {
+        var seuilStr = prompt('Seuil déclenchant une alerte (optionnel, laisser vide si aucun) :', '');
+        if (seuilStr !== null && String(seuilStr).trim() !== '') seuil = seuilStr;
+    }
+    var id = gmCreerCompteur(equipId, type, nom, unite, seuil);
+    if (id) { gmCompteursExpandedEquip = equipId; gmRenderCompteursListe(); showNotification('✅ Compteur créé.'); }
+}
+
+function gmAjouterReleveUI(compteurId) {
+    var valeurStr = prompt('Valeur relevée :', '');
+    if (valeurStr === null || String(valeurStr).trim() === '') return;
+    var dateStr = prompt('Date du relevé (AAAA-MM-JJ) :', new Date().toISOString().slice(0, 10));
+    if (dateStr === null) return;
+    var id = gmAjouterReleve(compteurId, dateStr, valeurStr, '');
+    if (id) { gmCompteursExpandedReleves = compteurId; gmRenderCompteursListe(); showNotification('✅ Relevé enregistré.'); }
+}
+
+/** Rendu du panneau de relevés déplié pour un compteur. */
+function gmRenderRelevesPanel(compteur) {
+    var releves = gmGetRelevesTries(compteur);
+    if (releves.length === 0) {
+        return '<div class="gm-cpt-releves-panel"><span style="font-size:11px; color:#9ca3af; font-style:italic;">Aucun relevé pour le moment.</span></div>';
+    }
+    var rows = releves.map(function(r, i) {
+        var deltaHtml = '';
+        if (i < releves.length - 1) {
+            var delta = r.valeur - releves[i + 1].valeur;
+            deltaHtml = '<span class="gm-cpt-releve-delta">' + (delta >= 0 ? '+' : '') + delta + ' ' + escapeHtml(compteur.unite || '') + '</span>';
+        }
+        return '<div class="gm-cpt-releve-row">'
+            + '<span class="gm-cpt-releve-date">' + escapeHtml(r.date) + '</span>'
+            + '<span class="gm-cpt-releve-valeur">' + r.valeur + ' ' + escapeHtml(compteur.unite || '') + '</span>'
+            + deltaHtml
+            + '<button type="button" class="btn btn-danger internal-only" style="min-height:24px; padding:2px 6px; font-size:9px;" onclick="gmSupprimerReleve(' + escapeAttr(JSON.stringify(compteur.id)) + ', ' + escapeAttr(JSON.stringify(r.id)) + ')">🗑️</button>'
+            + '</div>';
+    }).join('');
+    return '<div class="gm-cpt-releves-panel">' + rows + '</div>';
+}
+
+// ============================================================
+// 🆕 Chantier 7 "Compteurs" — Phase 2 : courbe de consommation (compteurs énergétiques)
+// Réutilise Chart.js (déjà chargé pour le tableau de bord KPI) plutôt que de réinventer un
+// rendu SVG. Mêmes précautions que le dashboard : les instances Chart.js sont détruites avant
+// chaque re-rendu de la liste (gmRenderCompteursListe), car innerHTML supprime les <canvas>
+// sous leurs pieds — les laisser vivre provoquerait des erreurs et des fuites mémoire.
+//
+// gmGetSerieCompteur() est un accesseur DÉLIBÉRÉMENT séparé de l'affichage : c'est le futur
+// point d'entrée que le Chantier 11 (Rapports, incluant le suivi de planning et la matrice
+// équipements × semaines) pourra réutiliser tel quel pour ses propres courbes/tableaux, sans
+// dépendre du rendu HTML de ce module.
+// ============================================================
+
+var gmCompteursChartInstances = {}; // { [compteurId]: instance Chart.js }
+
+/** Série chronologique propre d'un compteur : [{date, valeur}], triée du plus ancien au plus
+ *  récent. Ne dépend d'aucun état d'affichage — réutilisable telle quelle par d'autres modules
+ *  (ex. futur Chantier 11). */
+function gmGetSerieCompteur(compteurId) {
+    var compteur = compteursRegistry[compteurId];
+    if (!compteur) return [];
+    return (compteur.releves || [])
+        .slice()
+        .sort(function(a, b) { return (a.date || '').localeCompare(b.date || ''); })
+        .map(function(r) { return { date: r.date, valeur: r.valeur }; });
+}
+
+function gmToggleCourbe(compteurId) {
+    gmCompteursExpandedCourbe = (gmCompteursExpandedCourbe === compteurId) ? null : compteurId;
+    gmRenderCompteursListe();
+}
+
+function gmRenderCourbePanel(compteur) {
+    var canvasId = 'gmCptChart_' + gmSanitizeDomId(compteur.id);
+    return '<div class="gm-cpt-releves-panel" style="height:180px;"><canvas id="' + canvasId + '"></canvas></div>';
+}
+
+/** Construit (ou reconstruit) les graphiques Chart.js pour le compteur dont la courbe est
+ *  actuellement dépliée. Appelée après gmRenderCompteursListe(), une fois les <canvas> présents
+ *  dans le DOM (Chart.js ne peut pas se lier à un canvas qui n'existe pas encore). */
+function gmHydraterCourbesCompteurs() {
+    Object.keys(gmCompteursChartInstances).forEach(function(id) {
+        if (gmCompteursChartInstances[id]) gmCompteursChartInstances[id].destroy();
+    });
+    gmCompteursChartInstances = {};
+
+    if (!gmCompteursExpandedCourbe) return;
+    var compteur = compteursRegistry[gmCompteursExpandedCourbe];
+    if (!compteur) return;
+    var canvas = document.getElementById('gmCptChart_' + gmSanitizeDomId(compteur.id));
+    if (!canvas || typeof Chart === 'undefined') return;
+    var ctx = canvas.getContext && canvas.getContext('2d');
+    if (!ctx) { console.warn('⚠️ Contexte 2D indisponible : courbe non affichée.'); return; }
+
+    var serie = gmGetSerieCompteur(compteur.id);
+    gmCompteursChartInstances[compteur.id] = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: serie.map(function(p) { return p.date; }),
+            datasets: [{
+                label: compteur.nom + (compteur.unite ? ' (' + compteur.unite + ')' : ''),
+                data: serie.map(function(p) { return p.valeur; }),
+                borderColor: '#4f46e5', backgroundColor: 'rgba(79,70,229,0.1)',
+                tension: 0.2, fill: true, pointRadius: 3
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: true, labels: { font: { size: 10 } } } },
+            scales: { y: { beginAtZero: false } }
+        }
+    });
+}
+
+/** Export CSV des relevés d'un compteur — même mécanisme de téléchargement (Blob +
+ *  URL.createObjectURL + <a download>) déjà utilisé ailleurs dans l'appli (export JSON, PDF…). */
+function gmExporterRelevesCompteurCSV(compteurId) {
+    var compteur = compteursRegistry[compteurId];
+    if (!compteur) return;
+    var equip = equipementsRegistry[compteur.equipId];
+    var serie = gmGetSerieCompteur(compteurId);
+    var lignes = ['Date;Valeur;Unite'];
+    serie.forEach(function(p) { lignes.push(p.date + ';' + p.valeur + ';' + (compteur.unite || '')); });
+    var csv = lignes.join('\n');
+    var blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    var nomFichier = ((equip ? equip.nom : compteur.equipId) + '_' + compteur.nom).replace(/[^a-zA-Z0-9]+/g, '_');
+    a.download = 'releves_' + nomFichier + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function() { URL.revokeObjectURL(url); }, 60000);
+}
+
+/** Rendu de la liste des compteurs d'un équipement déplié. */
+function gmRenderCompteursDUnEquip(equipId) {
+    var compteurs = gmGetCompteursPourEquipement(equipId);
+    var rows = compteurs.map(function(c) {
+        var dernier = gmDernierReleve(c);
+        var delta = gmCalculerDernierDelta(c);
+        var sousLigne = dernier ? ('Dernier relevé : ' + dernier.valeur + ' ' + (c.unite || '') + ' le ' + dernier.date) : 'Aucun relevé';
+        if (delta !== null) sousLigne += ' (' + (delta >= 0 ? '+' : '') + delta + ' ' + (c.unite || '') + ')';
+        if (c.type === 'technique' && c.seuil !== null && dernier) sousLigne += ' · seuil : ' + c.seuil + ' ' + (c.unite || '');
+        var estDeplie = gmCompteursExpandedReleves === c.id;
+        return '<div class="gm-cpt-row">'
+            + '<div class="gm-cpt-row-main">'
+            + '<div class="gm-cpt-row-nom"><span class="gm-cpt-badge ' + c.type + '">' + (c.type === 'energetique' ? 'Énergétique' : 'Technique') + '</span> ' + escapeHtml(c.nom) + '</div>'
+            + '<div class="gm-cpt-row-sub">' + escapeHtml(sousLigne) + '</div>'
+            + '</div>'
+            + '<div class="gm-cpt-row-actions internal-only">'
+            + '<button type="button" class="btn ' + (estDeplie ? 'btn-primary' : 'btn-secondary') + '" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmToggleReleves(' + escapeAttr(JSON.stringify(c.id)) + ')">📋 Relevés (' + (c.releves || []).length + ')</button>'
+            + (c.type === 'energetique' && (c.releves || []).length >= 2 ? '<button type="button" class="btn ' + (gmCompteursExpandedCourbe === c.id ? 'btn-primary' : 'btn-secondary') + '" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmToggleCourbe(' + escapeAttr(JSON.stringify(c.id)) + ')">📈 Courbe</button>' : '')
+            + ((c.releves || []).length > 0 ? '<button type="button" class="btn btn-secondary" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmExporterRelevesCompteurCSV(' + escapeAttr(JSON.stringify(c.id)) + ')">⬇️ CSV</button>' : '')
+            + '<button type="button" class="btn btn-primary" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmAjouterReleveUI(' + escapeAttr(JSON.stringify(c.id)) + ')">+ Relevé</button>'
+            + '<button type="button" class="btn btn-danger" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmSupprimerCompteur(' + escapeAttr(JSON.stringify(c.id)) + ')">🗑️</button>'
+            + '</div>'
+            + (estDeplie ? gmRenderRelevesPanel(c) : '')
+            + (gmCompteursExpandedCourbe === c.id ? gmRenderCourbePanel(c) : '')
+            + '</div>';
+    }).join('');
+    return '<div class="gm-cpt-list">'
+        + (rows || '<span style="font-size:11px; color:#9ca3af; font-style:italic;">Aucun compteur pour cet équipement.</span>')
+        + '<button type="button" class="btn btn-primary internal-only" style="min-height:30px; padding:6px 10px; font-size:11px; align-self:flex-start;" onclick="gmCreerCompteurUI(' + escapeAttr(JSON.stringify(equipId)) + ')">+ Ajouter un compteur</button>'
+        + '</div>';
+}
+
+function gmRenderCompteursListe() {
+    var container = document.getElementById('gmCompteursListe');
+    if (!container) return;
+    var ids = Object.keys((typeof equipementsRegistry !== 'undefined' && equipementsRegistry) || {})
+        .sort(function(a, b) { return (equipementsRegistry[a].nom || '').localeCompare(equipementsRegistry[b].nom || ''); });
+    if (ids.length === 0) {
+        container.innerHTML = '<div style="color:#9ca3af; padding:14px; font-style:italic;">Aucun équipement enregistré. Créez-en depuis le module Équipements.</div>';
+        gmHydraterCourbesCompteurs();
+        return;
+    }
+    container.innerHTML = ids.map(function(equipId) {
+        var eq = equipementsRegistry[equipId];
+        var nbCompteurs = gmGetCompteursPourEquipement(equipId).length;
+        var estDeplie = gmCompteursExpandedEquip === equipId;
+        return '<div class="gm-cpt-equip-card">'
+            + '<div class="gm-cpt-equip-header">'
+            + '<div>'
+            + '<div class="gm-cpt-equip-title">' + escapeHtml(eq.nom || equipId) + '</div>'
+            + '<div class="gm-cpt-equip-sub">' + nbCompteurs + ' compteur' + (nbCompteurs > 1 ? 's' : '') + '</div>'
+            + '</div>'
+            + '<button type="button" class="btn ' + (estDeplie ? 'btn-primary' : 'btn-secondary') + '" style="min-height:30px; padding:6px 10px; font-size:11px;" onclick="gmToggleCompteursEquip(' + escapeAttr(JSON.stringify(equipId)) + ')">' + (estDeplie ? 'Réduire' : 'Voir les compteurs') + '</button>'
+            + '</div>'
+            + (estDeplie ? gmRenderCompteursDUnEquip(equipId) : '')
+            + '</div>';
+    }).join('');
+    gmHydraterCourbesCompteurs();
+}
+
+async function openCompteursModal() {
+    document.getElementById('gmCompteursModalOverlay').classList.add('active');
+    var container = document.getElementById('gmCompteursListe');
+    if (container) container.innerHTML = '<div style="color:#9ca3af; padding:20px;">Chargement…</div>';
+
+    // Le registre équipements peut ne pas encore être chargé si l'utilisateur ouvre directement
+    // "Compteurs" sans être passé par "Équipements" — on s'assure qu'il l'est, exactement comme
+    // openEquipementsModal() le fait, avant de construire la liste.
+    await gmLoadEquipRegistry();
+    await gmLoadCompteursRegistry();
+
+    gmRenderCompteursListe();
+}
+function closeCompteursModal() {
+    document.getElementById('gmCompteursModalOverlay').classList.remove('active');
 }
 </script>
 

@@ -4092,6 +4092,8 @@ function closeBibliothequeModal() {
 }
 .gm-cpt-badge.technique { background: #eef2ff; color: #4f46e5; }
 .gm-cpt-badge.energetique { background: #ecfdf5; color: #059669; }
+.gm-cpt-badge.gabarit { background: #fdf4ff; color: #a21caf; }
+.gm-cpt-cell-alerte { background: #fee2e2 !important; color: #b91c1c !important; font-weight: 700; }
 .gm-cpt-row-main { display: flex; flex-direction: column; gap: 2px; }
 .gm-cpt-row-nom { font-size: 12px; font-weight: 600; color: #1f2937; }
 .gm-cpt-row-sub { font-size: 11px; color: #6b7280; }
@@ -4160,6 +4162,89 @@ function gmGenerateReleveId() {
     return 'rel_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
+// ============================================================
+// 🆕 Chantier 7 "Compteurs" — Phase 3 : gabarits de relevé multi-champs
+// Certains équipements ont besoin de relevés structurés à plusieurs champs (au lieu d'une simple
+// valeur+unité) : paramétrique onduleur, énergétique transformateur, température chambre froide,
+// niveau carburant. Ce catalogue est un ajout PUREMENT ADDITIF : les compteurs "simples" créés en
+// Phase 1/2 (type technique/energetique, un seul champ "valeur") continuent de fonctionner
+// exactement comme avant, sans aucune modification de leur structure ni de leur comportement. Un
+// compteur "gabarit" se distingue uniquement par la présence de compteur.gabaritId ; ses relevés
+// stockent un objet "champs" (un par champ du gabarit) au lieu d'une "valeur" unique.
+// ============================================================
+var GM_GABARITS_RELEVE = {
+    onduleur_parametrique: {
+        id: 'onduleur_parametrique', nom: 'Relevé paramétrique onduleur', icone: '🔌',
+        champs: [
+            { key: 'journee', label: 'Journée', numeric: false },
+            { key: 'horaire', label: 'Horaire', numeric: false },
+            { key: 'tp_rondier', label: 'TP Rondier', numeric: false },
+            { key: 'tension_entree_ph1', label: 'Tension entrée Ph1', unite: 'V', numeric: true, seuil: 'max' },
+            { key: 'tension_entree_ph2', label: 'Tension entrée Ph2', unite: 'V', numeric: true, seuil: 'max' },
+            { key: 'tension_entree_ph3', label: 'Tension entrée Ph3', unite: 'V', numeric: true, seuil: 'max' },
+            { key: 'tension_sortie_ph1', label: 'Tension sortie Ph1', unite: 'V', numeric: true, seuil: 'max' },
+            { key: 'tension_sortie_ph2', label: 'Tension sortie Ph2', unite: 'V', numeric: true, seuil: 'max' },
+            { key: 'tension_sortie_ph3', label: 'Tension sortie Ph3', unite: 'V', numeric: true, seuil: 'max' },
+            { key: 'intensite_entree_ph1', label: 'Intensité entrée Ph1', unite: 'A', numeric: true, seuil: 'max' },
+            { key: 'intensite_entree_ph2', label: 'Intensité entrée Ph2', unite: 'A', numeric: true, seuil: 'max' },
+            { key: 'intensite_entree_ph3', label: 'Intensité entrée Ph3', unite: 'A', numeric: true, seuil: 'max' },
+            { key: 'intensite_sortie_ph1', label: 'Intensité sortie Ph1', unite: 'A', numeric: true, seuil: 'max' },
+            { key: 'intensite_sortie_ph2', label: 'Intensité sortie Ph2', unite: 'A', numeric: true, seuil: 'max' },
+            { key: 'intensite_sortie_ph3', label: 'Intensité sortie Ph3', unite: 'A', numeric: true, seuil: 'max' },
+            { key: 'frequence', label: 'Fréquence', unite: 'Hz', numeric: true, seuil: 'max', seuilDefautMax: 50 },
+            { key: 'cosphi', label: 'CosPhi', unite: '', numeric: true, seuil: 'max' },
+            { key: 'autonomie_batteries', label: 'Autonomie batteries', unite: 'Mn', numeric: true, seuil: 'max' }
+        ]
+    },
+    transfo_energetique: {
+        id: 'transfo_energetique', nom: 'Relevé énergétique transformateur', icone: '🔋',
+        champs: [
+            { key: 'energie_nuit', label: 'Énergie nuit', unite: 'kWh', numeric: true },
+            { key: 'energie_jour', label: 'Énergie jour', unite: 'kWh', numeric: true },
+            { key: 'energie_pointe', label: 'Énergie pointe', unite: 'kWh', numeric: true },
+            { key: 'energie_reactive', label: 'Énergie Réactive', unite: 'kvarh', numeric: true },
+            { key: 'puissance_max', label: 'Puissance Max', unite: 'kWh', numeric: true },
+            { key: 'cosphi', label: 'Cos phi', unite: '', numeric: true }
+        ]
+    },
+    chambre_froide: {
+        id: 'chambre_froide', nom: 'Relevé température chambre froide', icone: '🧊',
+        champs: [
+            { key: 'temperature', label: 'Température', unite: '°C', numeric: true, seuil: 'range' }
+        ]
+    },
+    carburant: {
+        id: 'carburant', nom: 'Relevé niveau carburant', icone: '⛽',
+        champs: [
+            { key: 'niveau', label: 'Niveau carburant', unite: '%', numeric: true }
+        ]
+    }
+};
+
+function gmGetGabarit(gabaritId) {
+    return GM_GABARITS_RELEVE[gabaritId] || null;
+}
+
+/** Champs d'un gabarit qui acceptent un seuil d'alerte configurable. */
+function gmChampsAvecSeuil(gabarit) {
+    return (gabarit.champs || []).filter(function(c) { return !!c.seuil; });
+}
+
+/** Un champ dépasse-t-il son seuil configuré pour ce compteur ? Retourne 'max', 'min', ou null.
+ *  Ne fait rien planter si aucun seuil n'est configuré (comportement par défaut : pas d'alerte). */
+function gmEvaluerDepassementChamp(compteur, champDef, valeur) {
+    if (!champDef.seuil || typeof valeur !== 'number' || !isFinite(valeur)) return null;
+    var s = (compteur.seuilsChamps || {})[champDef.key];
+    if (!s) return null;
+    if (champDef.seuil === 'range') {
+        if (s.min !== null && s.min !== undefined && valeur < s.min) return 'min';
+        if (s.max !== null && s.max !== undefined && valeur > s.max) return 'max';
+        return null;
+    }
+    if (s.max !== null && s.max !== undefined && valeur > s.max) return 'max';
+    return null;
+}
+
 /** Compteurs d'un équipement donné, triés par nom. */
 function gmGetCompteursPourEquipement(equipId) {
     return Object.keys(compteursRegistry)
@@ -4194,6 +4279,27 @@ function gmCreerCompteur(equipId, type, nom, unite, seuil) {
         id: id, equipId: equipId, type: type, nom: nomFinal, unite: String(unite || '').trim(),
         seuil: (type === 'technique' && seuil !== undefined && seuil !== null && seuil !== '') ? Number(seuil) : null,
         releves: [], createdAt: nowIso, updatedAt: nowIso
+    };
+    gmCompteursPersist();
+    return id;
+}
+
+/** Création d'un compteur basé sur un gabarit multi-champs (structure distincte des compteurs
+ *  "simples" — aucune modification de gmCreerCompteur, qui reste inchangée pour ceux-ci). */
+function gmCreerCompteurGabarit(equipId, gabaritId, nom) {
+    if (typeof isPrestataireMode !== 'undefined' && isPrestataireMode) {
+        showNotification('Cette action est réservée au gestionnaire.', 'warning');
+        return null;
+    }
+    if (!equipId || !equipementsRegistry[equipId]) { showNotification('Équipement introuvable.', 'error'); return null; }
+    var gabarit = gmGetGabarit(gabaritId);
+    if (!gabarit) { showNotification('Gabarit de relevé invalide.', 'error'); return null; }
+    var nomFinal = String(nom || '').trim() || gabarit.nom;
+    var id = gmGenerateCompteurId();
+    var nowIso = new Date().toISOString();
+    compteursRegistry[id] = {
+        id: id, equipId: equipId, type: 'gabarit', gabaritId: gabaritId, nom: nomFinal,
+        seuilsChamps: {}, releves: [], createdAt: nowIso, updatedAt: nowIso
     };
     gmCompteursPersist();
     return id;
@@ -4235,6 +4341,61 @@ function gmAjouterReleve(compteurId, dateStr, valeurStr, note) {
     return releveId;
 }
 
+/** Ajoute un relevé multi-champs à un compteur gabarit. `champsValues` est un objet
+ *  {champKey: valeur brute (string)}. Les champs numériques doivent être des nombres valides ;
+ *  les champs texte (journée, horaire, TP rondier…) sont acceptés tels quels, vides compris. */
+function gmAjouterReleveGabarit(compteurId, dateStr, champsValues, note) {
+    if (typeof isPrestataireMode !== 'undefined' && isPrestataireMode) {
+        showNotification('Cette action est réservée au gestionnaire.', 'warning');
+        return null;
+    }
+    var compteur = compteursRegistry[compteurId];
+    if (!compteur || !compteur.gabaritId) { showNotification('Compteur gabarit introuvable.', 'error'); return null; }
+    var gabarit = gmGetGabarit(compteur.gabaritId);
+    if (!gabarit) { showNotification('Gabarit introuvable.', 'error'); return null; }
+    var date = String(dateStr || '').trim() || new Date().toISOString().slice(0, 10);
+    var champs = {};
+    for (var i = 0; i < gabarit.champs.length; i++) {
+        var def = gabarit.champs[i];
+        var brut = (champsValues || {})[def.key];
+        if (def.numeric) {
+            if (brut === undefined || brut === null || String(brut).trim() === '') { champs[def.key] = null; continue; }
+            var n = Number(brut);
+            if (!isFinite(n)) { showNotification('Valeur invalide pour "' + def.label + '".', 'warning'); return null; }
+            champs[def.key] = n;
+        } else {
+            champs[def.key] = String(brut || '').trim();
+        }
+    }
+    var releveId = gmGenerateReleveId();
+    compteur.releves.push({ id: releveId, date: date, champs: champs, note: String(note || '').trim(), createdAt: new Date().toISOString() });
+    compteur.updatedAt = new Date().toISOString();
+    gmCompteursPersist();
+    return releveId;
+}
+
+/** Configure les seuils d'alerte des champs d'un compteur gabarit. `valeurs` est un objet
+ *  {champKey: {min, max}} — seuls les champs présents sont mis à jour, les autres seuils déjà
+ *  configurés restent inchangés. */
+function gmDefinirSeuilsChamp(compteurId, valeurs) {
+    if (typeof isPrestataireMode !== 'undefined' && isPrestataireMode) {
+        showNotification('Cette action est réservée au gestionnaire.', 'warning');
+        return false;
+    }
+    var compteur = compteursRegistry[compteurId];
+    if (!compteur || !compteur.gabaritId) return false;
+    if (!compteur.seuilsChamps) compteur.seuilsChamps = {};
+    Object.keys(valeurs || {}).forEach(function(key) {
+        var v = valeurs[key] || {};
+        var min = (v.min !== undefined && v.min !== null && String(v.min).trim() !== '') ? Number(v.min) : null;
+        var max = (v.max !== undefined && v.max !== null && String(v.max).trim() !== '') ? Number(v.max) : null;
+        compteur.seuilsChamps[key] = { min: (min !== null && isFinite(min)) ? min : null, max: (max !== null && isFinite(max)) ? max : null };
+    });
+    compteur.updatedAt = new Date().toISOString();
+    gmCompteursPersist();
+    return true;
+}
+
 function gmSupprimerReleve(compteurId, releveId) {
     if (typeof isPrestataireMode !== 'undefined' && isPrestataireMode) {
         showNotification('Cette action est réservée au gestionnaire.', 'warning');
@@ -4255,6 +4416,7 @@ function gmSupprimerReleve(compteurId, releveId) {
  *  décroissante (compteur remplacé) donne un delta négatif affiché tel quel, sans le masquer :
  *  c'est un signal utile plutôt qu'une anomalie à cacher. */
 function gmCalculerDernierDelta(compteur) {
+    if (compteur.gabaritId) return null; // 🆕 non applicable aux compteurs gabarit (pas de valeur unique)
     var releves = gmGetRelevesTries(compteur);
     if (releves.length < 2) return null;
     return releves[0].valeur - releves[1].valeur;
@@ -4270,21 +4432,48 @@ function gmToggleReleves(compteurId) {
     gmRenderCompteursListe();
 }
 
+/** Choix du type de compteur à créer. Simple pour compat totale avec Phase 1/2 (prompt-based) ;
+ *  pour un gabarit, un seul prompt (nom) suffit puisque la structure est déjà définie. */
 function gmCreerCompteurUI(equipId) {
-    var nom = String(prompt('Nom du compteur (ex : "Compteur kWh général", "Heures moteur") :', '') || '').trim();
-    if (!nom) return;
-    var type = confirm('OK = compteur ÉNERGÉTIQUE (kWh, m³…)\nAnnuler = compteur TECHNIQUE (heures, km…)') ? 'energetique' : 'technique';
-    var unite = String(prompt('Unité (ex : kWh, m³, h, km) :', type === 'energetique' ? 'kWh' : 'h') || '').trim();
-    var seuil = null;
-    if (type === 'technique') {
-        var seuilStr = prompt('Seuil déclenchant une alerte (optionnel, laisser vide si aucun) :', '');
-        if (seuilStr !== null && String(seuilStr).trim() !== '') seuil = seuilStr;
+    var choix = String(prompt(
+        'Quel type de relevé créer pour cet équipement ?\n\n' +
+        '1 = Compteur simple ÉNERGÉTIQUE (kWh, m³… — une seule valeur)\n' +
+        '2 = Compteur simple TECHNIQUE (heures, km… — une seule valeur)\n' +
+        '3 = 🔌 Relevé paramétrique onduleur\n' +
+        '4 = 🔋 Relevé énergétique transformateur\n' +
+        '5 = 🧊 Relevé température chambre froide\n' +
+        '6 = ⛽ Relevé niveau carburant\n\n' +
+        'Tapez le numéro correspondant :', '1') || '').trim();
+    if (!choix) return;
+
+    if (choix === '1' || choix === '2') {
+        var type = (choix === '1') ? 'energetique' : 'technique';
+        var nom = String(prompt('Nom du compteur (ex : "Compteur kWh général", "Heures moteur") :', '') || '').trim();
+        if (!nom) return;
+        var unite = String(prompt('Unité (ex : kWh, m³, h, km) :', type === 'energetique' ? 'kWh' : 'h') || '').trim();
+        var seuil = null;
+        if (type === 'technique') {
+            var seuilStr = prompt('Seuil déclenchant une alerte (optionnel, laisser vide si aucun) :', '');
+            if (seuilStr !== null && String(seuilStr).trim() !== '') seuil = seuilStr;
+        }
+        var id = gmCreerCompteur(equipId, type, nom, unite, seuil);
+        if (id) { gmCompteursExpandedEquip = equipId; gmRenderCompteursListe(); showNotification('✅ Compteur créé.'); }
+        return;
     }
-    var id = gmCreerCompteur(equipId, type, nom, unite, seuil);
-    if (id) { gmCompteursExpandedEquip = equipId; gmRenderCompteursListe(); showNotification('✅ Compteur créé.'); }
+
+    var gabaritIdParChoix = { '3': 'onduleur_parametrique', '4': 'transfo_energetique', '5': 'chambre_froide', '6': 'carburant' };
+    var gabaritId = gabaritIdParChoix[choix];
+    if (!gabaritId) { showNotification('Choix non reconnu.', 'warning'); return; }
+    var gabarit = gmGetGabarit(gabaritId);
+    var nomGabarit = String(prompt('Nom de ce relevé :', gabarit.nom) || '').trim();
+    if (!nomGabarit) return;
+    var idG = gmCreerCompteurGabarit(equipId, gabaritId, nomGabarit);
+    if (idG) { gmCompteursExpandedEquip = equipId; gmRenderCompteursListe(); showNotification('✅ ' + gabarit.nom + ' créé.'); }
 }
 
 function gmAjouterReleveUI(compteurId) {
+    var compteur = compteursRegistry[compteurId];
+    if (compteur && compteur.gabaritId) { gmToggleFormReleve(compteurId); return; }
     var valeurStr = prompt('Valeur relevée :', '');
     if (valeurStr === null || String(valeurStr).trim() === '') return;
     var dateStr = prompt('Date du relevé (AAAA-MM-JJ) :', new Date().toISOString().slice(0, 10));
@@ -4295,6 +4484,7 @@ function gmAjouterReleveUI(compteurId) {
 
 /** Rendu du panneau de relevés déplié pour un compteur. */
 function gmRenderRelevesPanel(compteur) {
+    if (compteur.gabaritId) return gmRenderRelevesPanelGabarit(compteur); // 🆕 Phase 3
     var releves = gmGetRelevesTries(compteur);
     if (releves.length === 0) {
         return '<div class="gm-cpt-releves-panel"><span style="font-size:11px; color:#9ca3af; font-style:italic;">Aucun relevé pour le moment.</span></div>';
@@ -4313,6 +4503,174 @@ function gmRenderRelevesPanel(compteur) {
             + '</div>';
     }).join('');
     return '<div class="gm-cpt-releves-panel">' + rows + '</div>';
+}
+
+// ============================================================
+// 🆕 Chantier 7 "Compteurs" — Phase 3 (suite) : formulaires et rendu des compteurs gabarit
+// ============================================================
+var gmCompteursFormReleve = null; // id du compteur gabarit dont le formulaire "nouveau relevé" est ouvert
+var gmCompteursFormSeuils = null; // id du compteur gabarit dont le formulaire "seuils" est ouvert
+
+function gmToggleFormReleve(compteurId) {
+    gmCompteursFormReleve = (gmCompteursFormReleve === compteurId) ? null : compteurId;
+    gmCompteursFormSeuils = null;
+    if (gmCompteursFormReleve) gmCompteursExpandedReleves = compteurId; // sinon le formulaire resterait masqué
+    gmRenderCompteursListe();
+}
+
+function gmToggleFormSeuils(compteurId) {
+    gmCompteursFormSeuils = (gmCompteursFormSeuils === compteurId) ? null : compteurId;
+    gmCompteursFormReleve = null;
+    if (gmCompteursFormSeuils) gmCompteursExpandedReleves = compteurId;
+    gmRenderCompteursListe();
+}
+
+/** Rendu en TABLEAU des relevés d'un compteur gabarit — une colonne par champ défini, avec mise
+ *  en évidence (classe gm-cpt-cell-alerte) des valeurs qui dépassent un seuil configuré. */
+function gmRenderRelevesPanelGabarit(compteur) {
+    var gabarit = gmGetGabarit(compteur.gabaritId);
+    if (!gabarit) return '<div class="gm-cpt-releves-panel">Gabarit introuvable.</div>';
+    var releves = gmGetRelevesTries(compteur);
+    var htmlParts = [];
+
+    if (compteur.type !== undefined) { /* no-op, garde de lisibilité */ }
+
+    if (gmCompteursFormSeuils === compteur.id) htmlParts.push(gmRenderFormSeuils(compteur, gabarit));
+    if (gmCompteursFormReleve === compteur.id) htmlParts.push(gmRenderFormReleve(compteur, gabarit));
+
+    if (releves.length === 0) {
+        htmlParts.push('<div class="gm-cpt-releves-panel"><span style="font-size:11px; color:#9ca3af; font-style:italic;">Aucun relevé pour le moment.</span></div>');
+        return htmlParts.join('');
+    }
+
+    var theadCells = gabarit.champs.map(function(def) {
+        return '<th style="padding:4px 6px; text-align:left; white-space:nowrap;">' + escapeHtml(def.label) + (def.unite ? ' (' + escapeHtml(def.unite) + ')' : '') + '</th>';
+    }).join('');
+
+    var tbodyRows = releves.map(function(r) {
+        var cells = gabarit.champs.map(function(def) {
+            var v = (r.champs || {})[def.key];
+            var affichage = (v === null || v === undefined || v === '') ? '—' : escapeHtml(String(v));
+            var depassement = def.numeric ? gmEvaluerDepassementChamp(compteur, def, v) : null;
+            var cls = depassement ? ' class="gm-cpt-cell-alerte"' : '';
+            return '<td' + cls + ' style="padding:4px 6px; white-space:nowrap;">' + affichage + '</td>';
+        }).join('');
+        return '<tr>'
+            + '<td style="padding:4px 6px; white-space:nowrap; color:#6b7280;">' + escapeHtml(r.date) + '</td>'
+            + cells
+            + '<td style="padding:4px 6px;"><button type="button" class="btn btn-danger internal-only" style="min-height:22px; padding:2px 6px; font-size:9px;" onclick="gmSupprimerReleve(' + escapeAttr(JSON.stringify(compteur.id)) + ', ' + escapeAttr(JSON.stringify(r.id)) + ')">🗑️</button></td>'
+            + '</tr>';
+    }).join('');
+
+    htmlParts.push(
+        '<div class="gm-cpt-releves-panel" style="overflow-x:auto;">'
+        + '<table style="border-collapse:collapse; font-size:11px; width:100%;">'
+        + '<thead><tr><th style="padding:4px 6px; text-align:left;">Date</th>' + theadCells + '<th></th></tr></thead>'
+        + '<tbody>' + tbodyRows + '</tbody>'
+        + '</table>'
+        + '</div>'
+    );
+    return htmlParts.join('');
+}
+
+/** Formulaire inline d'ajout d'un relevé multi-champs (un input par champ du gabarit). */
+function gmRenderFormReleve(compteur, gabarit) {
+    var prefix = 'gmReleveChamp_' + gmSanitizeDomId(compteur.id) + '_';
+    var champsHtml = gabarit.champs.map(function(def) {
+        var inputType = def.numeric ? 'number' : 'text';
+        var step = def.numeric ? ' step="any"' : '';
+        return '<label style="display:flex; flex-direction:column; gap:2px; font-size:10px; color:#6b7280; min-width:110px;">'
+            + escapeHtml(def.label) + (def.unite ? ' (' + escapeHtml(def.unite) + ')' : '')
+            + '<input type="' + inputType + '"' + step + ' id="' + prefix + escapeAttr(def.key) + '" '
+            + 'style="padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:11px;">'
+            + '</label>';
+    }).join('');
+    return '<div class="gm-cpt-releves-panel">'
+        + '<label style="display:flex; flex-direction:column; gap:2px; font-size:10px; color:#6b7280; max-width:160px; margin-bottom:8px;">Date du relevé'
+        + '<input type="date" id="' + prefix + 'date' + '" value="' + new Date().toISOString().slice(0, 10) + '" '
+        + 'style="padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:11px;"></label>'
+        + '<div style="display:flex; flex-wrap:wrap; gap:8px;">' + champsHtml + '</div>'
+        + '<div style="margin-top:10px; display:flex; gap:6px;">'
+        + '<button type="button" class="btn btn-primary" style="min-height:28px; padding:4px 10px; font-size:11px;" onclick="gmEnregistrerReleveFormulaire(' + escapeAttr(JSON.stringify(compteur.id)) + ')">💾 Enregistrer</button>'
+        + '<button type="button" class="btn btn-secondary" style="min-height:28px; padding:4px 10px; font-size:11px;" onclick="gmToggleFormReleve(' + escapeAttr(JSON.stringify(compteur.id)) + ')">Annuler</button>'
+        + '</div>'
+        + '</div>';
+}
+
+/** Lit le formulaire de relevé dans le DOM et enregistre le relevé multi-champs. */
+function gmEnregistrerReleveFormulaire(compteurId) {
+    var compteur = compteursRegistry[compteurId];
+    if (!compteur) return;
+    var gabarit = gmGetGabarit(compteur.gabaritId);
+    if (!gabarit) return;
+    var prefix = 'gmReleveChamp_' + gmSanitizeDomId(compteurId) + '_';
+    var dateEl = document.getElementById(prefix + 'date');
+    var dateStr = dateEl ? dateEl.value : '';
+    var champsValues = {};
+    gabarit.champs.forEach(function(def) {
+        var el = document.getElementById(prefix + def.key);
+        champsValues[def.key] = el ? el.value : '';
+    });
+    var id = gmAjouterReleveGabarit(compteurId, dateStr, champsValues, '');
+    if (id) {
+        gmCompteursFormReleve = null;
+        gmCompteursExpandedReleves = compteurId;
+        gmRenderCompteursListe();
+        showNotification('✅ Relevé enregistré.');
+    }
+}
+
+/** Formulaire inline de configuration des seuils d'alerte (un ou deux inputs par champ selon
+ *  qu'il accepte un seuil max seul ou une plage min/max). */
+function gmRenderFormSeuils(compteur, gabarit) {
+    var champs = gmChampsAvecSeuil(gabarit);
+    if (champs.length === 0) {
+        return '<div class="gm-cpt-releves-panel"><span style="font-size:11px; color:#9ca3af; font-style:italic;">Ce type de relevé n\'a pas de seuil configurable.</span></div>';
+    }
+    var prefix = 'gmSeuil_' + gmSanitizeDomId(compteur.id) + '_';
+    var rows = champs.map(function(def) {
+        var s = (compteur.seuilsChamps || {})[def.key] || {};
+        var inputsHtml = '';
+        if (def.seuil === 'range') {
+            inputsHtml =
+                '<input type="number" step="any" id="' + prefix + def.key + '_min" placeholder="Min" value="' + (s.min !== null && s.min !== undefined ? s.min : '') + '" ' +
+                'style="width:70px; padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:11px;"> ' +
+                '<input type="number" step="any" id="' + prefix + def.key + '_max" placeholder="Max" value="' + (s.max !== null && s.max !== undefined ? s.max : '') + '" ' +
+                'style="width:70px; padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:11px;">';
+        } else {
+            inputsHtml =
+                '<input type="number" step="any" id="' + prefix + def.key + '_max" placeholder="Seuil MAX" value="' + (s.max !== null && s.max !== undefined ? s.max : '') + '" ' +
+                'style="width:90px; padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:11px;">';
+        }
+        return '<div class="gm-cpt-releve-row"><span style="min-width:160px;">' + escapeHtml(def.label) + (def.unite ? ' (' + escapeHtml(def.unite) + ')' : '') + '</span>' + inputsHtml + '</div>';
+    }).join('');
+    return '<div class="gm-cpt-releves-panel">'
+        + '<div style="font-size:10px; color:#9ca3af; margin-bottom:6px;">Laisser vide = pas d\'alerte pour ce champ.</div>'
+        + rows
+        + '<div style="margin-top:10px; display:flex; gap:6px;">'
+        + '<button type="button" class="btn btn-primary" style="min-height:28px; padding:4px 10px; font-size:11px;" onclick="gmEnregistrerSeuilsFormulaire(' + escapeAttr(JSON.stringify(compteur.id)) + ')">💾 Enregistrer les seuils</button>'
+        + '<button type="button" class="btn btn-secondary" style="min-height:28px; padding:4px 10px; font-size:11px;" onclick="gmToggleFormSeuils(' + escapeAttr(JSON.stringify(compteur.id)) + ')">Annuler</button>'
+        + '</div>'
+        + '</div>';
+}
+
+function gmEnregistrerSeuilsFormulaire(compteurId) {
+    var compteur = compteursRegistry[compteurId];
+    if (!compteur) return;
+    var gabarit = gmGetGabarit(compteur.gabaritId);
+    if (!gabarit) return;
+    var prefix = 'gmSeuil_' + gmSanitizeDomId(compteurId) + '_';
+    var valeurs = {};
+    gmChampsAvecSeuil(gabarit).forEach(function(def) {
+        var minEl = document.getElementById(prefix + def.key + '_min');
+        var maxEl = document.getElementById(prefix + def.key + '_max');
+        valeurs[def.key] = { min: minEl ? minEl.value : null, max: maxEl ? maxEl.value : '' };
+    });
+    if (gmDefinirSeuilsChamp(compteurId, valeurs)) {
+        gmCompteursFormSeuils = null;
+        gmRenderCompteursListe();
+        showNotification('✅ Seuils enregistrés.');
+    }
 }
 
 // ============================================================
@@ -4395,9 +4753,24 @@ function gmExporterRelevesCompteurCSV(compteurId) {
     var compteur = compteursRegistry[compteurId];
     if (!compteur) return;
     var equip = equipementsRegistry[compteur.equipId];
-    var serie = gmGetSerieCompteur(compteurId);
-    var lignes = ['Date;Valeur;Unite'];
-    serie.forEach(function(p) { lignes.push(p.date + ';' + p.valeur + ';' + (compteur.unite || '')); });
+    var lignes;
+    if (compteur.gabaritId) {
+        var gabarit = gmGetGabarit(compteur.gabaritId);
+        var releves = gmGetRelevesTries(compteur).slice().reverse(); // chronologique croissant pour l'export
+        var entetes = ['Date'].concat(gabarit.champs.map(function(def) { return def.label + (def.unite ? ' (' + def.unite + ')' : ''); }));
+        lignes = [entetes.join(';')];
+        releves.forEach(function(r) {
+            var ligne = [r.date].concat(gabarit.champs.map(function(def) {
+                var v = (r.champs || {})[def.key];
+                return (v === null || v === undefined) ? '' : String(v);
+            }));
+            lignes.push(ligne.join(';'));
+        });
+    } else {
+        var serie = gmGetSerieCompteur(compteurId);
+        lignes = ['Date;Valeur;Unite'];
+        serie.forEach(function(p) { lignes.push(p.date + ';' + p.valeur + ';' + (compteur.unite || '')); });
+    }
     var csv = lignes.join('\n');
     var blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     var url = URL.createObjectURL(blob);
@@ -4415,26 +4788,36 @@ function gmExporterRelevesCompteurCSV(compteurId) {
 function gmRenderCompteursDUnEquip(equipId) {
     var compteurs = gmGetCompteursPourEquipement(equipId);
     var rows = compteurs.map(function(c) {
+        var gabarit = c.gabaritId ? gmGetGabarit(c.gabaritId) : null;
         var dernier = gmDernierReleve(c);
-        var delta = gmCalculerDernierDelta(c);
-        var sousLigne = dernier ? ('Dernier relevé : ' + dernier.valeur + ' ' + (c.unite || '') + ' le ' + dernier.date) : 'Aucun relevé';
-        if (delta !== null) sousLigne += ' (' + (delta >= 0 ? '+' : '') + delta + ' ' + (c.unite || '') + ')';
-        if (c.type === 'technique' && c.seuil !== null && dernier) sousLigne += ' · seuil : ' + c.seuil + ' ' + (c.unite || '');
+        var badgeLabel, sousLigne;
+        if (gabarit) {
+            badgeLabel = gabarit.icone + ' ' + gabarit.nom;
+            sousLigne = dernier ? ('Dernier relevé le ' + dernier.date) : 'Aucun relevé';
+        } else {
+            var delta = gmCalculerDernierDelta(c);
+            badgeLabel = (c.type === 'energetique' ? 'Énergétique' : 'Technique');
+            sousLigne = dernier ? ('Dernier relevé : ' + dernier.valeur + ' ' + (c.unite || '') + ' le ' + dernier.date) : 'Aucun relevé';
+            if (delta !== null) sousLigne += ' (' + (delta >= 0 ? '+' : '') + delta + ' ' + (c.unite || '') + ')';
+            if (c.type === 'technique' && c.seuil !== null && dernier) sousLigne += ' · seuil : ' + c.seuil + ' ' + (c.unite || '');
+        }
         var estDeplie = gmCompteursExpandedReleves === c.id;
+        var aChampsSeuil = gabarit && gmChampsAvecSeuil(gabarit).length > 0;
         return '<div class="gm-cpt-row">'
             + '<div class="gm-cpt-row-main">'
-            + '<div class="gm-cpt-row-nom"><span class="gm-cpt-badge ' + c.type + '">' + (c.type === 'energetique' ? 'Énergétique' : 'Technique') + '</span> ' + escapeHtml(c.nom) + '</div>'
+            + '<div class="gm-cpt-row-nom"><span class="gm-cpt-badge ' + (gabarit ? 'gabarit' : c.type) + '">' + escapeHtml(badgeLabel) + '</span> ' + escapeHtml(c.nom) + '</div>'
             + '<div class="gm-cpt-row-sub">' + escapeHtml(sousLigne) + '</div>'
             + '</div>'
             + '<div class="gm-cpt-row-actions internal-only">'
             + '<button type="button" class="btn ' + (estDeplie ? 'btn-primary' : 'btn-secondary') + '" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmToggleReleves(' + escapeAttr(JSON.stringify(c.id)) + ')">📋 Relevés (' + (c.releves || []).length + ')</button>'
-            + (c.type === 'energetique' && (c.releves || []).length >= 2 ? '<button type="button" class="btn ' + (gmCompteursExpandedCourbe === c.id ? 'btn-primary' : 'btn-secondary') + '" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmToggleCourbe(' + escapeAttr(JSON.stringify(c.id)) + ')">📈 Courbe</button>' : '')
+            + (!gabarit && c.type === 'energetique' && (c.releves || []).length >= 2 ? '<button type="button" class="btn ' + (gmCompteursExpandedCourbe === c.id ? 'btn-primary' : 'btn-secondary') + '" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmToggleCourbe(' + escapeAttr(JSON.stringify(c.id)) + ')">📈 Courbe</button>' : '')
+            + (aChampsSeuil ? '<button type="button" class="btn ' + (gmCompteursFormSeuils === c.id ? 'btn-primary' : 'btn-secondary') + '" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmToggleFormSeuils(' + escapeAttr(JSON.stringify(c.id)) + ')">⚙️ Seuils</button>' : '')
             + ((c.releves || []).length > 0 ? '<button type="button" class="btn btn-secondary" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmExporterRelevesCompteurCSV(' + escapeAttr(JSON.stringify(c.id)) + ')">⬇️ CSV</button>' : '')
             + '<button type="button" class="btn btn-primary" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmAjouterReleveUI(' + escapeAttr(JSON.stringify(c.id)) + ')">+ Relevé</button>'
             + '<button type="button" class="btn btn-danger" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmSupprimerCompteur(' + escapeAttr(JSON.stringify(c.id)) + ')">🗑️</button>'
             + '</div>'
             + (estDeplie ? gmRenderRelevesPanel(c) : '')
-            + (gmCompteursExpandedCourbe === c.id ? gmRenderCourbePanel(c) : '')
+            + (!gabarit && gmCompteursExpandedCourbe === c.id ? gmRenderCourbePanel(c) : '')
             + '</div>';
     }).join('');
     return '<div class="gm-cpt-list">'

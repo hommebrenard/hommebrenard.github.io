@@ -2301,6 +2301,7 @@ function gmSidebarNavigate(id, btnEl) {
                             style="width:100%; margin-bottom:8px; padding:6px 8px; border:1px dashed #9ca3af; background:#fff; color:#374151; border-radius:6px; cursor:pointer; font-size:11px;">
                         📍 Gérer les emplacements
                     </button>
+                    <div id="gmEquipBulkCreateZone" class="internal-only"></div>
                     <div id="gmEmplacementsPanel"></div>
                     <div id="gmEquipList"></div>
                 </div>
@@ -2553,6 +2554,60 @@ function gmRegistryCreateFromCode(code, defaultNom) {
     gmEquipementsIndex = gmBuildEquipementsIndex();
     gmRenderEquipementsList(document.getElementById('gmEquipSearch') ? document.getElementById('gmEquipSearch').value : '');
     gmSelectEquipement(gmSelectedEquipement);
+}
+
+/** 🆕 Affiche (ou masque) le bouton "Créer tous les équipements non enregistrés du planning",
+ *  uniquement quand il y a effectivement des équipements du planning actif sans fiche stable
+ *  dans le registre. Un clic déclenche gmRegistryCreateAllFromPlanning() après confirmation. */
+function gmRenderBulkCreateZone() {
+    const zone = document.getElementById('gmEquipBulkCreateZone');
+    if (!zone) return;
+    const nonLies = Object.values(gmEquipementsIndex || {}).filter(function(eq) { return !eq.registryId; });
+    if (nonLies.length === 0) { zone.innerHTML = ''; return; }
+    zone.innerHTML = '<button type="button" onclick="gmRegistryCreateAllFromPlanning()" '
+        + 'style="width:100%; margin-bottom:8px; padding:6px 8px; border:1px dashed #4f46e5; background:#eef2ff; color:#4338ca; border-radius:6px; cursor:pointer; font-size:11px; font-weight:600;">'
+        + '🚀 Créer les ' + nonLies.length + ' équipement' + (nonLies.length > 1 ? 's' : '') + ' non enregistré' + (nonLies.length > 1 ? 's' : '')
+        + '</button>';
+}
+
+/** Crée en une fois une fiche stable dans le registre pour CHAQUE équipement du planning actif
+ *  qui n'est pas encore lié (registryId === null). Nom = libellé du planning s'il existe, sinon
+ *  le code prestataire. Réutilise scrupuleusement la même construction d'entrée que
+ *  gmRegistryCreateFromCode() (créée un par un), simplement en boucle et avec UNE seule
+ *  confirmation groupée au lieu d'un prompt par équipement — c'est tout l'intérêt du bouton. */
+function gmRegistryCreateAllFromPlanning() {
+    if (typeof isPrestataireMode !== 'undefined' && isPrestataireMode) {
+        showNotification('Cette action est réservée au gestionnaire.', 'warning');
+        return;
+    }
+    const aCreer = Object.values(gmEquipementsIndex || {}).filter(function(eq) { return !eq.registryId; });
+    if (aCreer.length === 0) { showNotification('Tous les équipements du planning sont déjà liés.', 'info'); return; }
+    const apercu = aCreer.slice(0, 5).map(function(eq) { return '• ' + (eq.libelle || eq.materiel); }).join('\n')
+        + (aCreer.length > 5 ? '\n… et ' + (aCreer.length - 5) + ' autre(s)' : '');
+    if (!confirm('Créer une fiche équipement stable pour ' + aCreer.length + ' équipement(s) du planning actif ?\n\n' + apercu
+        + '\n\nLe nom stable de chaque fiche sera repris du libellé du planning (modifiable ensuite individuellement).')) return;
+
+    let nbCrees = 0;
+    aCreer.forEach(function(eq) {
+        // Garde-fou : revérifie au moment de la création (au cas où un doublon de code existerait
+        // déjà entre deux lignes de planning traitées dans cette même boucle).
+        if (gmRegistryFindByCode(eq.materiel)) return;
+        const id = gmGenerateRegistryId();
+        equipementsRegistry[id] = {
+            id: id, nom: (eq.libelle || eq.materiel).trim(), libelle: eq.libelle || '', aliases: [eq.materiel],
+            criticite: '', categorie: '', localisation: '', notes: '',
+            historique: [], photos: [], pannes: [],
+            createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+        };
+        nbCrees++;
+    });
+
+    gmMergeInterventionsIntoRegistry();
+    gmRegistryPersist();
+    showNotification('✅ ' + nbCrees + ' équipement(s) créé(s) dans le registre.');
+    gmEquipementsIndex = gmBuildEquipementsIndex();
+    gmRenderEquipementsList(document.getElementById('gmEquipSearch') ? document.getElementById('gmEquipSearch').value : '');
+    if (gmSelectedEquipement) gmSelectEquipement(gmSelectedEquipement);
 }
 
 function gmRegistryAssociateSelected(code) {
@@ -2934,6 +2989,7 @@ function gmStatusBadge(status) {
 function gmRenderEquipementsList(filter) {
     const listEl = document.getElementById('gmEquipList');
     if (!listEl) return;
+    gmRenderBulkCreateZone(); // 🆕 zone "Créer tous les équipements non enregistrés"
     const q = (filter || '').toLowerCase().trim();
     const items = Object.values(gmEquipementsIndex).filter(function(eq) {
         if (q && (eq.materiel + ' ' + eq.libelle).toLowerCase().indexOf(q) === -1) return false;

@@ -4150,6 +4150,13 @@ function closeBibliothequeModal() {
 .gm-cpt-badge.energetique { background: #ecfdf5; color: #059669; }
 .gm-cpt-badge.gabarit { background: #fdf4ff; color: #a21caf; }
 .gm-cpt-cell-alerte { background: #fee2e2 !important; color: #b91c1c !important; font-weight: 700; }
+/* 🆕 Optimisation perf (benchmark) : classes au lieu de style="" répété sur chaque cellule —
+   pour 180 relevés × 18 colonnes, le style inline gonflait le HTML de ~240 Ko à chaque re-rendu. */
+.gm-cpt-table { border-collapse: collapse; font-size: 11px; width: 100%; }
+.gm-cpt-table th { padding: 4px 6px; text-align: left; white-space: nowrap; }
+.gm-cpt-table td { padding: 4px 6px; white-space: nowrap; }
+.gm-cpt-table td.gm-cpt-td-date { color: #6b7280; }
+.gm-cpt-historique-toggle { font-size: 10px; color: #4f46e5; background: none; border: none; cursor: pointer; text-decoration: underline; padding: 6px 2px; }
 .gm-cpt-row-main { display: flex; flex-direction: column; gap: 2px; }
 .gm-cpt-row-nom { font-size: 12px; font-weight: 600; color: #1f2937; }
 .gm-cpt-row-sub { font-size: 11px; color: #6b7280; }
@@ -4541,14 +4548,19 @@ function gmAjouterReleveUI(compteurId) {
 /** Rendu du panneau de relevés déplié pour un compteur. */
 function gmRenderRelevesPanel(compteur) {
     if (compteur.gabaritId) return gmRenderRelevesPanelGabarit(compteur); // 🆕 Phase 3
-    var releves = gmGetRelevesTries(compteur);
-    if (releves.length === 0) {
+    var relevesTous = gmGetRelevesTries(compteur);
+    if (relevesTous.length === 0) {
         return '<div class="gm-cpt-releves-panel"><span style="font-size:11px; color:#9ca3af; font-style:italic;">Aucun relevé pour le moment.</span></div>';
     }
+    // 🆕 Optimisation perf (même raison que gmRenderRelevesPanelGabarit) : 30 derniers par défaut.
+    var afficherTout = !!gmCompteursHistoriqueComplet[compteur.id];
+    var releves = afficherTout ? relevesTous : relevesTous.slice(0, GM_CPT_HISTORIQUE_LIMITE);
+    var tronque = !afficherTout && relevesTous.length > GM_CPT_HISTORIQUE_LIMITE;
     var rows = releves.map(function(r, i) {
         var deltaHtml = '';
-        if (i < releves.length - 1) {
-            var delta = r.valeur - releves[i + 1].valeur;
+        var suivant = relevesTous[i + 1]; // toujours pris dans la liste COMPLÈTE, jamais dans la tranche affichée
+        if (suivant) {
+            var delta = r.valeur - suivant.valeur;
             deltaHtml = '<span class="gm-cpt-releve-delta">' + (delta >= 0 ? '+' : '') + delta + ' ' + escapeHtml(compteur.unite || '') + '</span>';
         }
         return '<div class="gm-cpt-releve-row">'
@@ -4558,7 +4570,12 @@ function gmRenderRelevesPanel(compteur) {
             + '<button type="button" class="btn btn-danger internal-only" style="min-height:24px; padding:2px 6px; font-size:9px;" onclick="gmSupprimerReleve(' + escapeAttr(JSON.stringify(compteur.id)) + ', ' + escapeAttr(JSON.stringify(r.id)) + ')">🗑️</button>'
             + '</div>';
     }).join('');
-    return '<div class="gm-cpt-releves-panel">' + rows + '</div>';
+    var toggleHtml = tronque
+        ? '<button type="button" class="gm-cpt-historique-toggle" onclick="gmToggleHistoriqueComplet(' + escapeAttr(JSON.stringify(compteur.id)) + ')">📜 Voir tout l\'historique (' + relevesTous.length + ' relevés)</button>'
+        : (afficherTout && relevesTous.length > GM_CPT_HISTORIQUE_LIMITE
+            ? '<button type="button" class="gm-cpt-historique-toggle" onclick="gmToggleHistoriqueComplet(' + escapeAttr(JSON.stringify(compteur.id)) + ')">🔽 Réduire l\'affichage (' + GM_CPT_HISTORIQUE_LIMITE + ' derniers)</button>'
+            : '');
+    return '<div class="gm-cpt-releves-panel">' + rows + toggleHtml + '</div>';
 }
 
 // ============================================================
@@ -4566,6 +4583,8 @@ function gmRenderRelevesPanel(compteur) {
 // ============================================================
 var gmCompteursFormReleve = null; // id du compteur gabarit dont le formulaire "nouveau relevé" est ouvert
 var gmCompteursFormSeuils = null; // id du compteur gabarit dont le formulaire "seuils" est ouvert
+var GM_CPT_HISTORIQUE_LIMITE = 30; // 🆕 Optimisation perf : n'affiche que les N derniers relevés par défaut
+var gmCompteursHistoriqueComplet = {}; // { [compteurId]: true } — compteurs pour lesquels on affiche tout l'historique
 
 function gmToggleFormReleve(compteurId) {
     gmCompteursFormReleve = (gmCompteursFormReleve === compteurId) ? null : compteurId;
@@ -4586,21 +4605,28 @@ function gmToggleFormSeuils(compteurId) {
 function gmRenderRelevesPanelGabarit(compteur) {
     var gabarit = gmGetGabarit(compteur.gabaritId);
     if (!gabarit) return '<div class="gm-cpt-releves-panel">Gabarit introuvable.</div>';
-    var releves = gmGetRelevesTries(compteur);
+    var relevesTous = gmGetRelevesTries(compteur); // triés du plus récent au plus ancien
     var htmlParts = [];
-
-    if (compteur.type !== undefined) { /* no-op, garde de lisibilité */ }
 
     if (gmCompteursFormSeuils === compteur.id) htmlParts.push(gmRenderFormSeuils(compteur, gabarit));
     if (gmCompteursFormReleve === compteur.id) htmlParts.push(gmRenderFormReleve(compteur, gabarit));
 
-    if (releves.length === 0) {
+    if (relevesTous.length === 0) {
         htmlParts.push('<div class="gm-cpt-releves-panel"><span style="font-size:11px; color:#9ca3af; font-style:italic;">Aucun relevé pour le moment.</span></div>');
         return htmlParts.join('');
     }
 
+    // 🆕 Optimisation perf : n'affiche que les GM_CPT_HISTORIQUE_LIMITE relevés les plus récents
+    // par défaut. Un historique qui s'accumule sur plusieurs mois (relevés quotidiens onduleur,
+    // par ex.) peut atteindre des centaines de lignes × 18 colonnes — tout réafficher à chaque
+    // relevé ajouté est ce qui causait la lenteur mesurée. Le calcul (gmGetSerieCompteur, export
+    // CSV) continue lui de porter sur la totalité des relevés, seul l'AFFICHAGE est borné ici.
+    var afficherTout = !!gmCompteursHistoriqueComplet[compteur.id];
+    var releves = afficherTout ? relevesTous : relevesTous.slice(0, GM_CPT_HISTORIQUE_LIMITE);
+    var tronque = !afficherTout && relevesTous.length > GM_CPT_HISTORIQUE_LIMITE;
+
     var theadCells = gabarit.champs.map(function(def) {
-        return '<th style="padding:4px 6px; text-align:left; white-space:nowrap;">' + escapeHtml(def.label) + (def.unite ? ' (' + escapeHtml(def.unite) + ')' : '') + '</th>';
+        return '<th>' + escapeHtml(def.label) + (def.unite ? ' (' + escapeHtml(def.unite) + ')' : '') + '</th>';
     }).join('');
 
     var tbodyRows = releves.map(function(r) {
@@ -4609,24 +4635,36 @@ function gmRenderRelevesPanelGabarit(compteur) {
             var affichage = (v === null || v === undefined || v === '') ? '—' : escapeHtml(String(v));
             var depassement = def.numeric ? gmEvaluerDepassementChamp(compteur, def, v) : null;
             var cls = depassement ? ' class="gm-cpt-cell-alerte"' : '';
-            return '<td' + cls + ' style="padding:4px 6px; white-space:nowrap;">' + affichage + '</td>';
+            return '<td' + cls + '>' + affichage + '</td>';
         }).join('');
         return '<tr>'
-            + '<td style="padding:4px 6px; white-space:nowrap; color:#6b7280;">' + escapeHtml(r.date) + '</td>'
+            + '<td class="gm-cpt-td-date">' + escapeHtml(r.date) + '</td>'
             + cells
-            + '<td style="padding:4px 6px;"><button type="button" class="btn btn-danger internal-only" style="min-height:22px; padding:2px 6px; font-size:9px;" onclick="gmSupprimerReleve(' + escapeAttr(JSON.stringify(compteur.id)) + ', ' + escapeAttr(JSON.stringify(r.id)) + ')">🗑️</button></td>'
+            + '<td><button type="button" class="btn btn-danger internal-only" style="min-height:22px; padding:2px 6px; font-size:9px;" onclick="gmSupprimerReleve(' + escapeAttr(JSON.stringify(compteur.id)) + ', ' + escapeAttr(JSON.stringify(r.id)) + ')">🗑️</button></td>'
             + '</tr>';
     }).join('');
 
     htmlParts.push(
         '<div class="gm-cpt-releves-panel" style="overflow-x:auto;">'
-        + '<table style="border-collapse:collapse; font-size:11px; width:100%;">'
-        + '<thead><tr><th style="padding:4px 6px; text-align:left;">Date</th>' + theadCells + '<th></th></tr></thead>'
+        + '<table class="gm-cpt-table">'
+        + '<thead><tr><th>Date</th>' + theadCells + '<th></th></tr></thead>'
         + '<tbody>' + tbodyRows + '</tbody>'
         + '</table>'
+        + (tronque
+            ? '<button type="button" class="gm-cpt-historique-toggle" onclick="gmToggleHistoriqueComplet(' + escapeAttr(JSON.stringify(compteur.id)) + ')">📜 Voir tout l\'historique (' + relevesTous.length + ' relevés)</button>'
+            : (afficherTout && relevesTous.length > GM_CPT_HISTORIQUE_LIMITE
+                ? '<button type="button" class="gm-cpt-historique-toggle" onclick="gmToggleHistoriqueComplet(' + escapeAttr(JSON.stringify(compteur.id)) + ')">🔽 Réduire l\'affichage (' + GM_CPT_HISTORIQUE_LIMITE + ' derniers)</button>'
+                : ''))
         + '</div>'
     );
     return htmlParts.join('');
+}
+
+/** Bascule entre l'affichage limité (30 derniers) et l'historique complet d'un compteur. */
+function gmToggleHistoriqueComplet(compteurId) {
+    if (gmCompteursHistoriqueComplet[compteurId]) delete gmCompteursHistoriqueComplet[compteurId];
+    else gmCompteursHistoriqueComplet[compteurId] = true;
+    gmRenderCompteursListe();
 }
 
 /** Formulaire inline d'ajout d'un relevé multi-champs (un input par champ du gabarit). */

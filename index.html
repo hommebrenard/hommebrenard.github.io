@@ -3533,6 +3533,9 @@ async function voirFicheEquipementDepuisOT() {
             <button class="close-btn" onclick="closeBibliothequeModal()" aria-label="Fermer">✕</button>
         </div>
         <div class="modal-body">
+            <input type="text" id="gmBiblioSearch" placeholder="🔎 Rechercher une gamme ou un modèle..."
+                   oninput="gmRenderBibliothequeContent(this.value)"
+                   style="width:100%; padding:8px 10px; margin-bottom:12px; border:1px solid #d1d5db; border-radius:8px; font-size:13px; box-sizing:border-box;">
             <div class="gm-biblio-section-title">🗂️ Gammes actives (issues des check-lists chargées)</div>
             <div id="gmBiblioActives" class="gm-biblio-list"></div>
 
@@ -4061,14 +4064,26 @@ function gmRenderModeleActionsPanel(modeleId) {
         + '</div>';
 }
 
-function gmRenderBibliothequeContent() {
+var gmBiblioLastFilter = ''; // 🆕 mémorise la recherche en cours, pour la conserver lors des re-rendus internes
+
+function gmRenderBibliothequeContent(filter) {
     var activesContainer = document.getElementById('gmBiblioActives');
     var modelesContainer = document.getElementById('gmBiblioModeles');
     if (!activesContainer || !modelesContainer) return;
+    if (filter !== undefined) gmBiblioLastFilter = filter;
+    var q = (gmBiblioLastFilter || '').toLowerCase().trim();
 
-    var cles = Object.keys((typeof checklistData !== 'undefined' && checklistData) || {});
+    var cles = Object.keys((typeof checklistData !== 'undefined' && checklistData) || {})
+        .filter(function(cle) {
+            if (!q) return true;
+            var g = checklistData[cle];
+            var hay = (g.equipement || '') + ' ' + (g.intervention || '') + ' ' + cle;
+            return hay.toLowerCase().indexOf(q) !== -1;
+        });
     if (cles.length === 0) {
-        activesContainer.innerHTML = '<div style="color:#9ca3af; padding:14px; font-style:italic;">Aucune check-list chargée pour le moment.</div>';
+        activesContainer.innerHTML = q
+            ? '<div style="color:#9ca3af; padding:14px; font-style:italic;">Aucune gamme active ne correspond à "' + escapeHtml(gmBiblioLastFilter) + '".</div>'
+            : '<div style="color:#9ca3af; padding:14px; font-style:italic;">Aucune check-list chargée pour le moment.</div>';
     } else {
         activesContainer.innerHTML = cles.map(function(cle) {
             var g = checklistData[cle];
@@ -4083,11 +4098,18 @@ function gmRenderBibliothequeContent() {
         }).join('');
     }
 
-    var ids = Object.keys(gmGammesLibrary || {}).sort(function(a, b) {
-        return (gmGammesLibrary[b].updatedAt || '').localeCompare(gmGammesLibrary[a].updatedAt || '');
-    });
+    var ids = Object.keys(gmGammesLibrary || {})
+        .filter(function(id) {
+            if (!q) return true;
+            return (gmGammesLibrary[id].nom || '').toLowerCase().indexOf(q) !== -1;
+        })
+        .sort(function(a, b) {
+            return (gmGammesLibrary[b].updatedAt || '').localeCompare(gmGammesLibrary[a].updatedAt || '');
+        });
     if (ids.length === 0) {
-        modelesContainer.innerHTML = '<div style="color:#9ca3af; padding:14px; font-style:italic;">Aucun modèle enregistré. Dupliquez une gamme active ci-dessus pour commencer.</div>';
+        modelesContainer.innerHTML = q
+            ? '<div style="color:#9ca3af; padding:14px; font-style:italic;">Aucun modèle ne correspond à "' + escapeHtml(gmBiblioLastFilter) + '".</div>'
+            : '<div style="color:#9ca3af; padding:14px; font-style:italic;">Aucun modèle enregistré. Dupliquez une gamme active ci-dessus pour commencer.</div>';
     } else {
         modelesContainer.innerHTML = ids.map(function(id) {
             var m = gmGammesLibrary[id];
@@ -4115,6 +4137,9 @@ function gmRenderBibliothequeContent() {
 
 function openBibliothequeModal() {
     document.getElementById('gmBibliothequeModalOverlay').classList.add('active');
+    var searchEl = document.getElementById('gmBiblioSearch');
+    if (searchEl) searchEl.value = '';
+    gmBiblioLastFilter = '';
     gmRenderBibliothequeContent();
 }
 function closeBibliothequeModal() {
@@ -4150,6 +4175,10 @@ function closeBibliothequeModal() {
 .gm-cpt-badge.energetique { background: #ecfdf5; color: #059669; }
 .gm-cpt-badge.gabarit { background: #fdf4ff; color: #a21caf; }
 .gm-cpt-cell-alerte { background: #fee2e2 !important; color: #b91c1c !important; font-weight: 700; }
+.gm-cpt-row-alerte-depasse { border: 1px solid #fca5a5; background: #fef2f2; }
+.gm-cpt-row-alerte-proche { border: 1px solid #fde68a; background: #fffbeb; }
+.gm-cpt-alertes-resume { font-size: 12px; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
+.gm-cpt-alertes-resume.has-alerte { background: #fef2f2; border: 1px solid #fca5a5; color: #b91c1c; }
 /* 🆕 Optimisation perf (benchmark) : classes au lieu de style="" répété sur chaque cellule —
    pour 180 relevés × 18 colonnes, le style inline gonflait le HTML de ~240 Ko à chaque re-rendu. */
 .gm-cpt-table { border-collapse: collapse; font-size: 11px; width: 100%; }
@@ -4178,6 +4207,10 @@ function closeBibliothequeModal() {
             <button class="close-btn" onclick="closeCompteursModal()" aria-label="Fermer">✕</button>
         </div>
         <div class="modal-body">
+            <input type="text" id="gmCompteursSearch" placeholder="🔎 Rechercher un équipement..."
+                   oninput="gmRenderCompteursListe(this.value)"
+                   style="width:100%; padding:8px 10px; margin-bottom:12px; border:1px solid #d1d5db; border-radius:8px; font-size:13px; box-sizing:border-box;">
+            <div id="gmCompteursAlertesResume"></div>
             <div id="gmCompteursListe"></div>
         </div>
     </div>
@@ -4483,6 +4516,43 @@ function gmCalculerDernierDelta(compteur) {
     var releves = gmGetRelevesTries(compteur);
     if (releves.length < 2) return null;
     return releves[0].valeur - releves[1].valeur;
+}
+
+// ============================================================
+// 🆕 Chantier 7 "Compteurs" — Phase 4 : alerte de seuil (compteurs techniques)
+// Compare le DERNIER relevé d'un compteur technique simple (heures, km…) à son seuil (défini en
+// Phase 1). Retourne null (rien à signaler), 'proche' (≥ 90 % du seuil) ou 'depasse' (≥ 100 %).
+// Ne s'applique qu'aux compteurs techniques SIMPLES avec un seuil configuré — n'affecte jamais
+// les compteurs énergétiques ni les compteurs gabarit (qui ont leur propre système de seuils par
+// champ depuis la Phase 3, déjà géré par gmEvaluerDepassementChamp).
+//
+// Volontairement PAS de génération automatique d'OT ici : le pipeline planning/OT de l'appli
+// (checklistData/otStates/planningData) est entièrement piloté par l'import Excel — y injecter un
+// OT ad hoc depuis ce module romprait cette architecture. La génération d'intervention sur seuil
+// dépassé est un cas d'automatisation à part entière, cohérent avec le Chantier 12
+// (Automatisations), qui doit lui-même s'appuyer sur le Chantier 10 (Demandes) — pas avant.
+// ============================================================
+function gmEvaluerAlerteCompteurTechnique(compteur) {
+    if (compteur.gabaritId || compteur.type !== 'technique' || compteur.seuil === null || compteur.seuil === undefined) return null;
+    var dernier = gmDernierReleve(compteur);
+    if (!dernier || typeof dernier.valeur !== 'number') return null;
+    var ratio = compteur.seuil !== 0 ? (dernier.valeur / compteur.seuil) : 0;
+    if (dernier.valeur >= compteur.seuil) return 'depasse';
+    if (ratio >= 0.9) return 'proche';
+    return null;
+}
+
+/** Compte, pour un équipement donné, le nombre de compteurs techniques en alerte (proche ou
+ *  dépassé) — utilisé pour le badge de résumé en tête de modale. */
+function gmCompterAlertesTechniques() {
+    var compteurs = Object.values(compteursRegistry || {});
+    var depasse = 0, proche = 0;
+    compteurs.forEach(function(c) {
+        var etat = gmEvaluerAlerteCompteurTechnique(c);
+        if (etat === 'depasse') depasse++;
+        else if (etat === 'proche') proche++;
+    });
+    return { depasse: depasse, proche: proche };
 }
 
 function gmToggleCompteursEquip(equipId) {
@@ -4895,9 +4965,12 @@ function gmRenderCompteursDUnEquip(equipId) {
             if (delta !== null) sousLigne += ' (' + (delta >= 0 ? '+' : '') + delta + ' ' + (c.unite || '') + ')';
             if (c.type === 'technique' && c.seuil !== null && dernier) sousLigne += ' · seuil : ' + c.seuil + ' ' + (c.unite || '');
         }
+        var alerte = gmEvaluerAlerteCompteurTechnique(c); // 🆕 Phase 4
+        if (alerte === 'depasse') sousLigne += ' · ⚠️ SEUIL DÉPASSÉ';
+        else if (alerte === 'proche') sousLigne += ' · 🔶 seuil proche';
         var estDeplie = gmCompteursExpandedReleves === c.id;
         var aChampsSeuil = gabarit && gmChampsAvecSeuil(gabarit).length > 0;
-        return '<div class="gm-cpt-row">'
+        return '<div class="gm-cpt-row' + (alerte ? ' gm-cpt-row-alerte-' + alerte : '') + '">'
             + '<div class="gm-cpt-row-main">'
             + '<div class="gm-cpt-row-nom"><span class="gm-cpt-badge ' + (gabarit ? 'gabarit' : c.type) + '">' + escapeHtml(badgeLabel) + '</span> ' + escapeHtml(c.nom) + '</div>'
             + '<div class="gm-cpt-row-sub">' + escapeHtml(sousLigne) + '</div>'
@@ -4920,13 +4993,41 @@ function gmRenderCompteursDUnEquip(equipId) {
         + '</div>';
 }
 
-function gmRenderCompteursListe() {
+var gmCompteursLastFilter = ''; // 🆕 mémorise la recherche en cours, pour la conserver lors des re-rendus internes (toggle, ajout de relevé…) qui n'en passent pas explicitement
+
+/** Résumé des alertes de seuil (compteurs techniques) en tête de modale — invisible s'il n'y a
+ *  aucune alerte, pour ne pas polluer l'écran quand tout va bien. */
+function gmRenderAlertesResume() {
+    var zone = document.getElementById('gmCompteursAlertesResume');
+    if (!zone) return;
+    var compte = gmCompterAlertesTechniques();
+    if (compte.depasse === 0 && compte.proche === 0) { zone.innerHTML = ''; return; }
+    var parties = [];
+    if (compte.depasse > 0) parties.push('⚠️ ' + compte.depasse + ' compteur' + (compte.depasse > 1 ? 's' : '') + ' au-delà du seuil');
+    if (compte.proche > 0) parties.push('🔶 ' + compte.proche + ' compteur' + (compte.proche > 1 ? 's' : '') + ' proche' + (compte.proche > 1 ? 's' : '') + ' du seuil');
+    zone.innerHTML = '<div class="gm-cpt-alertes-resume has-alerte">' + parties.join(' · ') + '</div>';
+}
+
+function gmRenderCompteursListe(filter) {
     var container = document.getElementById('gmCompteursListe');
     if (!container) return;
+    gmRenderAlertesResume(); // 🆕 Phase 4
+    if (filter !== undefined) gmCompteursLastFilter = filter;
+    var q = (gmCompteursLastFilter || '').toLowerCase().trim();
+
     var ids = Object.keys((typeof equipementsRegistry !== 'undefined' && equipementsRegistry) || {})
+        .filter(function(id) {
+            if (!q) return true;
+            var eq = equipementsRegistry[id];
+            var hay = (eq.nom || '') + ' ' + (eq.libelle || '') + ' ' + (eq.aliases || []).join(' ');
+            return hay.toLowerCase().indexOf(q) !== -1;
+        })
         .sort(function(a, b) { return (equipementsRegistry[a].nom || '').localeCompare(equipementsRegistry[b].nom || ''); });
+
     if (ids.length === 0) {
-        container.innerHTML = '<div style="color:#9ca3af; padding:14px; font-style:italic;">Aucun équipement enregistré. Créez-en depuis le module Équipements.</div>';
+        container.innerHTML = q
+            ? '<div style="color:#9ca3af; padding:14px; font-style:italic;">Aucun équipement ne correspond à "' + escapeHtml(gmCompteursLastFilter) + '".</div>'
+            : '<div style="color:#9ca3af; padding:14px; font-style:italic;">Aucun équipement enregistré. Créez-en depuis le module Équipements.</div>';
         gmHydraterCourbesCompteurs();
         return;
     }
@@ -4952,6 +5053,9 @@ async function openCompteursModal() {
     document.getElementById('gmCompteursModalOverlay').classList.add('active');
     var container = document.getElementById('gmCompteursListe');
     if (container) container.innerHTML = '<div style="color:#9ca3af; padding:20px;">Chargement…</div>';
+    var searchEl = document.getElementById('gmCompteursSearch');
+    if (searchEl) searchEl.value = '';
+    gmCompteursLastFilter = '';
 
     // Le registre équipements peut ne pas encore être chargé si l'utilisateur ouvre directement
     // "Compteurs" sans être passé par "Équipements" — on s'assure qu'il l'est, exactement comme

@@ -2544,6 +2544,7 @@ function gmRegistryCreateFromCode(code, defaultNom) {
     equipementsRegistry[id] = {
         id: id, nom: nom.trim(), libelle: defaultNom || '', aliases: [code],
         criticite: '', categorie: '', localisation: '', notes: '',
+        lot: '', famille: '', frequence: '',
         historique: [], photos: [], pannes: [],
         createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
     };
@@ -2596,6 +2597,7 @@ function gmRegistryCreateAllFromPlanning() {
         equipementsRegistry[id] = {
             id: id, nom: (eq.libelle || eq.materiel).trim(), libelle: eq.libelle || '', aliases: [eq.materiel],
             criticite: '', categorie: '', localisation: '', notes: '',
+            lot: '', famille: '', frequence: '',
             historique: [], photos: [], pannes: [],
             createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
         };
@@ -2736,6 +2738,16 @@ function gmSaveFicheEquipement(id) {
     equipementsRegistry[id].criticite = critEl ? critEl.value : '';
     equipementsRegistry[id].localisation = locEl ? locEl.value.trim() : '';
     equipementsRegistry[id].notes = notesEl ? notesEl.value : '';
+    // 🆕 Chantier 11 (Rapports) — Phase A : Lot / Famille / Fréquence, nécessaires à la
+    // matrice de planning annuel (filtres + regroupement). Champs libres pour Lot/Famille
+    // (saisie manuelle, pas de nomenclature imposée) ; Fréquence contrainte à la légende
+    // déjà affichée dans l'application (A/M/S/H/T) pour rester cohérente avec l'existant.
+    const lotEl = document.getElementById('gmFicheLot');
+    const familleEl = document.getElementById('gmFicheFamille');
+    const frequenceEl = document.getElementById('gmFicheFrequence');
+    equipementsRegistry[id].lot = lotEl ? lotEl.value.trim() : '';
+    equipementsRegistry[id].famille = familleEl ? familleEl.value.trim() : '';
+    equipementsRegistry[id].frequence = frequenceEl ? frequenceEl.value : '';
     // 🆕 Chantier 5 : emplacement structuré (référence vers emplacementsRegistry) + étiquettes
     // (parsées depuis une saisie texte séparée par virgules, dédupliquées, vides retirées)
     equipementsRegistry[id].emplacementId = (emplEl && emplEl.value) ? emplEl.value : null;
@@ -2903,6 +2915,12 @@ async function gmMergeImportedRegistry(siteKeyOrText, importedRegistry) {
             existing.criticite = incoming.criticite;
             existing.localisation = incoming.localisation;
             existing.notes = incoming.notes;
+            // 🆕 Chantier 11 — Phase A : synchroniser Lot/Famille/Fréquence comme les autres
+            // champs scalaires. `|| existing.xxx` protège les registres importés d'une version
+            // antérieure à cette phase (incoming.lot serait undefined, pas '').
+            existing.lot = (incoming.lot !== undefined) ? incoming.lot : existing.lot;
+            existing.famille = (incoming.famille !== undefined) ? incoming.famille : existing.famille;
+            existing.frequence = (incoming.frequence !== undefined) ? incoming.frequence : existing.frequence;
             existing.updatedAt = incoming.updatedAt;
         }
     });
@@ -3068,6 +3086,20 @@ function gmRenderTabFiche(eq, entry) {
         const critOptions = CRITICITES.map(function(c) {
             return '<option value="' + escapeAttr(c) + '"' + (entry.criticite === c ? ' selected' : '') + '>' + (c || '—') + '</option>';
         }).join('');
+        // 🆕 Chantier 11 — Phase A : Fréquence contrainte à la légende A/M/S/H/T déjà utilisée
+        // ailleurs dans l'application (voir .freq-tag), pour que la matrice de planning annuel
+        // puisse s'appuyer dessus sans introduire une seconde nomenclature.
+        const FREQUENCES = [
+            { value: '', label: '—' },
+            { value: 'A', label: 'A - Annuel' },
+            { value: 'M', label: 'M - Mensuel' },
+            { value: 'S', label: 'S - Semestriel' },
+            { value: 'H', label: 'H - Hebdomadaire' },
+            { value: 'T', label: 'T - Trimestriel' }
+        ];
+        const freqOptions = FREQUENCES.map(function(f) {
+            return '<option value="' + escapeAttr(f.value) + '"' + (entry.frequence === f.value ? ' selected' : '') + '>' + escapeHtml(f.label) + '</option>';
+        }).join('');
         const disabledAttr = ficheReadOnly ? ' disabled' : '';
         // 🆕 Chantier 5 : sélecteur d'emplacement structuré (registre hiérarchique)
         const emplList = Object.values(emplacementsRegistry || {}).sort(function(a, b) {
@@ -3094,6 +3126,14 @@ function gmRenderTabFiche(eq, entry) {
                     '<label style="font-size:11px; color:#6b7280;">Catégorie' +
                         '<input type="text" id="gmFicheCategorie" value="' + escapeAttr(entry.categorie || '') + '" placeholder="ex: Ascenseur, Climatisation..."' + disabledAttr + ' ' +
                         'style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;"></label>' +
+                    '<label style="font-size:11px; color:#6b7280;">📦 Lot (matrice planning)' +
+                        '<input type="text" id="gmFicheLot" value="' + escapeAttr(entry.lot || '') + '" placeholder="ex: Lot 1, Électricité..."' + disabledAttr + ' ' +
+                        'style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;"></label>' +
+                    '<label style="font-size:11px; color:#6b7280;">🧩 Famille (matrice planning)' +
+                        '<input type="text" id="gmFicheFamille" value="' + escapeAttr(entry.famille || '') + '" placeholder="ex: Groupe froid, Onduleur..."' + disabledAttr + ' ' +
+                        'style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;"></label>' +
+                    '<label style="font-size:11px; color:#6b7280;">📅 Fréquence (matrice planning)' +
+                        '<select id="gmFicheFrequence"' + disabledAttr + ' style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;">' + freqOptions + '</select></label>' +
                     '<label style="font-size:11px; color:#6b7280;">Criticité' +
                         '<select id="gmFicheCriticite"' + disabledAttr + ' style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;">' + critOptions + '</select></label>' +
                     '<label style="font-size:11px; color:#6b7280;">Localisation (texte libre)' +

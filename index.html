@@ -11694,6 +11694,219 @@ function getOTAnomaliesCount(otNum) {
     return count;
 }
      
+/* ============================================
+   🆕 CHANTIER 11 (Rapports) — Phase A.2 : Matrice de planning annuel
+   Équipements × Semaines, avec filtres Lot/Famille/Fréquence et KPI globaux.
+   Fonctions pures d'agrégation, testées indépendamment du rendu (Phase A.3).
+
+   Réutilise entièrement le vocabulaire de statut déjà existant dans l'app :
+   - otStates[ot].status : 'F' (Fait), 'NF' (Non fait), 'P' (Partiel), ou absent (en attente)
+   - isNC(ot) : intervention non concernée
+   - getOTAnomaliesCount(ot) : même définition que le dashboard KPI existant
+   Mapping des 5 statuts visuels de la matrice (validé avec l'utilisateur) :
+     - 'conforme'  : status === 'F' et 0 anomalie
+     - 'anomalie'  : status === 'F' et ≥1 anomalie (= otAvecAnomalies du dashboard existant)
+     - 'en_cours'  : status === 'P' et date non dépassée
+     - 'en_retard' : status === 'NF' (toujours), OU status === 'P'/absent avec date dépassée
+     - 'planifie'  : pas de statut, date non dépassée (à venir)
+     - 'nc'        : isNC(ot) — pastille grise dédiée, distincte d'une cellule vide
+   ============================================ */
+
+// Ordre de sévérité utilisé quand plusieurs OT d'un même équipement tombent dans la même
+// semaine ISO (rare mais possible pour les fréquences hebdomadaires) : le statut le plus
+// "urgent" l'emporte dans la cellule fusionnée, pour ne jamais masquer un retard.
+var GM_MATRICE_STATUT_PRIORITE = ['en_retard', 'anomalie', 'en_cours', 'conforme', 'planifie', 'nc'];
+
+/** Parse une date au format dd/mm/yyyy (format de window.dateColumns dans toute l'app)
+ *  en objet Date à minuit local. Retourne null si le format ne correspond pas. */
+function gmParsePlanningDate(dateStr) {
+    const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(dateStr || '').trim());
+    if (!m) return null;
+    return new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+}
+
+/** Calcule l'année ISO et le numéro de semaine ISO-8601 (lundi = premier jour, semaine 1 =
+ *  celle contenant le premier jeudi de l'année) pour une Date donnée. Algorithme standard,
+ *  aucune dépendance externe. */
+function gmISOWeekInfo(date) {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = (d.getUTCDay() + 6) % 7; // lundi=0 ... dimanche=6
+    d.setUTCDate(d.getUTCDate() - dayNum + 3); // jeudi de la semaine courante
+    const isoYear = d.getUTCFullYear();
+    const jan4 = new Date(Date.UTC(isoYear, 0, 4));
+    const jan4DayNum = (jan4.getUTCDay() + 6) % 7;
+    const week1Monday = new Date(jan4);
+    week1Monday.setUTCDate(jan4.getUTCDate() - jan4DayNum);
+    const isoWeek = Math.round((d - week1Monday) / (7 * 24 * 60 * 60 * 1000)) + 1;
+    return { isoYear: isoYear, isoWeek: isoWeek, weekKey: isoYear + '-W' + String(isoWeek).padStart(2, '0') };
+}
+
+/** Retourne le lundi (00:00 local) de la semaine ISO courante pour une Date donnée. */
+function gmISOWeekMonday(date) {
+    const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const dayNum = (d.getDay() + 6) % 7;
+    d.setDate(d.getDate() - dayNum);
+    return d;
+}
+
+/** Construit la liste des `count` semaines ISO consécutives à partir de la semaine contenant
+ *  `startDate` (par défaut aujourd'hui). Chaque entrée porte de quoi afficher un en-tête de
+ *  colonne (numéro de semaine + date du lundi) sans dépendre du rendu. */
+function gmBuildMatriceSemaines(count, startDate) {
+    const base = gmISOWeekMonday(startDate || new Date());
+    const semaines = [];
+    for (let i = 0; i < count; i++) {
+        const monday = new Date(base);
+        monday.setDate(base.getDate() + i * 7);
+        const info = gmISOWeekInfo(monday);
+        const dd = String(monday.getDate()).padStart(2, '0');
+        const mm = String(monday.getMonth() + 1).padStart(2, '0');
+        semaines.push({
+            weekKey: info.weekKey,
+            isoYear: info.isoYear,
+            isoWeek: info.isoWeek,
+            label: 'S' + info.isoWeek,
+            monday: monday,
+            dateLabel: dd + '/' + mm
+        });
+    }
+    return semaines;
+}
+
+/** Détermine le statut visuel d'un OT unique pour une cellule de la matrice.
+ *  Pure vis-à-vis de ses paramètres explicites ; lit otStates/getOTAnomaliesCount comme le
+ *  reste de l'app (même convention que gmBuildEquipementsIndex, calculerKPIs, etc.).
+ *  `today` est injectable pour les tests (sinon `new Date()`). */
+function gmDetermineStatutCelluleOT(otStr, dateStr, today) {
+    const now = today || new Date();
+    if (isNC(otStr)) return 'nc';
+    const state = (typeof otStates !== 'undefined' && otStates[otStr]) ? otStates[otStr] : null;
+    const dateOT = gmParsePlanningDate(dateStr);
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const isPast = dateOT ? (dateOT.getTime() < todayMidnight.getTime()) : false;
+    if (state && state.status === 'F') {
+        return getOTAnomaliesCount(otStr) > 0 ? 'anomalie' : 'conforme';
+    }
+    if (state && state.status === 'NF') return 'en_retard';
+    if (state && state.status === 'P') return isPast ? 'en_retard' : 'en_cours';
+    return isPast ? 'en_retard' : 'planifie';
+}
+
+/** Fusionne plusieurs statuts (cas de 2+ OT du même équipement dans la même semaine ISO) en
+ *  gardant le plus sévère selon GM_MATRICE_STATUT_PRIORITE. */
+function gmFusionnerStatutsCellule(statuts) {
+    for (let i = 0; i < GM_MATRICE_STATUT_PRIORITE.length; i++) {
+        if (statuts.indexOf(GM_MATRICE_STATUT_PRIORITE[i]) !== -1) return GM_MATRICE_STATUT_PRIORITE[i];
+    }
+    return null;
+}
+
+/** Construit les lignes de la matrice (équipements filtrés × statut par semaine visible).
+ *  Lit planningData/otStates/equipementsRegistry comme le reste de l'app (cohérent avec
+ *  gmBuildEquipementsIndex/gmMergeInterventionsIntoRegistry) plutôt que de les recevoir en
+ *  paramètres, pour ne pas dupliquer un mécanisme de state déjà en place.
+ *  filters: { search, lot, famille, frequence } — chaîne vide/'Tous' = pas de filtre.
+ *  semaines: résultat de gmBuildMatriceSemaines().
+ *  today: injectable pour les tests. */
+function gmBuildMatriceLignes(filters, semaines, today) {
+    const f = filters || {};
+    const searchLower = (f.search || '').trim().toLowerCase();
+    const weekIndexByKey = {};
+    semaines.forEach(function(s, idx) { weekIndexByKey[s.weekKey] = idx; });
+
+    const entries = Object.values((typeof equipementsRegistry !== 'undefined' ? equipementsRegistry : {}) || {});
+    const rows = [];
+
+    entries.forEach(function(entry) {
+        if (f.lot && (entry.lot || '') !== f.lot) return;
+        if (f.famille && (entry.famille || '') !== f.famille) return;
+        if (f.frequence && (entry.frequence || '') !== f.frequence) return;
+        if (searchLower) {
+            const haystack = [
+                entry.nom || '', entry.localisation || '', entry.categorie || ''
+            ].concat(entry.aliases || []).join(' ').toLowerCase();
+            if (haystack.indexOf(searchLower) === -1) return;
+        }
+
+        const weekBuckets = new Array(semaines.length).fill(null).map(function() { return []; });
+        (typeof planningData !== 'undefined' ? planningData : []).forEach(function(row) {
+            if (row.type !== 'row') return;
+            if (!(entry.aliases || []).includes(row.materiel)) return;
+            (row.ots || []).forEach(function(otNum, otIdx) {
+                const otStr = String(otNum || '').trim();
+                if (!otStr) return;
+                const dateStr = (window.dateColumns && window.dateColumns[otIdx]) || '';
+                const dateOT = gmParsePlanningDate(dateStr);
+                if (!dateOT) return;
+                const info = gmISOWeekInfo(dateOT);
+                const idx = weekIndexByKey[info.weekKey];
+                if (idx === undefined) return; // hors fenêtre de semaines affichée
+                weekBuckets[idx].push(gmDetermineStatutCelluleOT(otStr, dateStr, today));
+            });
+        });
+
+        const weeks = {};
+        semaines.forEach(function(s, idx) {
+            weeks[s.weekKey] = weekBuckets[idx].length ? gmFusionnerStatutsCellule(weekBuckets[idx]) : null;
+        });
+
+        rows.push({
+            id: entry.id,
+            nom: entry.nom || entry.libelle || '',
+            localisation: entry.localisation || '',
+            lot: entry.lot || '',
+            famille: entry.famille || '',
+            frequence: entry.frequence || '',
+            weeks: weeks
+        });
+    });
+
+    return rows;
+}
+
+/** Calcule les KPI globaux de la matrice (cumul "à date", indépendant de la fenêtre de
+ *  semaines visible à l'écran — cohérent avec un total "342 réalisées sur 389 planifiées à
+ *  date" qui doit rester stable quand on navigue dans les semaines).
+ *  Respecte les mêmes filtres Lot/Famille/Fréquence/recherche que gmBuildMatriceLignes,
+ *  mais parcourt TOUTES les interventions passées de chaque équipement filtré (pas
+ *  seulement celles de la fenêtre de semaines affichée). */
+function gmCalculerKPIsMatrice(filters, today) {
+    const f = filters || {};
+    const searchLower = (f.search || '').trim().toLowerCase();
+    const entries = Object.values((typeof equipementsRegistry !== 'undefined' ? equipementsRegistry : {}) || {});
+    const kpis = { realisees: 0, enCours: 0, enRetard: 0, avecReserve: 0, totalPlanifiees: 0 };
+
+    entries.forEach(function(entry) {
+        if (f.lot && (entry.lot || '') !== f.lot) return;
+        if (f.famille && (entry.famille || '') !== f.famille) return;
+        if (f.frequence && (entry.frequence || '') !== f.frequence) return;
+        if (searchLower) {
+            const haystack = [
+                entry.nom || '', entry.localisation || '', entry.categorie || ''
+            ].concat(entry.aliases || []).join(' ').toLowerCase();
+            if (haystack.indexOf(searchLower) === -1) return;
+        }
+        (typeof planningData !== 'undefined' ? planningData : []).forEach(function(row) {
+            if (row.type !== 'row') return;
+            if (!(entry.aliases || []).includes(row.materiel)) return;
+            (row.ots || []).forEach(function(otNum, otIdx) {
+                const otStr = String(otNum || '').trim();
+                if (!otStr || isNC(otStr)) return; // NC hors périmètre des KPI (comme calculerKPIs())
+                const dateStr = (window.dateColumns && window.dateColumns[otIdx]) || '';
+                const statut = gmDetermineStatutCelluleOT(otStr, dateStr, today);
+                kpis.totalPlanifiees++;
+                if (statut === 'conforme') kpis.realisees++;
+                else if (statut === 'anomalie') { kpis.realisees++; kpis.avecReserve++; }
+                else if (statut === 'en_cours') kpis.enCours++;
+                else if (statut === 'en_retard') kpis.enRetard++;
+            });
+        });
+    });
+
+    kpis.tauxRealisation = kpis.totalPlanifiees > 0 ? Math.round((kpis.realisees / kpis.totalPlanifiees) * 100) : 0;
+    return kpis;
+}
+
 function calculerKPIs() {
     const kpis = { totalOT: 0, otFaits: 0, otNonFaits: 0, otPartiels: 0, otEnAttente: 0, otNC: 0, totalAnomalies: 0, otAvecAnomalies: 0, otConformes: 0, tauxRealisation: 0, tauxConformite: 0, tauxAvancement: 0, ecartMoyen: 0, otEnRetard: 0, otAlHeure: 0, otEnAvance: 0, techniciens: {}, equipements: {}, types: {}, parDate: {}, topAnomalies: {}, totalActions: 0, actionsRealisees: 0 };
     let totalEcartJours = 0; let nbOTAvecEcart = 0;

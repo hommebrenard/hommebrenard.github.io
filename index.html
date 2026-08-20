@@ -2245,6 +2245,10 @@ body.mode-prestataire .internal-only {
                 onclick="gmSidebarNavigate('compteurs', this); openCompteursModal();">
             <span class="gm-sidebar-item-icon">🔢</span> Compteurs
         </button>
+        <button type="button" class="gm-sidebar-item internal-only" id="gmNavMatrice"
+                onclick="gmSidebarNavigate('matrice', this); openMatriceModal();">
+            <span class="gm-sidebar-item-icon">📅</span> Matrice planning
+        </button>
     </div>
 
     <div class="gm-sidebar-section">
@@ -4252,6 +4256,54 @@ function closeBibliothequeModal() {
                    style="width:100%; padding:8px 10px; margin-bottom:12px; border:1px solid #d1d5db; border-radius:8px; font-size:13px; box-sizing:border-box;">
             <div id="gmCompteursAlertesResume"></div>
             <div id="gmCompteursListe"></div>
+        </div>
+    </div>
+</div>
+
+<!-- 🆕 CHANTIER 11 (Rapports) — Phase A.3 : Matrice de planning annuel équipements × semaines.
+     Même structure de modal que Compteurs/Bibliothèque (modal-overlay + modal + modal-header
+     + modal-body), pour rester visuellement cohérent avec le reste de l'app. -->
+<div class="modal-overlay" id="gmMatriceModalOverlay" role="dialog" aria-modal="true" aria-labelledby="gmMatriceModalTitle">
+    <div class="modal" style="max-width: 1400px;">
+        <div class="modal-header">
+            <div>
+                <h2 id="gmMatriceModalTitle">📅 Matrice de planning annuel</h2>
+                <div class="info">Suivi équipements × semaines, filtrable par Lot / Famille / Fréquence</div>
+            </div>
+            <button class="close-btn" onclick="closeMatriceModal()" aria-label="Fermer">✕</button>
+        </div>
+        <div class="modal-body">
+            <div id="gmMatriceKPIs" style="margin-bottom:14px;"></div>
+            <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px;">
+                <input type="text" id="gmMatriceSearch" placeholder="🔎 Rechercher équipement, ID, locali..."
+                       oninput="gmMatriceOnFilterChange()"
+                       style="flex:1; min-width:220px; padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; font-size:13px; box-sizing:border-box;">
+                <select id="gmMatriceFiltreLot" onchange="gmMatriceOnFilterChange()"
+                        style="padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; font-size:13px;">
+                    <option value="">Tous les Lots</option>
+                </select>
+                <select id="gmMatriceFiltreFamille" onchange="gmMatriceOnFilterChange()"
+                        style="padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; font-size:13px;">
+                    <option value="">Toutes les Familles</option>
+                </select>
+                <select id="gmMatriceFiltreFrequence" onchange="gmMatriceOnFilterChange()"
+                        style="padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; font-size:13px;">
+                    <option value="">Toutes Fréquences</option>
+                    <option value="A">A - Annuel</option>
+                    <option value="M">M - Mensuel</option>
+                    <option value="S">S - Semestriel</option>
+                    <option value="H">H - Hebdomadaire</option>
+                    <option value="T">T - Trimestriel</option>
+                </select>
+                <button type="button" onclick="gmMatriceGoToday()"
+                        style="padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:13px; background:#fff; cursor:pointer;">📅 Aujourd'hui</button>
+                <button type="button" onclick="gmMatriceNavSemaines(-1)" aria-label="Semaines précédentes"
+                        style="padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; background:#fff; cursor:pointer;">‹</button>
+                <button type="button" onclick="gmMatriceNavSemaines(1)" aria-label="Semaines suivantes"
+                        style="padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; background:#fff; cursor:pointer;">›</button>
+            </div>
+            <div id="gmMatriceLegende" style="font-size:12px; color:#6b7280; margin-bottom:10px;"></div>
+            <div id="gmMatriceTableWrap" style="overflow-x:auto;"></div>
         </div>
     </div>
 </div>
@@ -11905,6 +11957,188 @@ function gmCalculerKPIsMatrice(filters, today) {
 
     kpis.tauxRealisation = kpis.totalPlanifiees > 0 ? Math.round((kpis.realisees / kpis.totalPlanifiees) * 100) : 0;
     return kpis;
+}
+
+/* ============================================
+   🆕 CHANTIER 11 (Rapports) — Phase A.3 : rendu visuel de la Matrice de planning annuel.
+   Consomme les fonctions pures de la Phase A.2 (gmBuildMatriceSemaines, gmBuildMatriceLignes,
+   gmCalculerKPIsMatrice) — aucune logique de calcul ici, uniquement de la construction de HTML,
+   pour garder la Phase A.2 testable indépendamment du DOM (comme le reste de l'app le fait déjà
+   ailleurs, ex. gmBuildEquipementsIndex vs son rendu).
+   ============================================ */
+
+var GM_MATRICE_WEEK_COUNT = 14; // correspond à la fenêtre "Semaines 29 - 42" de la maquette
+var gmMatriceFilters = { search: '', lot: '', famille: '', frequence: '' };
+var gmMatriceWeekOffset = 0; // en nombre de FENÊTRES complètes (pas en semaines) : chaque clic ‹/› avance/recule d'une page de GM_MATRICE_WEEK_COUNT semaines
+
+var GM_MATRICE_STATUT_META = {
+    conforme:  { label: 'Réalisé / Conforme',        bg: '#10b981', fg: '#ffffff' },
+    en_cours:  { label: 'En Cours',                   bg: '#f59e0b', fg: '#ffffff' },
+    en_retard: { label: 'En Retard / Non Réalisé',    bg: '#ef4444', fg: '#ffffff' },
+    anomalie:  { label: 'Anomalie / Avec Réserve',    bg: '#8b5cf6', fg: '#ffffff' },
+    planifie:  { label: 'Planifié (À venir)',         bg: '#1e293b', fg: '#ffffff' },
+    nc:        { label: 'Non concerné',               bg: '#d1d5db', fg: '#6b7280' }
+};
+
+/** Date de référence (aujourd'hui décalée par pages de GM_MATRICE_WEEK_COUNT semaines) à partir
+ *  de laquelle gmBuildMatriceSemaines() calcule la fenêtre de semaines affichée. */
+function gmMatriceWeekStart() {
+    const base = new Date();
+    base.setDate(base.getDate() + gmMatriceWeekOffset * GM_MATRICE_WEEK_COUNT * 7);
+    return base;
+}
+
+/** Remplit les <select> Lot/Famille avec les valeurs distinctes non vides présentes dans
+ *  equipementsRegistry, triées alphabétiquement. Conserve la sélection courante si elle existe
+ *  toujours parmi les nouvelles options (utile après un import qui changerait la liste). */
+function gmPopulateMatriceFilterOptions() {
+    const entries = Object.values((typeof equipementsRegistry !== 'undefined' ? equipementsRegistry : {}) || {});
+    ['lot', 'famille'].forEach(function(field) {
+        const selectId = field === 'lot' ? 'gmMatriceFiltreLot' : 'gmMatriceFiltreFamille';
+        const select = document.getElementById(selectId);
+        if (!select) return;
+        const current = select.value;
+        const distinct = Array.from(new Set(entries.map(function(e) { return (e[field] || '').trim(); }).filter(Boolean))).sort();
+        const defaultLabel = field === 'lot' ? 'Tous les Lots' : 'Toutes les Familles';
+        select.innerHTML = '<option value="">' + defaultLabel + '</option>' +
+            distinct.map(function(v) { return '<option value="' + escapeAttr(v) + '">' + escapeHtml(v) + '</option>'; }).join('');
+        if (distinct.indexOf(current) !== -1) select.value = current;
+    });
+}
+
+/** Lit les valeurs actuelles des filtres dans le DOM et déclenche un nouveau rendu complet
+ *  (KPI + table, puisque les KPI dépendent aussi des filtres, contrairement à la fenêtre de
+ *  semaines qui n'influence que la table). */
+function gmMatriceOnFilterChange() {
+    const searchEl = document.getElementById('gmMatriceSearch');
+    const lotEl = document.getElementById('gmMatriceFiltreLot');
+    const familleEl = document.getElementById('gmMatriceFiltreFamille');
+    const freqEl = document.getElementById('gmMatriceFiltreFrequence');
+    gmMatriceFilters = {
+        search: searchEl ? searchEl.value : '',
+        lot: lotEl ? lotEl.value : '',
+        famille: familleEl ? familleEl.value : '',
+        frequence: freqEl ? freqEl.value : ''
+    };
+    gmRenderMatriceKPIs();
+    gmRenderMatriceTable();
+}
+
+/** Change de fenêtre de semaines de `deltaPages` pages entières (chaque page = GM_MATRICE_WEEK_COUNT
+ *  semaines), sans recalculer les KPI (indépendants de la fenêtre affichée par conception, voir
+ *  gmCalculerKPIsMatrice). */
+function gmMatriceNavSemaines(deltaPages) {
+    gmMatriceWeekOffset += deltaPages;
+    gmRenderMatriceTable();
+}
+
+/** Revient à la fenêtre de semaines contenant aujourd'hui. */
+function gmMatriceGoToday() {
+    gmMatriceWeekOffset = 0;
+    gmRenderMatriceTable();
+}
+
+/** Construit le bandeau de 4 cartes KPI + taux de réalisation global, à partir de
+ *  gmCalculerKPIsMatrice() (Phase A.2). Rendu seul, aucun calcul ici. */
+function gmRenderMatriceKPIs() {
+    const container = document.getElementById('gmMatriceKPIs');
+    if (!container) return;
+    const kpis = gmCalculerKPIsMatrice(gmMatriceFilters);
+    const cards = [
+        { label: 'Réalisées', value: kpis.realisees, sub: kpis.tauxRealisation + '%', color: '#10b981' },
+        { label: 'En Cours', value: kpis.enCours, sub: 'Interventions', color: '#f59e0b' },
+        { label: 'En Retard', value: kpis.enRetard, sub: 'Action requise', color: '#ef4444' },
+        { label: 'Avec Réserve', value: kpis.avecReserve, sub: 'Anomalies', color: '#8b5cf6' }
+    ];
+    container.innerHTML =
+        '<div style="display:flex; flex-wrap:wrap; gap:12px;">' +
+        '<div style="display:flex; align-items:center; gap:10px; padding:10px 16px; border:1px solid #e5e7eb; border-radius:10px; min-width:160px;">' +
+            '<div style="font-size:22px; font-weight:700; color:#1e293b;">' + kpis.tauxRealisation + '%</div>' +
+            '<div style="font-size:11px; color:#6b7280; line-height:1.3;">Taux de Réalisation<br>' + kpis.realisees + ' réalisées sur ' + kpis.totalPlanifiees + ' planifiées à date</div>' +
+        '</div>' +
+        cards.map(function(c) {
+            return '<div style="display:flex; flex-direction:column; padding:10px 16px; border:1px solid #e5e7eb; border-radius:10px; min-width:120px;">' +
+                '<div style="font-size:20px; font-weight:700; color:' + c.color + ';">' + c.value + '</div>' +
+                '<div style="font-size:11px; color:#374151;">' + escapeHtml(c.label) + '</div>' +
+                '<div style="font-size:10px; color:#9ca3af;">' + escapeHtml(c.sub) + '</div>' +
+            '</div>';
+        }).join('') +
+        '</div>';
+
+    const legende = document.getElementById('gmMatriceLegende');
+    if (legende) {
+        legende.innerHTML = '🔵 Légende Statuts d\'Exécution : ' +
+            Object.keys(GM_MATRICE_STATUT_META).filter(function(k) { return k !== 'nc'; }).map(function(k) {
+                const m = GM_MATRICE_STATUT_META[k];
+                return '<span style="display:inline-flex; align-items:center; gap:4px; margin-left:10px;">' +
+                    '<span style="width:9px; height:9px; border-radius:50%; background:' + m.bg + '; display:inline-block;"></span>' +
+                    escapeHtml(m.label) + '</span>';
+            }).join('');
+    }
+}
+
+/** Construit le tableau équipements × semaines à partir de gmBuildMatriceSemaines() et
+ *  gmBuildMatriceLignes() (Phase A.2). Rendu seul, aucun calcul ici. */
+function gmRenderMatriceTable() {
+    const wrap = document.getElementById('gmMatriceTableWrap');
+    if (!wrap) return;
+    const semaines = gmBuildMatriceSemaines(GM_MATRICE_WEEK_COUNT, gmMatriceWeekStart());
+    const lignes = gmBuildMatriceLignes(gmMatriceFilters, semaines);
+    const todayInfo = gmISOWeekInfo(new Date());
+
+    const headerCells = semaines.map(function(s) {
+        const isToday = s.weekKey === todayInfo.weekKey;
+        return '<th style="padding:6px 8px; text-align:center; font-size:11px; white-space:nowrap;' +
+            (isToday ? ' background:#fef3c7; border-left:2px solid #ef4444; border-right:2px solid #ef4444;' : '') + '">' +
+            escapeHtml(s.label) + '<br><span style="font-weight:400; color:#9ca3af;">' + escapeHtml(s.dateLabel) + '</span></th>';
+    }).join('');
+
+    const bodyRows = lignes.map(function(row) {
+        const cells = semaines.map(function(s) {
+            const statut = row.weeks[s.weekKey];
+            if (!statut) return '<td style="padding:4px; text-align:center;">·</td>';
+            const meta = GM_MATRICE_STATUT_META[statut] || GM_MATRICE_STATUT_META.nc;
+            const lettre = (row.frequence || '').charAt(0);
+            return '<td style="padding:4px; text-align:center;">' +
+                '<span title="' + escapeAttr(meta.label) + '" style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:' + meta.bg + '; color:' + meta.fg + '; font-size:10px; font-weight:600;">' + escapeHtml(lettre) + '</span>' +
+            '</td>';
+        }).join('');
+        return '<tr>' +
+            '<td style="padding:6px 10px; position:sticky; left:0; background:#fff; border-right:1px solid #e5e7eb;">' +
+                '<div style="font-weight:600; font-size:12px; color:#1e293b;">' + escapeHtml(row.nom) + '</div>' +
+                '<div style="font-size:10px; color:#9ca3af;">' + escapeHtml(row.localisation || '') +
+                (row.famille ? ' · ' + escapeHtml(row.famille) : '') + '</div>' +
+            '</td>' + cells + '</tr>';
+    }).join('');
+
+    wrap.innerHTML =
+        '<table style="border-collapse:collapse; width:100%;">' +
+        '<thead><tr>' +
+            '<th style="padding:6px 10px; text-align:left; position:sticky; left:0; background:#f8fafc;">ÉQUIPEMENTS &amp; LOCALISATION (' + lignes.length + ')</th>' +
+            headerCells +
+        '</tr></thead>' +
+        '<tbody>' + (bodyRows || '<tr><td colspan="' + (semaines.length + 1) + '" style="padding:16px; text-align:center; color:#9ca3af;">Aucun équipement ne correspond aux filtres.</td></tr>') + '</tbody>' +
+        '</table>';
+}
+
+/** Ouvre le modal Matrice : charge le registre équipements (comme openCompteursModal() le fait
+ *  pour Compteurs), réinitialise filtres/fenêtre, peuple les options de filtre, puis rend
+ *  KPI + légende + table. */
+async function openMatriceModal() {
+    const overlay = document.getElementById('gmMatriceModalOverlay');
+    if (overlay) overlay.classList.add('active');
+    gmMatriceFilters = { search: '', lot: '', famille: '', frequence: '' };
+    gmMatriceWeekOffset = 0;
+    const searchEl = document.getElementById('gmMatriceSearch');
+    if (searchEl) searchEl.value = '';
+    await gmLoadEquipRegistry();
+    gmPopulateMatriceFilterOptions();
+    gmRenderMatriceKPIs();
+    gmRenderMatriceTable();
+}
+function closeMatriceModal() {
+    const overlay = document.getElementById('gmMatriceModalOverlay');
+    if (overlay) overlay.classList.remove('active');
 }
 
 function calculerKPIs() {

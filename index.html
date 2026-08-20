@@ -11972,12 +11972,15 @@ var gmMatriceFilters = { search: '', lot: '', famille: '', frequence: '' };
 var gmMatriceWeekOffset = 0; // en nombre de FENÊTRES complètes (pas en semaines) : chaque clic ‹/› avance/recule d'une page de GM_MATRICE_WEEK_COUNT semaines
 
 var GM_MATRICE_STATUT_META = {
-    conforme:  { label: 'Réalisé / Conforme',        bg: '#10b981', fg: '#ffffff' },
-    en_cours:  { label: 'En Cours',                   bg: '#f59e0b', fg: '#ffffff' },
-    en_retard: { label: 'En Retard / Non Réalisé',    bg: '#ef4444', fg: '#ffffff' },
-    anomalie:  { label: 'Anomalie / Avec Réserve',    bg: '#8b5cf6', fg: '#ffffff' },
-    planifie:  { label: 'Planifié (À venir)',         bg: '#1e293b', fg: '#ffffff' },
-    nc:        { label: 'Non concerné',               bg: '#d1d5db', fg: '#6b7280' }
+    // 🎨 Révision esthétique (retour utilisateur avec capture de référence) : badges arrondis
+    // icône + lettre plutôt que de simples cercles pleins, pastilles bleu clair pour les
+    // semaines à venir (au lieu du marine plein initial), pour coller au visuel cible.
+    conforme:  { label: 'Réalisé / Conforme',        bg: '#10b981', fg: '#ffffff', icon: '✓' },
+    en_cours:  { label: 'En Cours',                   bg: '#f59e0b', fg: '#ffffff', icon: '⏱' },
+    en_retard: { label: 'En Retard / Non Réalisé',    bg: '#ef4444', fg: '#ffffff', icon: '⊗' },
+    anomalie:  { label: 'Anomalie / Avec Réserve',    bg: '#8b5cf6', fg: '#ffffff', icon: '⚠' },
+    planifie:  { label: 'Planifié (À venir)',         bg: '#dbeafe', fg: '#1e40af', icon: '' },
+    nc:        { label: 'Non concerné',               bg: '#e5e7eb', fg: '#6b7280', icon: '' }
 };
 
 /** Date de référence (aujourd'hui décalée par pages de GM_MATRICE_WEEK_COUNT semaines) à partir
@@ -12078,7 +12081,11 @@ function gmRenderMatriceKPIs() {
 }
 
 /** Construit le tableau équipements × semaines à partir de gmBuildMatriceSemaines() et
- *  gmBuildMatriceLignes() (Phase A.2). Rendu seul, aucun calcul ici. */
+ *  gmBuildMatriceLignes() (Phase A.2). Rendu seul, aucun calcul ici.
+ *  🎨 Révision esthétique (retour utilisateur, capture de référence) : badges arrondis
+ *  icône+lettre, trait rouge vertical continu sur toute la colonne "aujourd'hui" (pas
+ *  seulement l'en-tête), en-tête ambre pour la semaine courante, badge Famille à côté du
+ *  nom d'équipement. */
 function gmRenderMatriceTable() {
     const wrap = document.getElementById('gmMatriceTableWrap');
     if (!wrap) return;
@@ -12086,28 +12093,42 @@ function gmRenderMatriceTable() {
     const lignes = gmBuildMatriceLignes(gmMatriceFilters, semaines);
     const todayInfo = gmISOWeekInfo(new Date());
 
+    // Style de la "ligne rouge" : appliqué à CHAQUE cellule (en-tête ET corps) de la colonne
+    // correspondant à la semaine courante, pour obtenir un trait continu sur toute la hauteur
+    // du tableau — un simple contour sur l'en-tête seul (version précédente) ne suffisait pas.
+    function todayColStyle(isToday, extra) {
+        return (extra || '') + (isToday ? ' border-left:2px solid #ef4444; border-right:2px solid #ef4444;' : '');
+    }
+
     const headerCells = semaines.map(function(s) {
         const isToday = s.weekKey === todayInfo.weekKey;
         return '<th style="padding:6px 8px; text-align:center; font-size:11px; white-space:nowrap;' +
-            (isToday ? ' background:#fef3c7; border-left:2px solid #ef4444; border-right:2px solid #ef4444;' : '') + '">' +
-            escapeHtml(s.label) + '<br><span style="font-weight:400; color:#9ca3af;">' + escapeHtml(s.dateLabel) + '</span></th>';
+            todayColStyle(isToday, isToday ? ' background:#f59e0b; color:#ffffff; border-radius:4px 4px 0 0;' : '') + '">' +
+            escapeHtml(s.label) + '<br><span style="font-weight:400;' + (isToday ? ' color:#fef3c7;' : ' color:#9ca3af;') + '">' + escapeHtml(s.dateLabel) + '</span></th>';
     }).join('');
 
     const bodyRows = lignes.map(function(row) {
         const cells = semaines.map(function(s) {
+            const isToday = s.weekKey === todayInfo.weekKey;
             const statut = row.weeks[s.weekKey];
-            if (!statut) return '<td style="padding:4px; text-align:center;">·</td>';
+            if (!statut) return '<td style="padding:4px; text-align:center;' + todayColStyle(isToday) + '">·</td>';
             const meta = GM_MATRICE_STATUT_META[statut] || GM_MATRICE_STATUT_META.nc;
-            const lettre = (row.frequence || '').charAt(0);
-            return '<td style="padding:4px; text-align:center;">' +
-                '<span title="' + escapeAttr(meta.label) + '" style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:' + meta.bg + '; color:' + meta.fg + '; font-size:10px; font-weight:600;">' + escapeHtml(lettre) + '</span>' +
+            // Fallback si la Fréquence n'est pas encore renseignée sur la fiche équipement
+            // (champ récent, beaucoup de fiches existantes ne l'ont pas encore) : un point
+            // plutôt qu'un badge vide et confus.
+            const lettre = (row.frequence || '').charAt(0) || '•';
+            const contenu = (meta.icon ? meta.icon + ' ' : '') + escapeHtml(lettre);
+            return '<td style="padding:4px; text-align:center;' + todayColStyle(isToday) + '">' +
+                '<span title="' + escapeAttr(meta.label) + '" style="display:inline-flex; align-items:center; justify-content:center; gap:2px; min-width:38px; height:22px; padding:0 6px; border-radius:11px; background:' + meta.bg + '; color:' + meta.fg + '; font-size:11px; font-weight:600; white-space:nowrap;">' + contenu + '</span>' +
             '</td>';
         }).join('');
+        const familleBadge = row.famille
+            ? '<span style="display:inline-block; margin-left:6px; padding:1px 6px; border-radius:4px; background:#fef3c7; color:#92400e; font-size:9px; font-weight:700; vertical-align:middle;">' + escapeHtml(row.famille.toUpperCase()) + '</span>'
+            : '';
         return '<tr>' +
             '<td style="padding:6px 10px; position:sticky; left:0; background:#fff; border-right:1px solid #e5e7eb;">' +
-                '<div style="font-weight:600; font-size:12px; color:#1e293b;">' + escapeHtml(row.nom) + '</div>' +
-                '<div style="font-size:10px; color:#9ca3af;">' + escapeHtml(row.localisation || '') +
-                (row.famille ? ' · ' + escapeHtml(row.famille) : '') + '</div>' +
+                '<div style="font-weight:600; font-size:12px; color:#1e293b;">' + escapeHtml(row.nom) + familleBadge + '</div>' +
+                '<div style="font-size:10px; color:#9ca3af;">' + escapeHtml(row.localisation || '') + '</div>' +
             '</td>' + cells + '</tr>';
     }).join('');
 

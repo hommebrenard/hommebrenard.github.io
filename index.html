@@ -4260,6 +4260,54 @@ function closeBibliothequeModal() {
     </div>
 </div>
 
+<!-- 🆕 CHANTIER 11 (Rapports) — Phase A.4 : styles additionnels (en-têtes semaines en pill,
+     badges Année/Semaine actuelle, timeline équipement). Additif au CSS de la Phase A.3
+     (qui reste en style inline dans gmRenderMatriceTable, non modifié). -->
+<style>
+.gm-matrice-year-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 6px 14px; border-radius: 20px; background: #eef2ff; color: #4338ca;
+    font-size: 13px; font-weight: 700; min-width: 64px; justify-content: center;
+}
+.gm-matrice-semaine-actuelle {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #92400e;
+    background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;
+    padding: 6px 10px; margin-bottom: 10px;
+}
+.gm-matrice-semaine-actuelle:empty { display: none; }
+.gm-matrice-th-pill {
+    display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+    min-width: 48px; padding: 4px 8px; border-radius: 12px; background: #f1f5f9; color: #475569;
+    font-size: 11px; line-height: 1.5; font-weight: 600;
+}
+.gm-matrice-th-pill.gm-matrice-th-today {
+    background: #f59e0b; color: #ffffff; box-shadow: 0 0 0 2px #fde68a;
+}
+.gm-matrice-th-pill .gm-matrice-th-date { font-weight: 400; opacity: 0.85; }
+.gm-matrice-equip-code {
+    font-family: 'Consolas', 'Courier New', monospace; font-size: 10px; color: #374151;
+    margin-top: 1px;
+}
+.gm-matrice-equip-desc { font-size: 10px; color: #2563eb; margin-top: 1px; }
+.gm-matrice-timeline-btn {
+    border: none; background: none; cursor: pointer; font-size: 12px; padding: 0 2px;
+    vertical-align: middle; opacity: 0.7;
+}
+.gm-matrice-timeline-btn:hover { opacity: 1; }
+.gm-mtl-row {
+    display: flex; align-items: center; gap: 10px; padding: 8px 4px;
+    border-bottom: 1px solid #f3f4f6; cursor: pointer;
+}
+.gm-mtl-row:hover { background: #f9fafb; }
+.gm-mtl-row:last-child { border-bottom: none; }
+.gm-mtl-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.gm-mtl-date { font-size: 11px; color: #6b7280; min-width: 70px; }
+.gm-mtl-ot { font-size: 12px; font-weight: 700; color: #1f2937; min-width: 70px; }
+.gm-mtl-statut { font-size: 11px; flex: 1; }
+.gm-mtl-tech { font-size: 11px; color: #6b7280; }
+.gm-mtl-empty { text-align: center; padding: 24px; color: #9ca3af; font-size: 13px; }
+</style>
+
 <!-- 🆕 CHANTIER 11 (Rapports) — Phase A.3 : Matrice de planning annuel équipements × semaines.
      Même structure de modal que Compteurs/Bibliothèque (modal-overlay + modal + modal-header
      + modal-body), pour rester visuellement cohérent avec le reste de l'app. -->
@@ -4295,15 +4343,40 @@ function closeBibliothequeModal() {
                     <option value="H">H - Hebdomadaire</option>
                     <option value="T">T - Trimestriel</option>
                 </select>
-                <button type="button" onclick="gmMatriceGoToday()"
+                <button type="button" onclick="gmMatriceScrollToToday()"
                         style="padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:13px; background:#fff; cursor:pointer;">📅 Aujourd'hui</button>
-                <button type="button" onclick="gmMatriceNavSemaines(-1)" aria-label="Semaines précédentes"
+                <!-- 🆕 Phase A.4 (pt.3/5) : la pagination par pages de 14 semaines est remplacée par une
+                     navigation par ANNÉE ISO complète (52/53 semaines affichées en scroll horizontal,
+                     voir gmRenderMatriceTable()). Les anciennes fonctions gmMatriceNavSemaines()/
+                     gmMatriceGoToday()/GM_MATRICE_WEEK_COUNT restent en place (zéro suppression),
+                     simplement plus câblées à ces boutons. -->
+                <button type="button" onclick="gmMatriceNavAnnee(-1)" aria-label="Année précédente"
                         style="padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; background:#fff; cursor:pointer;">‹</button>
-                <button type="button" onclick="gmMatriceNavSemaines(1)" aria-label="Semaines suivantes"
+                <span id="gmMatriceYearBadge" class="gm-matrice-year-badge"></span>
+                <button type="button" onclick="gmMatriceNavAnnee(1)" aria-label="Année suivante"
                         style="padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; background:#fff; cursor:pointer;">›</button>
             </div>
+            <div id="gmMatriceSemaineActuelleBadge" class="gm-matrice-semaine-actuelle"></div>
             <div id="gmMatriceLegende" style="font-size:12px; color:#6b7280; margin-bottom:10px;"></div>
             <div id="gmMatriceTableWrap" style="overflow-x:auto;"></div>
+        </div>
+    </div>
+</div>
+
+<!-- 🆕 Phase A.4 (pt.1) : Timeline de suivi d'exécution d'un équipement — ouverte depuis l'icône 🕘
+     à côté du nom d'équipement dans la 1ère colonne de la matrice. Historique complet (toutes
+     dates), indépendant de la fenêtre de semaines affichée, réutilise gmDetermineStatutCelluleOT. -->
+<div class="modal-overlay" id="gmMatriceTimelineModalOverlay" role="dialog" aria-modal="true" aria-labelledby="gmMatriceTimelineModalTitle">
+    <div class="modal" style="max-width: 640px;">
+        <div class="modal-header">
+            <div>
+                <h2 id="gmMatriceTimelineModalTitle">🕘 Suivi d'exécution</h2>
+                <div class="info" id="gmMatriceTimelineModalInfo"></div>
+            </div>
+            <button class="close-btn" onclick="closeMatriceTimelineModal()" aria-label="Fermer">✕</button>
+        </div>
+        <div class="modal-body">
+            <div id="gmMatriceTimelineBody"></div>
         </div>
     </div>
 </div>
@@ -11960,6 +12033,158 @@ function gmCalculerKPIsMatrice(filters, today) {
 }
 
 /* ============================================
+   🆕 CHANTIER 11 (Rapports) — Phase A.4 : fonctions pures additionnelles.
+   - Semaines alignées sur l'ANNÉE ISO complète (52 ou 53 semaines), pour la vue "scroll
+     horizontal complet" demandée en remplacement de la pagination par pages de 14 semaines
+     (gmBuildMatriceSemaines() de la Phase A.2 reste intacte et utilisée telle quelle en
+     dessous — on ne fait qu'ajouter un point d'entrée qui calcule le bon `startDate`/`count`).
+   - Fusion de cellule AVEC référence OT (pour permettre le clic → ouverture de fiche), en
+     plus de gmFusionnerStatutsCellule() (Phase A.2) qui ne retourne qu'un statut et reste
+     utilisée par gmBuildMatriceLignes() (non modifiée, non supprimée).
+   - Timeline de suivi d'exécution d'un équipement (historique complet, indépendant de la
+     fenêtre affichée), testable indépendamment du rendu comme le reste de la Phase A.2.
+   ============================================ */
+
+/** Lundi (00:00 local) de la semaine ISO n°1 d'une année ISO donnée. */
+function gmISOWeek1Monday(isoYear) {
+    const jan4 = new Date(isoYear, 0, 4);
+    const dayNum = (jan4.getDay() + 6) % 7;
+    const monday = new Date(jan4);
+    monday.setDate(jan4.getDate() - dayNum);
+    return monday;
+}
+
+/** Nombre de semaines ISO (52 ou 53) que compte une année ISO donnée. Une année a 53 semaines
+ *  si le 1er janvier tombe un jeudi, ou si l'année est bissextile et que le 1er janvier tombe
+ *  un mercredi (règle standard ISO-8601). */
+function gmISOWeeksInYear(isoYear) {
+    function jan1DayIsLongYear(y) {
+        const d = new Date(y, 0, 1).getDay(); // 0=dimanche ... 6=samedi
+        const isLeap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+        return d === 4 || (d === 3 && isLeap);
+    }
+    return jan1DayIsLongYear(isoYear) ? 53 : 52;
+}
+
+/** Construit les semaines de l'année ISO complète `isoYear` (52 ou 53 semaines), en réutilisant
+ *  gmBuildMatriceSemaines() de la Phase A.2 sans la modifier. */
+function gmBuildMatriceSemainesAnnee(isoYear) {
+    return gmBuildMatriceSemaines(gmISOWeeksInYear(isoYear), gmISOWeek1Monday(isoYear));
+}
+
+/** Variante de gmFusionnerStatutsCellule() qui conserve, en plus du statut le plus sévère,
+ *  la référence de l'OT correspondant (nécessaire pour ouvrir la fiche d'intervention au clic
+ *  sur une case de la matrice). `entries`: [{ statut, ot }, ...]. */
+function gmFusionnerCelluleAvecRef(entries) {
+    for (let i = 0; i < GM_MATRICE_STATUT_PRIORITE.length; i++) {
+        const found = entries.find(function(e) { return e.statut === GM_MATRICE_STATUT_PRIORITE[i]; });
+        if (found) return found;
+    }
+    return null;
+}
+
+/** Variante de gmBuildMatriceLignes() (Phase A.2, non modifiée) qui conserve la référence de
+ *  l'OT gagnant dans chaque cellule (via gmFusionnerCelluleAvecRef), et ajoute le code
+ *  prestataire (aliases[0]) et la description (libelle) de l'équipement pour l'enrichissement
+ *  de la colonne "Équipements & Localisation" (Phase A.4, pt.7). Même logique de filtrage que
+ *  gmBuildMatriceLignes(), gardée volontairement identique pour ne pas diverger du comportement
+ *  déjà validé. */
+function gmBuildMatriceLignesAvecRef(filters, semaines, today) {
+    const f = filters || {};
+    const searchLower = (f.search || '').trim().toLowerCase();
+    const weekIndexByKey = {};
+    semaines.forEach(function(s, idx) { weekIndexByKey[s.weekKey] = idx; });
+
+    const entries = Object.values((typeof equipementsRegistry !== 'undefined' ? equipementsRegistry : {}) || {});
+    const rows = [];
+
+    entries.forEach(function(entry) {
+        if (f.lot && (entry.lot || '') !== f.lot) return;
+        if (f.famille && (entry.famille || '') !== f.famille) return;
+        if (f.frequence && (entry.frequence || '') !== f.frequence) return;
+        if (searchLower) {
+            const haystack = [
+                entry.nom || '', entry.localisation || '', entry.categorie || ''
+            ].concat(entry.aliases || []).join(' ').toLowerCase();
+            if (haystack.indexOf(searchLower) === -1) return;
+        }
+
+        const weekBuckets = new Array(semaines.length).fill(null).map(function() { return []; });
+        (typeof planningData !== 'undefined' ? planningData : []).forEach(function(row) {
+            if (row.type !== 'row') return;
+            if (!(entry.aliases || []).includes(row.materiel)) return;
+            (row.ots || []).forEach(function(otNum, otIdx) {
+                const otStr = String(otNum || '').trim();
+                if (!otStr) return;
+                const dateStr = (window.dateColumns && window.dateColumns[otIdx]) || '';
+                const dateOT = gmParsePlanningDate(dateStr);
+                if (!dateOT) return;
+                const info = gmISOWeekInfo(dateOT);
+                const idx = weekIndexByKey[info.weekKey];
+                if (idx === undefined) return; // hors fenêtre de semaines affichée
+                weekBuckets[idx].push({
+                    statut: gmDetermineStatutCelluleOT(otStr, dateStr, today),
+                    ot: { num: otStr, date: dateStr, materiel: row.materiel, interventionType: row.interventionType, libelle: row.libelle }
+                });
+            });
+        });
+
+        const weeks = {};
+        semaines.forEach(function(s, idx) {
+            weeks[s.weekKey] = weekBuckets[idx].length ? gmFusionnerCelluleAvecRef(weekBuckets[idx]) : null;
+        });
+
+        rows.push({
+            id: entry.id,
+            nom: entry.nom || entry.libelle || '',
+            code: (entry.aliases && entry.aliases[0]) || '',
+            desc: entry.libelle || '',
+            localisation: entry.localisation || '',
+            lot: entry.lot || '',
+            famille: entry.famille || '',
+            frequence: entry.frequence || '',
+            weeks: weeks
+        });
+    });
+
+    return rows;
+}
+
+/** Historique complet (toutes dates, indépendant de la fenêtre de semaines affichée) des
+ *  interventions d'un équipement, trié du plus récent au plus ancien. Fonction pure, aucun DOM,
+ *  testable indépendamment de gmOpenEquipementTimeline() (rendu). */
+function gmBuildEquipementTimeline(entry, today) {
+    const items = [];
+    (typeof planningData !== 'undefined' ? planningData : []).forEach(function(row) {
+        if (row.type !== 'row') return;
+        if (!((entry && entry.aliases) || []).includes(row.materiel)) return;
+        (row.ots || []).forEach(function(otNum, otIdx) {
+            const otStr = String(otNum || '').trim();
+            if (!otStr) return;
+            const dateStr = (window.dateColumns && window.dateColumns[otIdx]) || '';
+            const state = (typeof otStates !== 'undefined' && otStates[otStr]) ? otStates[otStr] : null;
+            items.push({
+                ot: otStr,
+                date: dateStr,
+                statut: gmDetermineStatutCelluleOT(otStr, dateStr, today),
+                technicien: state ? (state.technicien || '') : '',
+                materiel: row.materiel,
+                interventionType: row.interventionType,
+                libelle: row.libelle
+            });
+        });
+    });
+    items.sort(function(a, b) {
+        const da = gmParsePlanningDate(a.date), db = gmParsePlanningDate(b.date);
+        if (!da && !db) return 0;
+        if (!da) return 1;
+        if (!db) return -1;
+        return db - da;
+    });
+    return items;
+}
+
+/* ============================================
    🆕 CHANTIER 11 (Rapports) — Phase A.3 : rendu visuel de la Matrice de planning annuel.
    Consomme les fonctions pures de la Phase A.2 (gmBuildMatriceSemaines, gmBuildMatriceLignes,
    gmCalculerKPIsMatrice) — aucune logique de calcul ici, uniquement de la construction de HTML,
@@ -11967,9 +12192,10 @@ function gmCalculerKPIsMatrice(filters, today) {
    ailleurs, ex. gmBuildEquipementsIndex vs son rendu).
    ============================================ */
 
-var GM_MATRICE_WEEK_COUNT = 14; // correspond à la fenêtre "Semaines 29 - 42" de la maquette
+var GM_MATRICE_WEEK_COUNT = 14; // 🕰️ conservé tel quel (zéro suppression) — n'est plus câblé aux boutons ‹/› depuis la Phase A.4 (voir gmMatriceNavAnnee), mais reste utilisable/testable.
 var gmMatriceFilters = { search: '', lot: '', famille: '', frequence: '' };
-var gmMatriceWeekOffset = 0; // en nombre de FENÊTRES complètes (pas en semaines) : chaque clic ‹/› avance/recule d'une page de GM_MATRICE_WEEK_COUNT semaines
+var gmMatriceWeekOffset = 0; // 🕰️ conservé tel quel (zéro suppression), idem ci-dessus.
+var gmMatriceYearOffset = 0; // 🆕 Phase A.4 (pt.3/5) : nombre d'années ISO par rapport à l'année courante. La matrice affiche désormais l'année ISO complète (52/53 semaines) en scroll horizontal plutôt qu'une fenêtre paginée de 14 semaines.
 
 var GM_MATRICE_STATUT_META = {
     // 🎨 Révision esthétique (retour utilisateur avec capture de référence) : badges arrondis
@@ -12041,6 +12267,42 @@ function gmMatriceGoToday() {
     gmRenderMatriceTable();
 }
 
+/** 🆕 Phase A.4 (pt.3/5) : année ISO actuellement affichée dans la matrice (année ISO du jour
+ *  + décalage de navigation). */
+function gmMatriceCurrentIsoYear() {
+    return gmISOWeekInfo(new Date()).isoYear + gmMatriceYearOffset;
+}
+
+/** 🆕 Phase A.4 (pt.3) : navigue d'une année ISO complète (remplace la pagination par pages de
+ *  14 semaines de la Phase A.3 — voir commentaire sur gmMatriceYearOffset). Les KPI restent
+ *  inchangés (cumul "à date", indépendant de l'année affichée, comme en Phase A.2). */
+function gmMatriceNavAnnee(delta) {
+    gmMatriceYearOffset += delta;
+    gmRenderMatriceTable();
+    gmRenderMatriceYearBadge();
+}
+
+/** 🆕 Phase A.4 (pt.3) : revient à l'année ISO courante et fait défiler horizontalement la table
+ *  jusqu'à la colonne "aujourd'hui" (repérée par [data-gm-matrice-today-col]), plutôt que de
+ *  changer de page comme le faisait gmMatriceGoToday() en Phase A.3. */
+function gmMatriceScrollToToday() {
+    gmMatriceYearOffset = 0;
+    gmRenderMatriceTable();
+    gmRenderMatriceYearBadge();
+    requestAnimationFrame(function() {
+        const cell = document.querySelector('[data-gm-matrice-today-col="1"]');
+        if (cell && cell.scrollIntoView) cell.scrollIntoView({ inline: 'center', block: 'nearest' });
+    });
+}
+
+/** 🆕 Phase A.4 (pt.5) : affiche l'année ISO actuellement visible dans le bandeau de filtres,
+ *  pour lever l'ambiguïté signalée ("on ne sait pas de quelle année il s'agit") lors du défilement
+ *  horizontal des 52/53 semaines. */
+function gmRenderMatriceYearBadge() {
+    const el = document.getElementById('gmMatriceYearBadge');
+    if (el) el.textContent = '📆 ' + gmMatriceCurrentIsoYear();
+}
+
 /** Construit le bandeau de 4 cartes KPI + taux de réalisation global, à partir de
  *  gmCalculerKPIsMatrice() (Phase A.2). Rendu seul, aucun calcul ici. */
 function gmRenderMatriceKPIs() {
@@ -12080,54 +12342,79 @@ function gmRenderMatriceKPIs() {
     }
 }
 
-/** Construit le tableau équipements × semaines à partir de gmBuildMatriceSemaines() et
- *  gmBuildMatriceLignes() (Phase A.2). Rendu seul, aucun calcul ici.
- *  🎨 Révision esthétique (retour utilisateur, capture de référence) : badges arrondis
- *  icône+lettre, trait rouge vertical continu sur toute la colonne "aujourd'hui" (pas
- *  seulement l'en-tête), en-tête ambre pour la semaine courante, badge Famille à côté du
- *  nom d'équipement. */
+/** Construit le tableau équipements × semaines. Rendu seul, aucun calcul ici.
+ *  🆕 Phase A.4 — évolutions demandées après tests terrain (résumé Chantier 11) :
+ *   - pt.3 : vue ANNÉE ISO complète (52/53 semaines, gmBuildMatriceSemainesAnnee) en scroll
+ *     horizontal plutôt que la pagination par pages de 14 semaines de la Phase A.3
+ *     (gmBuildMatriceSemaines/gmMatriceWeekStart/GM_MATRICE_WEEK_COUNT restent intactes,
+ *     simplement plus appelées ici).
+ *   - pt.4 : en-têtes de semaine en pill (classe .gm-matrice-th-pill), semaine courante en
+ *     pill ambre distincte (.gm-matrice-th-today), au lieu du simple texte + trait rouge.
+ *   - pt.6 (partiel) : une case qui porte déjà un OT (statut ≠ vide) ouvre désormais la fiche
+ *     d'intervention au clic (openChecklist), via gmBuildMatriceLignesAvecRef() qui conserve la
+ *     référence OT. Le cas d'une case VIDE (création d'intervention) reste hors périmètre de
+ *     cette passe (Phase A.5, à cadrer séparément — voir échange précédent).
+ *   - pt.7 : colonne "Équipements & Localisation" enrichie (code prestataire + description),
+ *     plus l'icône 🕘 Timeline (pt.1, voir gmOpenEquipementTimeline). */
 function gmRenderMatriceTable() {
     const wrap = document.getElementById('gmMatriceTableWrap');
     if (!wrap) return;
-    const semaines = gmBuildMatriceSemaines(GM_MATRICE_WEEK_COUNT, gmMatriceWeekStart());
-    const lignes = gmBuildMatriceLignes(gmMatriceFilters, semaines);
+    const isoYear = gmMatriceCurrentIsoYear();
+    const semaines = gmBuildMatriceSemainesAnnee(isoYear);
+    const lignes = gmBuildMatriceLignesAvecRef(gmMatriceFilters, semaines);
     const todayInfo = gmISOWeekInfo(new Date());
 
     // Style de la "ligne rouge" : appliqué à CHAQUE cellule (en-tête ET corps) de la colonne
     // correspondant à la semaine courante, pour obtenir un trait continu sur toute la hauteur
-    // du tableau — un simple contour sur l'en-tête seul (version précédente) ne suffisait pas.
+    // du tableau (inchangé depuis la Phase A.3).
     function todayColStyle(isToday, extra) {
         return (extra || '') + (isToday ? ' border-left:2px solid #ef4444; border-right:2px solid #ef4444;' : '');
     }
 
     const headerCells = semaines.map(function(s) {
         const isToday = s.weekKey === todayInfo.weekKey;
-        return '<th style="padding:6px 8px; text-align:center; font-size:11px; white-space:nowrap;' +
-            todayColStyle(isToday, isToday ? ' background:#f59e0b; color:#ffffff; border-radius:4px 4px 0 0;' : '') + '">' +
-            escapeHtml(s.label) + '<br><span style="font-weight:400;' + (isToday ? ' color:#fef3c7;' : ' color:#9ca3af;') + '">' + escapeHtml(s.dateLabel) + '</span></th>';
+        return '<th style="padding:4px 3px; text-align:center; white-space:nowrap;' + todayColStyle(isToday) + '"' +
+            (isToday ? ' data-gm-matrice-today-col="1"' : '') + '>' +
+            '<span class="gm-matrice-th-pill' + (isToday ? ' gm-matrice-th-today' : '') + '">' +
+            escapeHtml(s.label) + '<span class="gm-matrice-th-date">' + escapeHtml(s.dateLabel) + '</span></span></th>';
     }).join('');
 
     const bodyRows = lignes.map(function(row) {
         const cells = semaines.map(function(s) {
             const isToday = s.weekKey === todayInfo.weekKey;
-            const statut = row.weeks[s.weekKey];
-            if (!statut) return '<td style="padding:4px; text-align:center;' + todayColStyle(isToday) + '">·</td>';
-            const meta = GM_MATRICE_STATUT_META[statut] || GM_MATRICE_STATUT_META.nc;
+            const cell = row.weeks[s.weekKey];
+            const tdAttrs = isToday ? ' data-gm-matrice-today-col="1"' : '';
+            if (!cell) return '<td style="padding:4px; text-align:center;' + todayColStyle(isToday) + '"' + tdAttrs + '>·</td>';
+            const meta = GM_MATRICE_STATUT_META[cell.statut] || GM_MATRICE_STATUT_META.nc;
             // Fallback si la Fréquence n'est pas encore renseignée sur la fiche équipement
             // (champ récent, beaucoup de fiches existantes ne l'ont pas encore) : un point
             // plutôt qu'un badge vide et confus.
             const lettre = (row.frequence || '').charAt(0) || '•';
             const contenu = (meta.icon ? meta.icon + ' ' : '') + escapeHtml(lettre);
-            return '<td style="padding:4px; text-align:center;' + todayColStyle(isToday) + '">' +
-                '<span title="' + escapeAttr(meta.label) + '" style="display:inline-flex; align-items:center; justify-content:center; gap:2px; min-width:38px; height:22px; padding:0 6px; border-radius:11px; background:' + meta.bg + '; color:' + meta.fg + '; font-size:11px; font-weight:600; white-space:nowrap;">' + contenu + '</span>' +
+            // pt.6 : case avec OT → clic ouvre la fiche (NC → message existant showNCMessage()).
+            const clickJs = cell.statut === 'nc'
+                ? 'showNCMessage()'
+                : 'closeMatriceModal(); openChecklist(' +
+                    escapeAttr(JSON.stringify(cell.ot.num)) + ',' + escapeAttr(JSON.stringify(cell.ot.materiel)) + ',' +
+                    escapeAttr(JSON.stringify(cell.ot.interventionType)) + ',' + escapeAttr(JSON.stringify(cell.ot.libelle)) + ',' +
+                    escapeAttr(JSON.stringify(cell.ot.date)) + ');';
+            return '<td style="padding:4px; text-align:center;' + todayColStyle(isToday) + '"' + tdAttrs + '>' +
+                '<span title="' + escapeAttr(meta.label + ' — OT ' + cell.ot.num) + '" onclick="' + clickJs + '" style="cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:2px; min-width:38px; height:22px; padding:0 6px; border-radius:11px; background:' + meta.bg + '; color:' + meta.fg + '; font-size:11px; font-weight:600; white-space:nowrap;">' + contenu + '</span>' +
             '</td>';
         }).join('');
         const familleBadge = row.famille
             ? '<span style="display:inline-block; margin-left:6px; padding:1px 6px; border-radius:4px; background:#fef3c7; color:#92400e; font-size:9px; font-weight:700; vertical-align:middle;">' + escapeHtml(row.famille.toUpperCase()) + '</span>'
             : '';
+        // pt.7 : code prestataire (aliases[0]) + description (libelle), en plus du nom + badge Famille déjà présents.
+        const codeLine = row.code ? '<div class="gm-matrice-equip-code">' + escapeHtml(row.code) + '</div>' : '';
+        const descLine = row.desc ? '<div class="gm-matrice-equip-desc">' + escapeHtml(row.desc) + '</div>' : '';
+        // pt.1 : icône Timeline — historique complet de l'équipement, indépendant des semaines affichées.
+        const timelineBtn = '<button type="button" class="gm-matrice-timeline-btn" title="Suivi d\'exécution" ' +
+            'onclick="gmOpenEquipementTimeline(' + escapeAttr(JSON.stringify(row.id)) + ')" aria-label="Voir le suivi d\'exécution">🕘</button>';
         return '<tr>' +
             '<td style="padding:6px 10px; position:sticky; left:0; background:#fff; border-right:1px solid #e5e7eb;">' +
-                '<div style="font-weight:600; font-size:12px; color:#1e293b;">' + escapeHtml(row.nom) + familleBadge + '</div>' +
+                '<div style="font-weight:600; font-size:12px; color:#1e293b;">' + escapeHtml(row.nom) + familleBadge + ' ' + timelineBtn + '</div>' +
+                codeLine + descLine +
                 '<div style="font-size:10px; color:#9ca3af;">' + escapeHtml(row.localisation || '') + '</div>' +
             '</td>' + cells + '</tr>';
     }).join('');
@@ -12140,6 +12427,54 @@ function gmRenderMatriceTable() {
         '</tr></thead>' +
         '<tbody>' + (bodyRows || '<tr><td colspan="' + (semaines.length + 1) + '" style="padding:16px; text-align:center; color:#9ca3af;">Aucun équipement ne correspond aux filtres.</td></tr>') + '</tbody>' +
         '</table>';
+
+    // pt.2 : renfort du marqueur "semaine en cours" — badge textuel explicite en plus de la
+    // pill ambre déjà présente dans l'en-tête (colonne parfois hors du champ de vision initial
+    // sur un tableau de 52 colonnes en scroll horizontal).
+    const semaineBadge = document.getElementById('gmMatriceSemaineActuelleBadge');
+    if (semaineBadge) {
+        const semaineDuJour = semaines.filter(function(s) { return s.weekKey === todayInfo.weekKey; })[0];
+        semaineBadge.textContent = semaineDuJour
+            ? '📍 Semaine actuelle : ' + semaineDuJour.label + ' (' + semaineDuJour.dateLabel + ')'
+            : '';
+    }
+}
+
+/** 🆕 Phase A.4 (pt.1) : rendu du panneau "Suivi d'exécution" d'un équipement — historique
+ *  complet (toutes dates), construit par gmBuildEquipementTimeline() (Phase A.4, pur/testable). */
+function gmOpenEquipementTimeline(entryId) {
+    const entry = (typeof equipementsRegistry !== 'undefined' ? equipementsRegistry[entryId] : null);
+    if (!entry) return;
+    const items = gmBuildEquipementTimeline(entry);
+    const titleEl = document.getElementById('gmMatriceTimelineModalTitle');
+    if (titleEl) titleEl.textContent = '🕘 Suivi d\'exécution — ' + entry.nom;
+    const infoEl = document.getElementById('gmMatriceTimelineModalInfo');
+    if (infoEl) infoEl.textContent = items.length + ' intervention' + (items.length > 1 ? 's' : '') + ' au total';
+    const body = document.getElementById('gmMatriceTimelineBody');
+    if (body) {
+        body.innerHTML = items.length ? items.map(function(it) {
+            const meta = GM_MATRICE_STATUT_META[it.statut] || GM_MATRICE_STATUT_META.nc;
+            const clickJs = it.statut === 'nc'
+                ? 'showNCMessage()'
+                : 'closeMatriceTimelineModal(); closeMatriceModal(); openChecklist(' +
+                    escapeAttr(JSON.stringify(it.ot)) + ',' + escapeAttr(JSON.stringify(it.materiel)) + ',' +
+                    escapeAttr(JSON.stringify(it.interventionType)) + ',' + escapeAttr(JSON.stringify(it.libelle)) + ',' +
+                    escapeAttr(JSON.stringify(it.date)) + ');';
+            return '<div class="gm-mtl-row" onclick="' + clickJs + '">' +
+                '<span class="gm-mtl-dot" style="background:' + meta.bg + ';"></span>' +
+                '<span class="gm-mtl-date">' + escapeHtml(it.date || '—') + '</span>' +
+                '<span class="gm-mtl-ot">OT ' + escapeHtml(it.ot) + '</span>' +
+                '<span class="gm-mtl-statut">' + escapeHtml(meta.label) + '</span>' +
+                (it.technicien ? '<span class="gm-mtl-tech">👷 ' + escapeHtml(it.technicien) + '</span>' : '') +
+            '</div>';
+        }).join('') : '<div class="gm-mtl-empty">Aucune intervention connue pour cet équipement.</div>';
+    }
+    const overlay = document.getElementById('gmMatriceTimelineModalOverlay');
+    if (overlay) overlay.classList.add('active');
+}
+function closeMatriceTimelineModal() {
+    const overlay = document.getElementById('gmMatriceTimelineModalOverlay');
+    if (overlay) overlay.classList.remove('active');
 }
 
 /** Ouvre le modal Matrice : charge le registre équipements (comme openCompteursModal() le fait
@@ -12150,12 +12485,14 @@ async function openMatriceModal() {
     if (overlay) overlay.classList.add('active');
     gmMatriceFilters = { search: '', lot: '', famille: '', frequence: '' };
     gmMatriceWeekOffset = 0;
+    gmMatriceYearOffset = 0; // 🆕 Phase A.4
     const searchEl = document.getElementById('gmMatriceSearch');
     if (searchEl) searchEl.value = '';
     await gmLoadEquipRegistry();
     gmPopulateMatriceFilterOptions();
     gmRenderMatriceKPIs();
     gmRenderMatriceTable();
+    gmRenderMatriceYearBadge(); // 🆕 Phase A.4
 }
 function closeMatriceModal() {
     const overlay = document.getElementById('gmMatriceModalOverlay');

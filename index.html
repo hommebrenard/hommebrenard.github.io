@@ -4294,6 +4294,10 @@ function closeBibliothequeModal() {
     vertical-align: middle; opacity: 0.7;
 }
 .gm-matrice-timeline-btn:hover { opacity: 1; }
+.gm-matrice-top-scrollbar {
+    overflow-x: auto; overflow-y: hidden; height: 14px; margin-bottom: 2px;
+}
+.gm-matrice-top-scrollbar > div { height: 1px; }
 .gm-mtl-row {
     display: flex; align-items: center; gap: 10px; padding: 8px 4px;
     border-bottom: 1px solid #f3f4f6; cursor: pointer;
@@ -4358,6 +4362,11 @@ function closeBibliothequeModal() {
             </div>
             <div id="gmMatriceSemaineActuelleBadge" class="gm-matrice-semaine-actuelle"></div>
             <div id="gmMatriceLegende" style="font-size:12px; color:#6b7280; margin-bottom:10px;"></div>
+            <!-- 🩹 pt.3 (retour terrain) : scrollbar horizontale "miroir", toujours visible en
+                 haut du tableau (synchronisée avec le vrai scroll via gmMatriceInitTopScrollSync),
+                 pour ne plus avoir à descendre tout en bas d'un tableau de 30+ lignes pour
+                 atteindre la scrollbar native. -->
+            <div id="gmMatriceTopScrollBar" class="gm-matrice-top-scrollbar"><div id="gmMatriceTopScrollBarInner">&nbsp;</div></div>
             <div id="gmMatriceTableWrap" style="overflow-x:auto;"></div>
         </div>
     </div>
@@ -12439,6 +12448,36 @@ var GM_MATRICE_STATUT_META = {
     nc:        { label: 'Non concerné',               bg: '#e5e7eb', fg: '#6b7280', icon: '' }
 };
 
+/** 🩹 Correctif esthétique (retour terrain) : le titre de l'équipement était "écrasé" par les
+ *  informations empilées (badge, code, description, localisation) dans une seule cellule sticky
+ *  trop étroite. Remplacé par des colonnes d'identification SÉPARÉES, chacune sticky à son propre
+ *  décalage `left`, sur le modèle demandé (Zone/Site/ID-MAT/Description/Lot/Famille) — Zone et Nbr
+ *  ne correspondent à aucun champ existant de la fiche équipement, donc omis ici (à ajouter côté
+ *  fiche équipement si besoin, plutôt que de deviner une valeur). */
+var GM_MATRICE_ID_COLUMNS = [
+    { key: 'nom',          label: 'Équipement',  width: 190 },
+    { key: 'localisation', label: 'Site',        width: 110 },
+    { key: 'code',         label: 'ID-MAT',      width: 130 },
+    { key: 'desc',         label: 'Description', width: 170 },
+    { key: 'lot',          label: 'Lot',         width: 80  },
+    { key: 'famille',      label: 'Famille',     width: 90  }
+];
+
+/** Décalage `left` (en px) cumulé de chaque colonne d'identification, pour empiler plusieurs
+ *  colonnes sticky les unes à côté des autres (position:sticky a besoin d'un `left` explicite,
+ *  calculable seulement si les largeurs sont fixes). */
+function gmMatriceIdColLefts() {
+    let acc = 0;
+    return GM_MATRICE_ID_COLUMNS.map(function(c) {
+        const left = acc;
+        acc += c.width;
+        return left;
+    });
+}
+function gmMatriceIdColsTotalWidth() {
+    return GM_MATRICE_ID_COLUMNS.reduce(function(sum, c) { return sum + c.width; }, 0);
+}
+
 /** Date de référence (aujourd'hui décalée par pages de GM_MATRICE_WEEK_COUNT semaines) à partir
  *  de laquelle gmBuildMatriceSemaines() calcule la fenêtre de semaines affichée. */
 function gmMatriceWeekStart() {
@@ -12593,6 +12632,8 @@ function gmRenderMatriceTable() {
     const semaines = gmBuildMatriceSemainesAnnee(isoYear);
     const lignes = gmBuildMatriceLignesMultiMois(gmMatriceFilters, semaines); // 🩹 multi-mois (cf. gmMatriceCollectEntries)
     const todayInfo = gmISOWeekInfo(new Date());
+    const idLefts = gmMatriceIdColLefts();
+    const idTotalWidth = gmMatriceIdColsTotalWidth();
 
     // Style de la "ligne rouge" : appliqué à CHAQUE cellule (en-tête ET corps) de la colonne
     // correspondant à la semaine courante, pour obtenir un trait continu sur toute la hauteur
@@ -12609,16 +12650,21 @@ function gmRenderMatriceTable() {
             escapeHtml(s.label) + '<span class="gm-matrice-th-date">' + escapeHtml(s.dateLabel) + '</span></span></th>';
     }).join('');
 
-    // 🩹 Correctif (retour terrain) : "il n'y a que l'indication de l'année, avant il y avait
-    // l'indication des semaines — faire les deux". Ligne d'en-tête dédiée à l'ANNÉE, sticky à
-    // gauche (comme la colonne équipements) pour rester visible pendant tout le scroll horizontal
-    // des 52/53 semaines, EN PLUS de la ligne "Semaine" (pills S##) déjà existante juste en dessous.
+    // 🩹 Correctif (retour terrain, remarque #1 : "le titre de l'équipement est écrasé") : la
+    // version précédente imbriquait un <span style="position:sticky"> À L'INTÉRIEUR d'un <th
+    // colspan="52+">, un motif fragile (le sticky imbriqué dans une cellule à colspan très large
+    // se comporte de façon incohérente selon les navigateurs et pouvait chevaucher la ligne du
+    // dessous). Remplacé par un simple <th> sticky (comme les colonnes d'identification
+    // juste en dessous), qui n'a besoin d'aucune astuce : il reste visible tout seul.
+    const idHeaderLabels = GM_MATRICE_ID_COLUMNS.map(function(c, i) {
+        return '<th style="padding:6px 8px; text-align:left; position:sticky; left:' + idLefts[i] + 'px; background:#f8fafc; width:' + c.width + 'px; z-index:3;">' +
+            escapeHtml(c.label) + (i === 0 ? ' (' + lignes.length + ')' : '') + '</th>';
+    }).join('');
+
     const anneeHeaderRow =
         '<tr>' +
-        '<th style="padding:3px 10px; text-align:left; position:sticky; left:0; background:#eef2ff; z-index:2;"></th>' +
-        '<th colspan="' + semaines.length + '" style="padding:3px 10px; text-align:left; background:#eef2ff;">' +
-            '<span style="position:sticky; left:220px; display:inline-block; padding:2px 10px; border-radius:12px; background:#4338ca; color:#fff; font-size:11px; font-weight:700;">📆 Année ' + isoYear + '</span>' +
-        '</th>' +
+        '<th colspan="' + GM_MATRICE_ID_COLUMNS.length + '" style="padding:4px 10px; text-align:left; position:sticky; left:0; background:#4338ca; color:#fff; font-size:11px; font-weight:700; z-index:4;">📆 Année ' + isoYear + '</th>' +
+        '<th colspan="' + semaines.length + '" style="padding:4px 10px; background:#eef2ff;"></th>' +
         '</tr>';
 
     const bodyRows = lignes.map(function(row) {
@@ -12647,21 +12693,29 @@ function gmRenderMatriceTable() {
                 '<span title="' + escapeAttr(meta.label + ' — OT ' + cell.ot.num) + '" onclick="' + clickJs + '" style="cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:2px; min-width:38px; height:22px; padding:0 6px; border-radius:11px; background:' + meta.bg + '; color:' + meta.fg + '; font-size:11px; font-weight:600; white-space:nowrap;">' + contenu + '</span>' +
             '</td>';
         }).join('');
-        const familleBadge = row.famille
-            ? '<span style="display:inline-block; margin-left:6px; padding:1px 6px; border-radius:4px; background:#fef3c7; color:#92400e; font-size:9px; font-weight:700; vertical-align:middle;">' + escapeHtml(row.famille.toUpperCase()) + '</span>'
-            : '';
-        // pt.7 : code prestataire (aliases[0]) + description (libelle), en plus du nom + badge Famille déjà présents.
-        const codeLine = row.code ? '<div class="gm-matrice-equip-code">' + escapeHtml(row.code) + '</div>' : '';
-        const descLine = row.desc ? '<div class="gm-matrice-equip-desc">' + escapeHtml(row.desc) + '</div>' : '';
-        // pt.1 : icône Timeline — historique complet de l'équipement, indépendant des semaines affichées.
+
+        // pt.1/pt.4 : colonnes d'identification séparées (au lieu d'une seule cellule empilée),
+        // chacune sticky à son propre décalage `left`, sur le modèle demandé par l'utilisateur.
         const timelineBtn = '<button type="button" class="gm-matrice-timeline-btn" title="Suivi d\'exécution" ' +
             'onclick="gmOpenEquipementTimeline(' + escapeAttr(JSON.stringify(row.id)) + ')" aria-label="Voir le suivi d\'exécution">🕘</button>';
-        return '<tr>' +
-            '<td style="padding:6px 10px; position:sticky; left:0; background:#fff; border-right:1px solid #e5e7eb;">' +
-                '<div style="font-weight:600; font-size:12px; color:#1e293b;">' + escapeHtml(row.nom) + familleBadge + ' ' + timelineBtn + '</div>' +
-                codeLine + descLine +
-                '<div style="font-size:10px; color:#9ca3af;">' + escapeHtml(row.localisation || '') + '</div>' +
-            '</td>' + cells + '</tr>';
+        const idCellsHtml = GM_MATRICE_ID_COLUMNS.map(function(c, i) {
+            const bg = i % 2 === 0 ? '#ffffff' : '#fafafa'; // légère alternance pour distinguer les colonnes empilées
+            let content;
+            if (c.key === 'nom') {
+                content = '<span style="font-weight:600; color:#1e293b;">' + escapeHtml(row.nom) + '</span> ' + timelineBtn;
+            } else if (c.key === 'famille') {
+                content = row.famille
+                    ? '<span style="display:inline-block; padding:1px 6px; border-radius:4px; background:#fef3c7; color:#92400e; font-size:10px; font-weight:700;">' + escapeHtml(row.famille.toUpperCase()) + '</span>'
+                    : '';
+            } else if (c.key === 'code') {
+                content = '<span class="gm-matrice-equip-code">' + escapeHtml(row[c.key] || '') + '</span>';
+            } else {
+                content = escapeHtml(row[c.key] || '');
+            }
+            return '<td style="padding:6px 8px; position:sticky; left:' + idLefts[i] + 'px; background:' + bg + '; border-right:1px solid #e5e7eb; font-size:11px; color:#374151; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="' + escapeAttr(row[c.key] || '') + '">' + content + '</td>';
+        }).join('');
+
+        return '<tr>' + idCellsHtml + cells + '</tr>';
     }).join('');
 
     wrap.innerHTML =
@@ -12669,11 +12723,11 @@ function gmRenderMatriceTable() {
         '<thead>' +
             anneeHeaderRow +
             '<tr>' +
-            '<th style="padding:6px 10px; text-align:left; position:sticky; left:0; background:#f8fafc;">ÉQUIPEMENTS &amp; LOCALISATION (' + lignes.length + ')</th>' +
+            idHeaderLabels +
             headerCells +
             '</tr>' +
         '</thead>' +
-        '<tbody>' + (bodyRows || '<tr><td colspan="' + (semaines.length + 1) + '" style="padding:16px; text-align:center; color:#9ca3af;">Aucun équipement ne correspond aux filtres.</td></tr>') + '</tbody>' +
+        '<tbody>' + (bodyRows || '<tr><td colspan="' + (semaines.length + GM_MATRICE_ID_COLUMNS.length) + '" style="padding:16px; text-align:center; color:#9ca3af;">Aucun équipement ne correspond aux filtres.</td></tr>') + '</tbody>' +
         '</table>';
 
     // pt.2 : renfort du marqueur "semaine en cours" — badge textuel explicite en plus de la
@@ -12685,6 +12739,49 @@ function gmRenderMatriceTable() {
         semaineBadge.textContent = semaineDuJour
             ? '📍 Semaine actuelle : ' + semaineDuJour.label + ' (' + semaineDuJour.dateLabel + ')'
             : '';
+    }
+
+    // 🩹 pt.3 (retour terrain) : "le défilement des semaines doit être en haut de la page, pas en
+    // bas — très gênant de scroller jusqu'en bas pour défiler". La scrollbar native d'un
+    // overflow-x:auto se colle toujours au bas de l'élément, qui ici est très haut (jusqu'à
+    // plusieurs dizaines de lignes). Ajout d'une scrollbar "miroir" FIXE juste au-dessus du
+    // tableau (gmMatriceTopScrollBar), synchronisée dans les 2 sens avec le vrai scroll du
+    // tableau — voir gmMatriceInitTopScrollSync().
+    gmMatriceInitTopScrollSync();
+}
+
+/** 🩹 pt.3 : crée (une seule fois) une barre de défilement horizontal miroir juste au-dessus du
+ *  tableau, et la garde synchronisée avec le scroll réel de #gmMatriceTableWrap — dans les deux
+ *  sens, pour que l'utilisateur puisse défiler soit depuis le haut (nouvelle barre), soit en
+ *  faisant glisser le tableau lui-même (souris/tactile), sans jamais avoir à redescendre tout en
+ *  bas du tableau pour atteindre la scrollbar native. Rappelée à chaque rendu (gmRenderMatriceTable)
+ *  pour remettre à jour la largeur totale (le nombre de semaines/colonnes peut changer). */
+function gmMatriceInitTopScrollSync() {
+    const wrap = document.getElementById('gmMatriceTableWrap');
+    const topBar = document.getElementById('gmMatriceTopScrollBar');
+    const topBarInner = document.getElementById('gmMatriceTopScrollBarInner');
+    const table = wrap ? wrap.querySelector('table') : null;
+    if (!wrap || !topBar || !topBarInner || !table) return;
+
+    // Largeur totale réelle du tableau (colonnes d'identification + toutes les semaines), pour
+    // que la barre miroir ait exactement la même amplitude de défilement que le tableau.
+    topBarInner.style.width = table.scrollWidth + 'px';
+
+    if (!wrap.dataset.gmMatriceScrollSyncBound) {
+        wrap.dataset.gmMatriceScrollSyncBound = '1';
+        let syncing = false;
+        wrap.addEventListener('scroll', function() {
+            if (syncing) return;
+            syncing = true;
+            topBar.scrollLeft = wrap.scrollLeft;
+            syncing = false;
+        });
+        topBar.addEventListener('scroll', function() {
+            if (syncing) return;
+            syncing = true;
+            wrap.scrollLeft = topBar.scrollLeft;
+            syncing = false;
+        });
     }
 }
 

@@ -12075,6 +12075,77 @@ function gmBuildMatriceSemainesAnnee(isoYear) {
 /** Variante de gmFusionnerStatutsCellule() qui conserve, en plus du statut le plus sévère,
  *  la référence de l'OT correspondant (nécessaire pour ouvrir la fiche d'intervention au clic
  *  sur une case de la matrice). `entries`: [{ statut, ot }, ...]. */
+/** 🩹 CORRECTIF (retour utilisateur terrain, Chantier 11 Phase A.4) : la matrice ne montrait que
+ *  le mois du site ACTIF ("il n'apparaît que le site actif du mois, les autres mois n'apparaissent
+ *  pas"), alors qu'elle doit couvrir l'ANNÉE ISO entière. Réutilise strictement le même mécanisme
+ *  que gmBuildYearEntries() (Phase B, vue calendrier annuelle) : agrège tous les buckets
+ *  sitesLibrary du même site physique (gmBaseSiteKey), en lisant les variables globales en direct
+ *  pour le bucket actif et les données sauvegardées pour les autres. Aucune nouvelle mécanique de
+ *  données — seulement une nouvelle *lecture* agrégée, réutilisable par gmBuildMatriceLignesAvecRef,
+ *  gmCalculerKPIsMatriceMultiMois et gmBuildEquipementTimeline. */
+function gmMatriceCollectEntries() {
+    const activeLabel = (typeof activeSiteKey !== 'undefined' && activeSiteKey && typeof sitesLibrary !== 'undefined' && sitesLibrary[activeSiteKey])
+        ? sitesLibrary[activeSiteKey].label
+        : ((typeof activeSiteKey !== 'undefined' && activeSiteKey) || (typeof currentSiteName !== 'undefined' ? currentSiteName : '') || '');
+    const baseKey = gmBaseSiteKey(activeLabel);
+    const buckets = [];
+    Object.keys((typeof sitesLibrary !== 'undefined' ? sitesLibrary : {}) || {}).forEach(function(key) {
+        const bucket = sitesLibrary[key];
+        if (!bucket) return;
+        const label = bucket.label || key;
+        if (gmBaseSiteKey(label) !== baseKey) return;
+        const isActive = (key === activeSiteKey);
+        const pData = isActive ? (typeof planningData !== 'undefined' ? planningData : []) : (bucket.planningData || []);
+        const dCols = isActive ? ((typeof window !== 'undefined' && window.dateColumns) || []) : (bucket.dateColumns || []);
+        const oStates = isActive ? (typeof otStates !== 'undefined' ? otStates : {}) : (bucket.otStates || {});
+        buckets.push({ siteKey: key, planningData: pData || [], dateColumns: dCols || [], otStates: oStates || {} });
+    });
+    // Filet de sécurité : si aucun bucket sitesLibrary ne correspond (site chargé hors pipeline
+    // sitesLibrary, ou contexte de test), on retombe sur les données globales actuelles — c'est
+    // exactement le comportement Phase A.3/A.4 d'origine, pour ne jamais rien casser.
+    if (buckets.length === 0) {
+        buckets.push({
+            siteKey: (typeof activeSiteKey !== 'undefined' ? activeSiteKey : '') || '',
+            planningData: (typeof planningData !== 'undefined' ? planningData : []) || [],
+            dateColumns: ((typeof window !== 'undefined' && window.dateColumns) || []),
+            otStates: (typeof otStates !== 'undefined' ? otStates : {}) || {}
+        });
+    }
+    return buckets;
+}
+
+/** Variante paramétrée de getOTAnomaliesCount() (déjà existante, non modifiée) : accepte l'objet
+ *  otStates en paramètre au lieu de lire la variable globale, nécessaire pour compter les
+ *  anomalies d'un OT appartenant à un mois qui n'est pas le site actuellement actif. */
+function gmGetOTAnomaliesCountAvecState(otNum, otStatesObj) {
+    const state = (otStatesObj || {})[otNum];
+    if (!state || !state.commentaires) return 0;
+    let count = 0;
+    Object.values(state.commentaires).forEach(function(comment) {
+        const c = String(comment || '').trim().toUpperCase();
+        if (c && c !== 'RAS' && c !== 'R.A.S' && c !== 'R.A.S.' && c !== 'RAS.') count++;
+    });
+    return count;
+}
+
+/** Variante paramétrée de gmDetermineStatutCelluleOT() (Phase A.2, non modifiée) : accepte
+ *  l'objet otStates en paramètre au lieu de lire la variable globale — même mapping des 5
+ *  statuts, seule la source de données change. */
+function gmDetermineStatutCelluleOTAvecState(otStr, dateStr, otStatesObj, today) {
+    const now = today || new Date();
+    if (isNC(otStr)) return 'nc';
+    const state = (otStatesObj || {})[otStr] || null;
+    const dateOT = gmParsePlanningDate(dateStr);
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const isPast = dateOT ? (dateOT.getTime() < todayMidnight.getTime()) : false;
+    if (state && state.status === 'F') {
+        return gmGetOTAnomaliesCountAvecState(otStr, otStatesObj) > 0 ? 'anomalie' : 'conforme';
+    }
+    if (state && state.status === 'NF') return 'en_retard';
+    if (state && state.status === 'P') return isPast ? 'en_retard' : 'en_cours';
+    return isPast ? 'en_retard' : 'planifie';
+}
+
 function gmFusionnerCelluleAvecRef(entries) {
     for (let i = 0; i < GM_MATRICE_STATUT_PRIORITE.length; i++) {
         const found = entries.find(function(e) { return e.statut === GM_MATRICE_STATUT_PRIORITE[i]; });
@@ -12171,6 +12242,165 @@ function gmBuildEquipementTimeline(entry, today) {
                 materiel: row.materiel,
                 interventionType: row.interventionType,
                 libelle: row.libelle
+            });
+        });
+    });
+    items.sort(function(a, b) {
+        const da = gmParsePlanningDate(a.date), db = gmParsePlanningDate(b.date);
+        if (!da && !db) return 0;
+        if (!da) return 1;
+        if (!db) return -1;
+        return db - da;
+    });
+    return items;
+}
+
+/* ============================================
+   🩹 CORRECTIF (retour utilisateur terrain, Chantier 11 Phase A.4) : "lorsque je charge deux
+   mois ou plus sur la matrice, il n'apparaît que le site actif du mois, les autres mois
+   n'apparaissent pas". gmBuildMatriceLignesAvecRef()/gmCalculerKPIsMatrice()/
+   gmBuildEquipementTimeline() ci-dessus ne lisent QUE planningData/otStates/window.dateColumns
+   (le site actif). Les 3 fonctions suivantes sont leur pendant MULTI-MOIS : mêmes règles de
+   filtrage/statut, mais la source de données vient de gmMatriceCollectEntries() (agrégation sur
+   tous les sitesLibrary du même site physique, déjà présente plus haut) au lieu des seules
+   variables globales. Fonctions séparées (zéro suppression) — gmBuildMatriceLignesAvecRef() etc.
+   restent utilisables telles quelles. */
+
+/** Variante MULTI-MOIS de gmBuildMatriceLignesAvecRef() : mêmes filtres/statuts/référence OT,
+ *  mais agrège les interventions de TOUS les mois (sites) chargés du même site physique
+ *  (gmMatriceCollectEntries), pas seulement le mois actif. */
+function gmBuildMatriceLignesMultiMois(filters, semaines, today) {
+    const f = filters || {};
+    const searchLower = (f.search || '').trim().toLowerCase();
+    const weekIndexByKey = {};
+    semaines.forEach(function(s, idx) { weekIndexByKey[s.weekKey] = idx; });
+
+    const buckets = gmMatriceCollectEntries();
+    const entries = Object.values((typeof equipementsRegistry !== 'undefined' ? equipementsRegistry : {}) || {});
+    const rows = [];
+
+    entries.forEach(function(entry) {
+        if (f.lot && (entry.lot || '') !== f.lot) return;
+        if (f.famille && (entry.famille || '') !== f.famille) return;
+        if (f.frequence && (entry.frequence || '') !== f.frequence) return;
+        if (searchLower) {
+            const haystack = [
+                entry.nom || '', entry.localisation || '', entry.categorie || ''
+            ].concat(entry.aliases || []).join(' ').toLowerCase();
+            if (haystack.indexOf(searchLower) === -1) return;
+        }
+
+        const weekBuckets = new Array(semaines.length).fill(null).map(function() { return []; });
+        buckets.forEach(function(bucket) {
+            (bucket.planningData || []).forEach(function(row) {
+                if (row.type !== 'row') return;
+                if (!(entry.aliases || []).includes(row.materiel)) return;
+                (row.ots || []).forEach(function(otNum, otIdx) {
+                    const otStr = String(otNum || '').trim();
+                    if (!otStr) return;
+                    const dateStr = (bucket.dateColumns && bucket.dateColumns[otIdx]) || '';
+                    const dateOT = gmParsePlanningDate(dateStr);
+                    if (!dateOT) return;
+                    const info = gmISOWeekInfo(dateOT);
+                    const idx = weekIndexByKey[info.weekKey];
+                    if (idx === undefined) return; // hors fenêtre de semaines affichée
+                    weekBuckets[idx].push({
+                        statut: gmDetermineStatutCelluleOTAvecState(otStr, dateStr, bucket.otStates, today),
+                        ot: { num: otStr, date: dateStr, materiel: row.materiel, interventionType: row.interventionType, libelle: row.libelle, siteKey: bucket.siteKey }
+                    });
+                });
+            });
+        });
+
+        const weeks = {};
+        semaines.forEach(function(s, idx) {
+            weeks[s.weekKey] = weekBuckets[idx].length ? gmFusionnerCelluleAvecRef(weekBuckets[idx]) : null;
+        });
+
+        rows.push({
+            id: entry.id,
+            nom: entry.nom || entry.libelle || '',
+            code: (entry.aliases && entry.aliases[0]) || '',
+            desc: entry.libelle || '',
+            localisation: entry.localisation || '',
+            lot: entry.lot || '',
+            famille: entry.famille || '',
+            frequence: entry.frequence || '',
+            weeks: weeks
+        });
+    });
+
+    return rows;
+}
+
+/** Variante MULTI-MOIS de gmCalculerKPIsMatrice() : même définition des KPI (cumul "à date"),
+ *  mais sur l'agrégation multi-mois de gmMatriceCollectEntries() plutôt que le seul mois actif —
+ *  sinon les KPI (mois actif seul) et le tableau (désormais multi-mois) se contrediraient. */
+function gmCalculerKPIsMatriceMultiMois(filters, today) {
+    const f = filters || {};
+    const searchLower = (f.search || '').trim().toLowerCase();
+    const buckets = gmMatriceCollectEntries();
+    const entries = Object.values((typeof equipementsRegistry !== 'undefined' ? equipementsRegistry : {}) || {});
+    const kpis = { realisees: 0, enCours: 0, enRetard: 0, avecReserve: 0, totalPlanifiees: 0 };
+
+    entries.forEach(function(entry) {
+        if (f.lot && (entry.lot || '') !== f.lot) return;
+        if (f.famille && (entry.famille || '') !== f.famille) return;
+        if (f.frequence && (entry.frequence || '') !== f.frequence) return;
+        if (searchLower) {
+            const haystack = [
+                entry.nom || '', entry.localisation || '', entry.categorie || ''
+            ].concat(entry.aliases || []).join(' ').toLowerCase();
+            if (haystack.indexOf(searchLower) === -1) return;
+        }
+        buckets.forEach(function(bucket) {
+            (bucket.planningData || []).forEach(function(row) {
+                if (row.type !== 'row') return;
+                if (!(entry.aliases || []).includes(row.materiel)) return;
+                (row.ots || []).forEach(function(otNum, otIdx) {
+                    const otStr = String(otNum || '').trim();
+                    if (!otStr || isNC(otStr)) return; // NC hors périmètre des KPI (comme calculerKPIs())
+                    const dateStr = (bucket.dateColumns && bucket.dateColumns[otIdx]) || '';
+                    const statut = gmDetermineStatutCelluleOTAvecState(otStr, dateStr, bucket.otStates, today);
+                    kpis.totalPlanifiees++;
+                    if (statut === 'conforme') kpis.realisees++;
+                    else if (statut === 'anomalie') { kpis.realisees++; kpis.avecReserve++; }
+                    else if (statut === 'en_cours') kpis.enCours++;
+                    else if (statut === 'en_retard') kpis.enRetard++;
+                });
+            });
+        });
+    });
+
+    kpis.tauxRealisation = kpis.totalPlanifiees > 0 ? Math.round((kpis.realisees / kpis.totalPlanifiees) * 100) : 0;
+    return kpis;
+}
+
+/** Variante MULTI-MOIS de gmBuildEquipementTimeline() : historique complet d'un équipement sur
+ *  TOUS les mois chargés du même site physique (au lieu du seul mois actif), avec la référence
+ *  de site (siteKey) nécessaire pour rouvrir la fiche via gmOpenOtFromYearView(). */
+function gmBuildEquipementTimelineMultiMois(entry, today) {
+    const buckets = gmMatriceCollectEntries();
+    const items = [];
+    buckets.forEach(function(bucket) {
+        (bucket.planningData || []).forEach(function(row) {
+            if (row.type !== 'row') return;
+            if (!((entry && entry.aliases) || []).includes(row.materiel)) return;
+            (row.ots || []).forEach(function(otNum, otIdx) {
+                const otStr = String(otNum || '').trim();
+                if (!otStr) return;
+                const dateStr = (bucket.dateColumns && bucket.dateColumns[otIdx]) || '';
+                const state = (bucket.otStates || {})[otStr] || null;
+                items.push({
+                    ot: otStr,
+                    date: dateStr,
+                    statut: gmDetermineStatutCelluleOTAvecState(otStr, dateStr, bucket.otStates, today),
+                    technicien: state ? (state.technicien || '') : '',
+                    materiel: row.materiel,
+                    interventionType: row.interventionType,
+                    libelle: row.libelle,
+                    siteKey: bucket.siteKey
+                });
             });
         });
     });
@@ -12308,7 +12538,7 @@ function gmRenderMatriceYearBadge() {
 function gmRenderMatriceKPIs() {
     const container = document.getElementById('gmMatriceKPIs');
     if (!container) return;
-    const kpis = gmCalculerKPIsMatrice(gmMatriceFilters);
+    const kpis = gmCalculerKPIsMatriceMultiMois(gmMatriceFilters); // 🩹 multi-mois (cf. gmMatriceCollectEntries)
     const cards = [
         { label: 'Réalisées', value: kpis.realisees, sub: kpis.tauxRealisation + '%', color: '#10b981' },
         { label: 'En Cours', value: kpis.enCours, sub: 'Interventions', color: '#f59e0b' },
@@ -12361,7 +12591,7 @@ function gmRenderMatriceTable() {
     if (!wrap) return;
     const isoYear = gmMatriceCurrentIsoYear();
     const semaines = gmBuildMatriceSemainesAnnee(isoYear);
-    const lignes = gmBuildMatriceLignesAvecRef(gmMatriceFilters, semaines);
+    const lignes = gmBuildMatriceLignesMultiMois(gmMatriceFilters, semaines); // 🩹 multi-mois (cf. gmMatriceCollectEntries)
     const todayInfo = gmISOWeekInfo(new Date());
 
     // Style de la "ligne rouge" : appliqué à CHAQUE cellule (en-tête ET corps) de la colonne
@@ -12379,6 +12609,18 @@ function gmRenderMatriceTable() {
             escapeHtml(s.label) + '<span class="gm-matrice-th-date">' + escapeHtml(s.dateLabel) + '</span></span></th>';
     }).join('');
 
+    // 🩹 Correctif (retour terrain) : "il n'y a que l'indication de l'année, avant il y avait
+    // l'indication des semaines — faire les deux". Ligne d'en-tête dédiée à l'ANNÉE, sticky à
+    // gauche (comme la colonne équipements) pour rester visible pendant tout le scroll horizontal
+    // des 52/53 semaines, EN PLUS de la ligne "Semaine" (pills S##) déjà existante juste en dessous.
+    const anneeHeaderRow =
+        '<tr>' +
+        '<th style="padding:3px 10px; text-align:left; position:sticky; left:0; background:#eef2ff; z-index:2;"></th>' +
+        '<th colspan="' + semaines.length + '" style="padding:3px 10px; text-align:left; background:#eef2ff;">' +
+            '<span style="position:sticky; left:220px; display:inline-block; padding:2px 10px; border-radius:12px; background:#4338ca; color:#fff; font-size:11px; font-weight:700;">📆 Année ' + isoYear + '</span>' +
+        '</th>' +
+        '</tr>';
+
     const bodyRows = lignes.map(function(row) {
         const cells = semaines.map(function(s) {
             const isToday = s.weekKey === todayInfo.weekKey;
@@ -12392,10 +12634,13 @@ function gmRenderMatriceTable() {
             const lettre = (row.frequence || '').charAt(0) || '•';
             const contenu = (meta.icon ? meta.icon + ' ' : '') + escapeHtml(lettre);
             // pt.6 : case avec OT → clic ouvre la fiche (NC → message existant showNCMessage()).
+            // 🩹 gmOpenOtFromYearView() (déjà existante, réutilisée telle quelle) bascule d'abord
+            // sur le bon mois si l'OT n'appartient pas au site actuellement actif — nécessaire
+            // maintenant que la matrice agrège plusieurs mois (gmBuildMatriceLignesMultiMois).
             const clickJs = cell.statut === 'nc'
                 ? 'showNCMessage()'
-                : 'closeMatriceModal(); openChecklist(' +
-                    escapeAttr(JSON.stringify(cell.ot.num)) + ',' + escapeAttr(JSON.stringify(cell.ot.materiel)) + ',' +
+                : 'closeMatriceModal(); gmOpenOtFromYearView(' +
+                    escapeAttr(JSON.stringify(cell.ot.siteKey || '')) + ',' + escapeAttr(JSON.stringify(cell.ot.num)) + ',' + escapeAttr(JSON.stringify(cell.ot.materiel)) + ',' +
                     escapeAttr(JSON.stringify(cell.ot.interventionType)) + ',' + escapeAttr(JSON.stringify(cell.ot.libelle)) + ',' +
                     escapeAttr(JSON.stringify(cell.ot.date)) + ');';
             return '<td style="padding:4px; text-align:center;' + todayColStyle(isToday) + '"' + tdAttrs + '>' +
@@ -12421,10 +12666,13 @@ function gmRenderMatriceTable() {
 
     wrap.innerHTML =
         '<table style="border-collapse:collapse; width:100%;">' +
-        '<thead><tr>' +
+        '<thead>' +
+            anneeHeaderRow +
+            '<tr>' +
             '<th style="padding:6px 10px; text-align:left; position:sticky; left:0; background:#f8fafc;">ÉQUIPEMENTS &amp; LOCALISATION (' + lignes.length + ')</th>' +
             headerCells +
-        '</tr></thead>' +
+            '</tr>' +
+        '</thead>' +
         '<tbody>' + (bodyRows || '<tr><td colspan="' + (semaines.length + 1) + '" style="padding:16px; text-align:center; color:#9ca3af;">Aucun équipement ne correspond aux filtres.</td></tr>') + '</tbody>' +
         '</table>';
 
@@ -12445,7 +12693,7 @@ function gmRenderMatriceTable() {
 function gmOpenEquipementTimeline(entryId) {
     const entry = (typeof equipementsRegistry !== 'undefined' ? equipementsRegistry[entryId] : null);
     if (!entry) return;
-    const items = gmBuildEquipementTimeline(entry);
+    const items = gmBuildEquipementTimelineMultiMois(entry); // 🩹 multi-mois (cf. gmMatriceCollectEntries)
     const titleEl = document.getElementById('gmMatriceTimelineModalTitle');
     if (titleEl) titleEl.textContent = '🕘 Suivi d\'exécution — ' + entry.nom;
     const infoEl = document.getElementById('gmMatriceTimelineModalInfo');
@@ -12456,8 +12704,8 @@ function gmOpenEquipementTimeline(entryId) {
             const meta = GM_MATRICE_STATUT_META[it.statut] || GM_MATRICE_STATUT_META.nc;
             const clickJs = it.statut === 'nc'
                 ? 'showNCMessage()'
-                : 'closeMatriceTimelineModal(); closeMatriceModal(); openChecklist(' +
-                    escapeAttr(JSON.stringify(it.ot)) + ',' + escapeAttr(JSON.stringify(it.materiel)) + ',' +
+                : 'closeMatriceTimelineModal(); closeMatriceModal(); gmOpenOtFromYearView(' +
+                    escapeAttr(JSON.stringify(it.siteKey || '')) + ',' + escapeAttr(JSON.stringify(it.ot)) + ',' + escapeAttr(JSON.stringify(it.materiel)) + ',' +
                     escapeAttr(JSON.stringify(it.interventionType)) + ',' + escapeAttr(JSON.stringify(it.libelle)) + ',' +
                     escapeAttr(JSON.stringify(it.date)) + ');';
             return '<div class="gm-mtl-row" onclick="' + clickJs + '">' +

@@ -12513,6 +12513,10 @@ function gmMatriceIdColsTotalWidth() {
     return GM_MATRICE_ID_COLUMNS.reduce(function(sum, c) { return sum + c.width; }, 0);
 }
 
+/** 🩹 Largeur fixe (px) de chaque colonne semaine — utilisée à la fois pour le rendu et pour le
+ *  <colgroup> (voir gmRenderMatriceTable). Doit rester identique aux deux endroits. */
+var GM_MATRICE_WEEK_COL_WIDTH = 28;
+
 /** Date de référence (aujourd'hui décalée par pages de GM_MATRICE_WEEK_COUNT semaines) à partir
  *  de laquelle gmBuildMatriceSemaines() calcule la fenêtre de semaines affichée. */
 function gmMatriceWeekStart() {
@@ -12716,7 +12720,7 @@ function gmRenderMatriceTable() {
 
     // Ligne 2 : libellés des colonnes d'identification (sticky) + numéros de semaine.
     const idHeaderLabels = GM_MATRICE_ID_COLUMNS.map(function(c, i) {
-        return '<th style="padding:6px 8px; text-align:left; position:sticky; left:' + idLefts[i] + 'px; background:#1e293b; color:#e2e8f0; font-size:10px; font-weight:700; text-transform:uppercase; width:' + c.width + 'px; border-right:1px solid #334155; z-index:3;">' +
+        return '<th style="padding:6px 8px; text-align:left; position:sticky; left:' + idLefts[i] + 'px; background:#1e293b; color:#e2e8f0; font-size:10px; font-weight:700; text-transform:uppercase; width:' + c.width + 'px; border-right:1px solid #334155; z-index:3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' +
             escapeHtml(c.label) + (i === 0 ? ' (' + lignes.length + ')' : '') + '</th>';
     }).join('');
 
@@ -12776,8 +12780,22 @@ function gmRenderMatriceTable() {
         return '<tr>' + idCellsHtml + cells + '</tr>';
     }).join('');
 
+    // 🩹 Correctif RACINE (retour terrain : "les écritures se chevauchent en scrollant") :
+    // sans table-layout:fixed, le navigateur recalcule la largeur de chaque colonne selon SON
+    // CONTENU (une colonne "Zone" vide, par exemple, s'écrase à quasi 0px), ce qui désynchronise
+    // les décalages `left` codés en dur (gmMatriceIdColLefts) utilisés par les colonnes sticky —
+    // d'où le chevauchement visuel constaté en scrollant horizontalement. Un <colgroup> figeant
+    // CHAQUE colonne (identification + toutes les semaines) à sa largeur réelle, combiné à
+    // table-layout:fixed, force le navigateur à respecter ces largeurs quel que soit le contenu.
+    const colgroupHtml =
+        '<colgroup>' +
+        GM_MATRICE_ID_COLUMNS.map(function(c) { return '<col style="width:' + c.width + 'px;">'; }).join('') +
+        semaines.map(function() { return '<col style="width:' + GM_MATRICE_WEEK_COL_WIDTH + 'px;">'; }).join('') +
+        '</colgroup>';
+
     wrap.innerHTML =
-        '<table style="border-collapse:collapse; width:100%; font-family:inherit;">' +
+        '<table style="border-collapse:collapse; width:100%; font-family:inherit; table-layout:fixed;">' +
+        colgroupHtml +
         '<thead>' +
             bandeauHeaderRow +
             '<tr>' +

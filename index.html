@@ -2749,9 +2749,11 @@ function gmSaveFicheEquipement(id) {
     const lotEl = document.getElementById('gmFicheLot');
     const familleEl = document.getElementById('gmFicheFamille');
     const frequenceEl = document.getElementById('gmFicheFrequence');
+    const zoneEl = document.getElementById('gmFicheZone'); // 🆕 modèle matrice (Zone/Site/ID-MAT/Description/Lot/Famille/Nbr)
     equipementsRegistry[id].lot = lotEl ? lotEl.value.trim() : '';
     equipementsRegistry[id].famille = familleEl ? familleEl.value.trim() : '';
     equipementsRegistry[id].frequence = frequenceEl ? frequenceEl.value : '';
+    equipementsRegistry[id].zone = zoneEl ? zoneEl.value.trim() : '';
     // 🆕 Chantier 5 : emplacement structuré (référence vers emplacementsRegistry) + étiquettes
     // (parsées depuis une saisie texte séparée par virgules, dédupliquées, vides retirées)
     equipementsRegistry[id].emplacementId = (emplEl && emplEl.value) ? emplEl.value : null;
@@ -3129,6 +3131,9 @@ function gmRenderTabFiche(eq, entry) {
                 '<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">' +
                     '<label style="font-size:11px; color:#6b7280;">Catégorie' +
                         '<input type="text" id="gmFicheCategorie" value="' + escapeAttr(entry.categorie || '') + '" placeholder="ex: Ascenseur, Climatisation..."' + disabledAttr + ' ' +
+                        'style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;"></label>' +
+                    '<label style="font-size:11px; color:#6b7280;">🧭 Zone (matrice planning)' +
+                        '<input type="text" id="gmFicheZone" value="' + escapeAttr(entry.zone || '') + '" placeholder="ex: NORD, SUD..."' + disabledAttr + ' ' +
                         'style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;"></label>' +
                     '<label style="font-size:11px; color:#6b7280;">📦 Lot (matrice planning)' +
                         '<input type="text" id="gmFicheLot" value="' + escapeAttr(entry.lot || '') + '" placeholder="ex: Lot 1, Électricité..."' + disabledAttr + ' ' +
@@ -4298,6 +4303,18 @@ function closeBibliothequeModal() {
     overflow-x: auto; overflow-y: hidden; height: 14px; margin-bottom: 2px;
 }
 .gm-matrice-top-scrollbar > div { height: 1px; }
+.gm-matrice-cell-btn {
+    width: 22px; height: 22px; border-radius: 5px; border: 1px solid transparent;
+    font-size: 10px; font-weight: 800; cursor: pointer; display: inline-flex;
+    align-items: center; justify-content: center; transition: transform 0.1s ease;
+    font-family: 'Consolas', 'Courier New', monospace;
+}
+.gm-matrice-cell-btn:hover { transform: scale(1.15); }
+.gm-matrice-cell-pulse { animation: gmMatricePulse 1.6s ease-in-out infinite; }
+@keyframes gmMatricePulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
 .gm-mtl-row {
     display: flex; align-items: center; gap: 10px; padding: 8px 4px;
     border-bottom: 1px solid #f3f4f6; cursor: pointer;
@@ -11989,6 +12006,7 @@ function gmBuildMatriceLignes(filters, semaines, today) {
             nom: entry.nom || entry.libelle || '',
             localisation: entry.localisation || '',
             lot: entry.lot || '',
+            zone: entry.zone || '',
             famille: entry.famille || '',
             frequence: entry.frequence || '',
             weeks: weeks
@@ -12221,6 +12239,7 @@ function gmBuildMatriceLignesAvecRef(filters, semaines, today) {
             desc: entry.libelle || '',
             localisation: entry.localisation || '',
             lot: entry.lot || '',
+            zone: entry.zone || '',
             famille: entry.famille || '',
             frequence: entry.frequence || '',
             weeks: weeks
@@ -12333,6 +12352,7 @@ function gmBuildMatriceLignesMultiMois(filters, semaines, today) {
             desc: entry.libelle || '',
             localisation: entry.localisation || '',
             lot: entry.lot || '',
+            zone: entry.zone || '',
             famille: entry.famille || '',
             frequence: entry.frequence || '',
             weeks: weeks
@@ -12437,30 +12457,45 @@ var gmMatriceWeekOffset = 0; // 🕰️ conservé tel quel (zéro suppression), 
 var gmMatriceYearOffset = 0; // 🆕 Phase A.4 (pt.3/5) : nombre d'années ISO par rapport à l'année courante. La matrice affiche désormais l'année ISO complète (52/53 semaines) en scroll horizontal plutôt qu'une fenêtre paginée de 14 semaines.
 
 var GM_MATRICE_STATUT_META = {
-    // 🎨 Révision esthétique (retour utilisateur avec capture de référence) : badges arrondis
-    // icône + lettre plutôt que de simples cercles pleins, pastilles bleu clair pour les
-    // semaines à venir (au lieu du marine plein initial), pour coller au visuel cible.
-    conforme:  { label: 'Réalisé / Conforme',        bg: '#10b981', fg: '#ffffff', icon: '✓' },
-    en_cours:  { label: 'En Cours',                   bg: '#f59e0b', fg: '#ffffff', icon: '⏱' },
-    en_retard: { label: 'En Retard / Non Réalisé',    bg: '#ef4444', fg: '#ffffff', icon: '⊗' },
-    anomalie:  { label: 'Anomalie / Avec Réserve',    bg: '#8b5cf6', fg: '#ffffff', icon: '⚠' },
-    planifie:  { label: 'Planifié (À venir)',         bg: '#dbeafe', fg: '#1e40af', icon: '' },
-    nc:        { label: 'Non concerné',               bg: '#e5e7eb', fg: '#6b7280', icon: '' }
+    // 🩹 Correctif (retour terrain, remarque #4) : palette alignée sur le modèle fourni
+    // (emerald-500 / amber-400 pulsant / purple-600 / rose-600), au lieu de la palette
+    // précédente. "planifie" n'a plus de couleur fixe : voir GM_MATRICE_FREQ_COLORS
+    // ci-dessous, qui colore chaque case "à venir" selon la lettre de Fréquence, comme
+    // sur le modèle (H=ambre, M=orange, T=émeraude clair, S=ciel, A=rose clair).
+    conforme:  { label: 'Réalisé / Conforme',        bg: '#10b981', fg: '#ffffff', border: '#059669', icon: '✓' },
+    en_cours:  { label: 'En Cours',                   bg: '#fbbf24', fg: '#1e293b', border: '#f59e0b', icon: '⏱' },
+    en_retard: { label: 'En Retard / Non Réalisé',    bg: '#e11d48', fg: '#ffffff', border: '#be123c', icon: '⊗' },
+    anomalie:  { label: 'Anomalie / Avec Réserve',    bg: '#9333ea', fg: '#ffffff', border: '#7e22ce', icon: '⚠' },
+    planifie:  { label: 'Planifié (À venir)',         bg: '#f1f5f9', fg: '#334155', border: '#cbd5e1', icon: '' },
+    nc:        { label: 'Non concerné',               bg: '#e5e7eb', fg: '#6b7280', border: '#d1d5db', icon: '' }
 };
 
-/** 🩹 Correctif esthétique (retour terrain) : le titre de l'équipement était "écrasé" par les
- *  informations empilées (badge, code, description, localisation) dans une seule cellule sticky
- *  trop étroite. Remplacé par des colonnes d'identification SÉPARÉES, chacune sticky à son propre
- *  décalage `left`, sur le modèle demandé (Zone/Site/ID-MAT/Description/Lot/Famille) — Zone et Nbr
- *  ne correspondent à aucun champ existant de la fiche équipement, donc omis ici (à ajouter côté
- *  fiche équipement si besoin, plutôt que de deviner une valeur). */
+/** 🩹 Modèle demandé : une case "Planifié" (pas encore exécutée) est colorée selon la lettre de
+ *  Fréquence de l'équipement plutôt qu'une couleur neutre unique — repère visuel rapide du rythme
+ *  de maintenance en un coup d'œil sur toute l'année. Utilisé uniquement quand statut==='planifie'
+ *  (les autres statuts gardent leur couleur GM_MATRICE_STATUT_META, prioritaire). */
+var GM_MATRICE_FREQ_COLORS = {
+    H: { bg: '#fef3c7', fg: '#78350f', border: '#fcd34d' },
+    M: { bg: '#fed7aa', fg: '#7c2d12', border: '#fb923c' },
+    T: { bg: '#a7f3d0', fg: '#064e3b', border: '#34d399' },
+    S: { bg: '#bae6fd', fg: '#0c4a6e', border: '#38bdf8' },
+    A: { bg: '#fecdd3', fg: '#881337', border: '#fb7185' }
+};
+
+/** 🩹 Correctif (retour terrain, remarque #4) : modèle demandé = Zone/Site/ID-MAT/Description
+ *  Équipement/Lot/Famille/Nbr, chacune en colonne séparée et sticky (au lieu d'une seule cellule
+ *  empilée — qui causait aussi le chevauchement du titre, remarque #1). "Nbr" n'a pas d'équivalent
+ *  dans notre modèle de données (chaque fiche = un équipement individuel, pas un groupe) : affiché
+ *  à "1" de façon constante plutôt que deviné. "Zone" est un nouveau champ (fiche équipement,
+ *  comme Lot/Famille) — voir gmRenderTabFiche/gmSaveFicheEquipement. */
 var GM_MATRICE_ID_COLUMNS = [
-    { key: 'nom',          label: 'Équipement',  width: 190 },
-    { key: 'localisation', label: 'Site',        width: 110 },
-    { key: 'code',         label: 'ID-MAT',      width: 130 },
-    { key: 'desc',         label: 'Description', width: 170 },
-    { key: 'lot',          label: 'Lot',         width: 80  },
-    { key: 'famille',      label: 'Famille',     width: 90  }
+    { key: 'zone',         label: 'Zone',                 width: 70  },
+    { key: 'localisation', label: 'Site',                 width: 110 },
+    { key: 'code',         label: 'ID-MAT',               width: 130 },
+    { key: 'nom',          label: 'Description Équipement', width: 210 },
+    { key: 'lot',          label: 'Lot',                  width: 100 },
+    { key: 'famille',      label: 'Famille',               width: 140 },
+    { key: 'nbr',          label: 'Nbr',                  width: 50  }
 ];
 
 /** Décalage `left` (en px) cumulé de chaque colonne d'identification, pour empiler plusieurs
@@ -12625,6 +12660,28 @@ function gmRenderMatriceKPIs() {
  *     cette passe (Phase A.5, à cadrer séparément — voir échange précédent).
  *   - pt.7 : colonne "Équipements & Localisation" enrichie (code prestataire + description),
  *     plus l'icône 🕘 Timeline (pt.1, voir gmOpenEquipementTimeline). */
+/** 🩹 Correctif (retour terrain, remarque #4) : noms de mois accentués pour l'en-tête de
+ *  regroupement (MONTHS_FR existant sert au parsing des clés de site et n'a pas d'accents —
+ *  ne pas le modifier ; ce tableau est uniquement pour l'affichage de la matrice). */
+var GM_MATRICE_MOIS_LABEL = ['JANVIER', 'FÉVRIER', 'MARS', 'AVRIL', 'MAI', 'JUIN', 'JUILLET', 'AOÛT', 'SEPTEMBRE', 'OCTOBRE', 'NOVEMBRE', 'DÉCEMBRE'];
+
+/** Regroupe une liste de semaines (gmBuildMatriceSemaines/gmBuildMatriceSemainesAnnee) par mois
+ *  calendaire du lundi de chaque semaine, pour l'en-tête de regroupement "JANVIER / FÉVRIER..."
+ *  du modèle demandé (colspan = nombre de semaines de ce mois dans la fenêtre affichée). */
+function gmMatriceGroupSemainesParMois(semaines) {
+    const groups = [];
+    semaines.forEach(function(s) {
+        const label = GM_MATRICE_MOIS_LABEL[s.monday.getMonth()];
+        const last = groups[groups.length - 1];
+        if (last && last.label === label) {
+            last.count++;
+        } else {
+            groups.push({ label: label, count: 1 });
+        }
+    });
+    return groups;
+}
+
 function gmRenderMatriceTable() {
     const wrap = document.getElementById('gmMatriceTableWrap');
     if (!wrap) return;
@@ -12633,52 +12690,52 @@ function gmRenderMatriceTable() {
     const lignes = gmBuildMatriceLignesMultiMois(gmMatriceFilters, semaines); // 🩹 multi-mois (cf. gmMatriceCollectEntries)
     const todayInfo = gmISOWeekInfo(new Date());
     const idLefts = gmMatriceIdColLefts();
-    const idTotalWidth = gmMatriceIdColsTotalWidth();
+    const moisGroups = gmMatriceGroupSemainesParMois(semaines);
 
-    // Style de la "ligne rouge" : appliqué à CHAQUE cellule (en-tête ET corps) de la colonne
-    // correspondant à la semaine courante, pour obtenir un trait continu sur toute la hauteur
-    // du tableau (inchangé depuis la Phase A.3).
-    function todayColStyle(isToday, extra) {
-        return (extra || '') + (isToday ? ' border-left:2px solid #ef4444; border-right:2px solid #ef4444;' : '');
-    }
-
+    // 🩹 Modèle demandé : en-tête de semaine = simple NUMÉRO (pas de préfixe "S"), semaine
+    // courante en surbrillance ambre, comme sur la référence fournie.
     const headerCells = semaines.map(function(s) {
         const isToday = s.weekKey === todayInfo.weekKey;
-        return '<th style="padding:4px 3px; text-align:center; white-space:nowrap;' + todayColStyle(isToday) + '"' +
-            (isToday ? ' data-gm-matrice-today-col="1"' : '') + '>' +
-            '<span class="gm-matrice-th-pill' + (isToday ? ' gm-matrice-th-today' : '') + '">' +
-            escapeHtml(s.label) + '<span class="gm-matrice-th-date">' + escapeHtml(s.dateLabel) + '</span></span></th>';
+        return '<th style="padding:4px 2px; text-align:center; font-size:10px; font-weight:700; min-width:26px;' +
+            (isToday ? ' background:#fbbf24; color:#1e293b; font-weight:900;' : ' background:#1e293b; color:#e2e8f0;') + '"' +
+            (isToday ? ' data-gm-matrice-today-col="1"' : '') +
+            ' title="Semaine ' + s.isoWeek + ' (' + escapeAttr(s.dateLabel) + ')">' + s.isoWeek + '</th>';
     }).join('');
 
-    // 🩹 Correctif (retour terrain, remarque #1 : "le titre de l'équipement est écrasé") : la
-    // version précédente imbriquait un <span style="position:sticky"> À L'INTÉRIEUR d'un <th
-    // colspan="52+">, un motif fragile (le sticky imbriqué dans une cellule à colspan très large
-    // se comporte de façon incohérente selon les navigateurs et pouvait chevaucher la ligne du
-    // dessous). Remplacé par un simple <th> sticky (comme les colonnes d'identification
-    // juste en dessous), qui n'a besoin d'aucune astuce : il reste visible tout seul.
+    const moisHeaderCells = moisGroups.map(function(g) {
+        return '<th colspan="' + g.count + '" style="padding:5px 6px; text-align:center; background:#0f172a; color:#fff; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; border-right:1px solid #334155;">' + escapeHtml(g.label) + '</th>';
+    }).join('');
+
+    // Ligne 1 : bandeau "IDENTIFICATION ÉQUIPEMENT & LOCALISATION" (sticky, toujours visible —
+    // corrige le chevauchement pt.1) + regroupement par MOIS (au lieu d'un simple "Année", pt.4).
+    const bandeauHeaderRow =
+        '<tr>' +
+        '<th colspan="' + GM_MATRICE_ID_COLUMNS.length + '" style="padding:5px 10px; text-align:center; position:sticky; left:0; background:#020617; color:#fff; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; z-index:4;">📆 ' + isoYear + ' — Identification Équipement &amp; Localisation</th>' +
+        moisHeaderCells +
+        '</tr>';
+
+    // Ligne 2 : libellés des colonnes d'identification (sticky) + numéros de semaine.
     const idHeaderLabels = GM_MATRICE_ID_COLUMNS.map(function(c, i) {
-        return '<th style="padding:6px 8px; text-align:left; position:sticky; left:' + idLefts[i] + 'px; background:#f8fafc; width:' + c.width + 'px; z-index:3;">' +
+        return '<th style="padding:6px 8px; text-align:left; position:sticky; left:' + idLefts[i] + 'px; background:#1e293b; color:#e2e8f0; font-size:10px; font-weight:700; text-transform:uppercase; width:' + c.width + 'px; border-right:1px solid #334155; z-index:3;">' +
             escapeHtml(c.label) + (i === 0 ? ' (' + lignes.length + ')' : '') + '</th>';
     }).join('');
 
-    const anneeHeaderRow =
-        '<tr>' +
-        '<th colspan="' + GM_MATRICE_ID_COLUMNS.length + '" style="padding:4px 10px; text-align:left; position:sticky; left:0; background:#4338ca; color:#fff; font-size:11px; font-weight:700; z-index:4;">📆 Année ' + isoYear + '</th>' +
-        '<th colspan="' + semaines.length + '" style="padding:4px 10px; background:#eef2ff;"></th>' +
-        '</tr>';
-
-    const bodyRows = lignes.map(function(row) {
+    const bodyRows = lignes.map(function(row, rowIdx) {
+        const rowBg = rowIdx % 2 === 0 ? '#ffffff' : '#f8fafc';
         const cells = semaines.map(function(s) {
             const isToday = s.weekKey === todayInfo.weekKey;
             const cell = row.weeks[s.weekKey];
             const tdAttrs = isToday ? ' data-gm-matrice-today-col="1"' : '';
-            if (!cell) return '<td style="padding:4px; text-align:center;' + todayColStyle(isToday) + '"' + tdAttrs + '>·</td>';
+            const tdBg = isToday ? (cell ? '#fef3c7' : '#fffbeb') : rowBg;
+            if (!cell) return '<td style="padding:1px; text-align:center; background:' + tdBg + ';"' + tdAttrs + '>·</td>';
             const meta = GM_MATRICE_STATUT_META[cell.statut] || GM_MATRICE_STATUT_META.nc;
             // Fallback si la Fréquence n'est pas encore renseignée sur la fiche équipement
             // (champ récent, beaucoup de fiches existantes ne l'ont pas encore) : un point
             // plutôt qu'un badge vide et confus.
             const lettre = (row.frequence || '').charAt(0) || '•';
-            const contenu = (meta.icon ? meta.icon + ' ' : '') + escapeHtml(lettre);
+            // 🩹 Modèle demandé : couleur par Fréquence pour les cases encore "Planifié"
+            // (GM_MATRICE_FREQ_COLORS), sinon couleur de statut (conforme/en_cours/retard/anomalie).
+            const couleur = (cell.statut === 'planifie' && GM_MATRICE_FREQ_COLORS[lettre]) ? GM_MATRICE_FREQ_COLORS[lettre] : meta;
             // pt.6 : case avec OT → clic ouvre la fiche (NC → message existant showNCMessage()).
             // 🩹 gmOpenOtFromYearView() (déjà existante, réutilisée telle quelle) bascule d'abord
             // sur le bon mois si l'OT n'appartient pas au site actuellement actif — nécessaire
@@ -12689,8 +12746,8 @@ function gmRenderMatriceTable() {
                     escapeAttr(JSON.stringify(cell.ot.siteKey || '')) + ',' + escapeAttr(JSON.stringify(cell.ot.num)) + ',' + escapeAttr(JSON.stringify(cell.ot.materiel)) + ',' +
                     escapeAttr(JSON.stringify(cell.ot.interventionType)) + ',' + escapeAttr(JSON.stringify(cell.ot.libelle)) + ',' +
                     escapeAttr(JSON.stringify(cell.ot.date)) + ');';
-            return '<td style="padding:4px; text-align:center;' + todayColStyle(isToday) + '"' + tdAttrs + '>' +
-                '<span title="' + escapeAttr(meta.label + ' — OT ' + cell.ot.num) + '" onclick="' + clickJs + '" style="cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:2px; min-width:38px; height:22px; padding:0 6px; border-radius:11px; background:' + meta.bg + '; color:' + meta.fg + '; font-size:11px; font-weight:600; white-space:nowrap;">' + contenu + '</span>' +
+            return '<td style="padding:1px; text-align:center; background:' + tdBg + ';"' + tdAttrs + '>' +
+                '<button type="button" title="' + escapeAttr(meta.label + ' — OT ' + cell.ot.num) + '" onclick="' + clickJs + '" class="gm-matrice-cell-btn' + (cell.statut === 'en_cours' ? ' gm-matrice-cell-pulse' : '') + '" style="background:' + couleur.bg + '; color:' + couleur.fg + '; border-color:' + couleur.border + ';">' + escapeHtml(lettre) + '</button>' +
             '</td>';
         }).join('');
 
@@ -12699,29 +12756,30 @@ function gmRenderMatriceTable() {
         const timelineBtn = '<button type="button" class="gm-matrice-timeline-btn" title="Suivi d\'exécution" ' +
             'onclick="gmOpenEquipementTimeline(' + escapeAttr(JSON.stringify(row.id)) + ')" aria-label="Voir le suivi d\'exécution">🕘</button>';
         const idCellsHtml = GM_MATRICE_ID_COLUMNS.map(function(c, i) {
-            const bg = i % 2 === 0 ? '#ffffff' : '#fafafa'; // légère alternance pour distinguer les colonnes empilées
             let content;
-            if (c.key === 'nom') {
-                content = '<span style="font-weight:600; color:#1e293b;">' + escapeHtml(row.nom) + '</span> ' + timelineBtn;
-            } else if (c.key === 'famille') {
-                content = row.famille
-                    ? '<span style="display:inline-block; padding:1px 6px; border-radius:4px; background:#fef3c7; color:#92400e; font-size:10px; font-weight:700;">' + escapeHtml(row.famille.toUpperCase()) + '</span>'
+            if (c.key === 'nbr') {
+                content = '1'; // pas de notion de "groupe/quantité" dans notre modèle : une fiche = un équipement
+            } else if (c.key === 'nom') {
+                content = '<span style="font-weight:500; color:#0f172a;">' + escapeHtml(row.nom) + '</span> ' + timelineBtn;
+            } else if (c.key === 'lot') {
+                content = row.lot
+                    ? '<span style="display:inline-block; padding:1px 6px; border-radius:4px; background:' + (row.lot.toUpperCase().indexOf('ELEC') !== -1 || row.lot.toUpperCase().indexOf('ÉLEC') !== -1 ? '#fef3c7; color:#92400e' : '#dbeafe; color:#1e3a8a') + '; font-size:9px; font-weight:700;">' + escapeHtml(row.lot.toUpperCase()) + '</span>'
                     : '';
             } else if (c.key === 'code') {
-                content = '<span class="gm-matrice-equip-code">' + escapeHtml(row[c.key] || '') + '</span>';
+                content = '<span class="gm-matrice-equip-code" style="font-weight:700; color:#1e3a8a;">' + escapeHtml(row[c.key] || '') + '</span>';
             } else {
                 content = escapeHtml(row[c.key] || '');
             }
-            return '<td style="padding:6px 8px; position:sticky; left:' + idLefts[i] + 'px; background:' + bg + '; border-right:1px solid #e5e7eb; font-size:11px; color:#374151; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="' + escapeAttr(row[c.key] || '') + '">' + content + '</td>';
+            return '<td style="padding:5px 8px; position:sticky; left:' + idLefts[i] + 'px; background:' + rowBg + '; border-right:1px solid #e2e8f0; font-size:11px; color:#475569; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="' + escapeAttr(String(row[c.key] || '')) + '">' + content + '</td>';
         }).join('');
 
         return '<tr>' + idCellsHtml + cells + '</tr>';
     }).join('');
 
     wrap.innerHTML =
-        '<table style="border-collapse:collapse; width:100%;">' +
+        '<table style="border-collapse:collapse; width:100%; font-family:inherit;">' +
         '<thead>' +
-            anneeHeaderRow +
+            bandeauHeaderRow +
             '<tr>' +
             idHeaderLabels +
             headerCells +
@@ -12735,6 +12793,7 @@ function gmRenderMatriceTable() {
     // sur un tableau de 52 colonnes en scroll horizontal).
     const semaineBadge = document.getElementById('gmMatriceSemaineActuelleBadge');
     if (semaineBadge) {
+
         const semaineDuJour = semaines.filter(function(s) { return s.weekKey === todayInfo.weekKey; })[0];
         semaineBadge.textContent = semaineDuJour
             ? '📍 Semaine actuelle : ' + semaineDuJour.label + ' (' + semaineDuJour.dateLabel + ')'

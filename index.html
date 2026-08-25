@@ -12774,7 +12774,7 @@ function gmRenderMatriceTable() {
             } else {
                 content = escapeHtml(row[c.key] || '');
             }
-            return '<td style="padding:5px 8px; position:sticky; left:' + idLefts[i] + 'px; background:' + rowBg + '; border-right:1px solid #e2e8f0; font-size:11px; color:#475569; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="' + escapeAttr(String(row[c.key] || '')) + '">' + content + '</td>';
+            return '<td style="padding:5px 8px; position:sticky; left:' + idLefts[i] + 'px; background:' + rowBg + '; border-right:1px solid #e2e8f0; font-size:11px; color:#475569; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; z-index:1;" title="' + escapeAttr(String(row[c.key] || '')) + '">' + content + '</td>';
         }).join('');
 
         return '<tr>' + idCellsHtml + cells + '</tr>';
@@ -12794,7 +12794,7 @@ function gmRenderMatriceTable() {
         '</colgroup>';
 
     wrap.innerHTML =
-        '<table style="border-collapse:collapse; width:100%; font-family:inherit; table-layout:fixed;">' +
+        '<table style="border-collapse:separate; border-spacing:0; width:100%; font-family:inherit; table-layout:fixed;">' +
         colgroupHtml +
         '<thead>' +
             bandeauHeaderRow +

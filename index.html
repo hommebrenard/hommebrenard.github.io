@@ -12725,7 +12725,7 @@ function gmRenderMatriceTable() {
 
     const moisHeaderCells = moisGroups.map(function(g, i) {
         const isLast = i === moisGroups.length - 1;
-        return '<th colspan="' + g.count + '" style="position:static; padding:5px 6px; text-align:center; background:#0f172a; color:#fff; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em;' + (isLast ? '' : ' border-right:2px solid #94a3b8;') + '">' + escapeHtml(g.label) + '</th>';
+        return '<th colspan="' + g.count + '" style="position:static; padding:5px 6px; text-align:center; background:#0f172a; color:#fff; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' + (isLast ? '' : ' border-right:2px solid #94a3b8;') + '">' + escapeHtml(g.label) + '</th>';
     }).join('');
 
     // Ligne 1 : bandeau "IDENTIFICATION ÉQUIPEMENT & LOCALISATION" (sticky, toujours visible —

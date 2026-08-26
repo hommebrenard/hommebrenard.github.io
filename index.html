@@ -12696,18 +12696,36 @@ function gmRenderMatriceTable() {
     const idLefts = gmMatriceIdColLefts();
     const moisGroups = gmMatriceGroupSemainesParMois(semaines);
 
+    // 🩹 Correctif (retour terrain : "on ne peut pas distinguer les semaines propres à un mois").
+    // Le seul repère visuel de frontière de mois était un trait de 1px sur la ligne d'en-tête
+    // "JANVIER / FÉVRIER..." — invisible/perdu une fois l'œil descendu dans le tableau, sur 52+
+    // colonnes. Un trait vertical plus marqué est maintenant tracé sur TOUTE la hauteur du
+    // tableau (en-tête des numéros de semaine + chaque ligne du corps), à chaque frontière de mois.
+    const moisBoundaryIdx = new Set();
+    (function() {
+        let acc = 0;
+        moisGroups.forEach(function(g) {
+            acc += g.count;
+            if (acc < semaines.length) moisBoundaryIdx.add(acc - 1); // dernière semaine du mois (sauf le tout dernier, pas de trait après la dernière colonne)
+        });
+    })();
+    function moisBoundaryStyle(idx) {
+        return moisBoundaryIdx.has(idx) ? ' border-right:2px solid #94a3b8;' : '';
+    }
+
     // 🩹 Modèle demandé : en-tête de semaine = simple NUMÉRO (pas de préfixe "S"), semaine
     // courante en surbrillance ambre, comme sur la référence fournie.
-    const headerCells = semaines.map(function(s) {
+    const headerCells = semaines.map(function(s, idx) {
         const isToday = s.weekKey === todayInfo.weekKey;
         return '<th style="position:static; padding:4px 2px; text-align:center; font-size:10px; font-weight:700; min-width:26px;' +
-            (isToday ? ' background:#fbbf24; color:#1e293b; font-weight:900;' : ' background:#1e293b; color:#e2e8f0;') + '"' +
+            (isToday ? ' background:#fbbf24; color:#1e293b; font-weight:900;' : ' background:#1e293b; color:#e2e8f0;') + moisBoundaryStyle(idx) + '"' +
             (isToday ? ' data-gm-matrice-today-col="1"' : '') +
             ' title="Semaine ' + s.isoWeek + ' (' + escapeAttr(s.dateLabel) + ')">' + s.isoWeek + '</th>';
     }).join('');
 
-    const moisHeaderCells = moisGroups.map(function(g) {
-        return '<th colspan="' + g.count + '" style="position:static; padding:5px 6px; text-align:center; background:#0f172a; color:#fff; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; border-right:1px solid #334155;">' + escapeHtml(g.label) + '</th>';
+    const moisHeaderCells = moisGroups.map(function(g, i) {
+        const isLast = i === moisGroups.length - 1;
+        return '<th colspan="' + g.count + '" style="position:static; padding:5px 6px; text-align:center; background:#0f172a; color:#fff; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em;' + (isLast ? '' : ' border-right:2px solid #94a3b8;') + '">' + escapeHtml(g.label) + '</th>';
     }).join('');
 
     // Ligne 1 : bandeau "IDENTIFICATION ÉQUIPEMENT & LOCALISATION" (sticky, toujours visible —
@@ -12735,12 +12753,12 @@ function gmRenderMatriceTable() {
 
     const bodyRows = lignes.map(function(row, rowIdx) {
         const rowBg = rowIdx % 2 === 0 ? '#ffffff' : '#f8fafc';
-        const cells = semaines.map(function(s) {
+        const cells = semaines.map(function(s, idx) {
             const isToday = s.weekKey === todayInfo.weekKey;
             const cell = row.weeks[s.weekKey];
             const tdAttrs = isToday ? ' data-gm-matrice-today-col="1"' : '';
             const tdBg = isToday ? (cell ? '#fef3c7' : '#fffbeb') : rowBg;
-            if (!cell) return '<td style="padding:1px; text-align:center; background:' + tdBg + ';"' + tdAttrs + '>·</td>';
+            if (!cell) return '<td style="padding:1px; text-align:center; background:' + tdBg + ';' + moisBoundaryStyle(idx) + '"' + tdAttrs + '>·</td>';
             const meta = GM_MATRICE_STATUT_META[cell.statut] || GM_MATRICE_STATUT_META.nc;
             // Fallback si la Fréquence n'est pas encore renseignée sur la fiche équipement
             // (champ récent, beaucoup de fiches existantes ne l'ont pas encore) : un point
@@ -12759,7 +12777,7 @@ function gmRenderMatriceTable() {
                     escapeAttr(JSON.stringify(cell.ot.siteKey || '')) + ',' + escapeAttr(JSON.stringify(cell.ot.num)) + ',' + escapeAttr(JSON.stringify(cell.ot.materiel)) + ',' +
                     escapeAttr(JSON.stringify(cell.ot.interventionType)) + ',' + escapeAttr(JSON.stringify(cell.ot.libelle)) + ',' +
                     escapeAttr(JSON.stringify(cell.ot.date)) + ');';
-            return '<td style="padding:1px; text-align:center; background:' + tdBg + ';"' + tdAttrs + '>' +
+            return '<td style="padding:1px; text-align:center; background:' + tdBg + ';' + moisBoundaryStyle(idx) + '"' + tdAttrs + '>' +
                 '<button type="button" title="' + escapeAttr(meta.label + ' — OT ' + cell.ot.num) + '" onclick="' + clickJs + '" class="gm-matrice-cell-btn' + (cell.statut === 'en_cours' ? ' gm-matrice-cell-pulse' : '') + '" style="background:' + couleur.bg + '; color:' + couleur.fg + '; border-color:' + couleur.border + ';">' + escapeHtml(lettre) + '</button>' +
             '</td>';
         }).join('');
@@ -12770,10 +12788,17 @@ function gmRenderMatriceTable() {
             'onclick="gmOpenEquipementTimeline(' + escapeAttr(JSON.stringify(row.id)) + ')" aria-label="Voir le suivi d\'exécution">🕘</button>';
         const idCellsHtml = GM_MATRICE_ID_COLUMNS.map(function(c, i) {
             let content;
+            let cellStyleExtra = '';
             if (c.key === 'nbr') {
                 content = '1'; // pas de notion de "groupe/quantité" dans notre modèle : une fiche = un équipement
             } else if (c.key === 'nom') {
-                content = '<span style="font-weight:500; color:#0f172a;">' + escapeHtml(row.nom) + '</span> ' + timelineBtn;
+                // 🩹 Correctif (retour terrain) : le bouton 🕘 Suivi d'exécution était présent pour
+                // TOUS les équipements dans le code, mais invisible pour les noms longs — il
+                // partageait le même flux de texte que le nom, tronqué par overflow:hidden, qui
+                // "avalait" le bouton avec le texte en trop. Passage en flex : le nom se tronque
+                // seul (flex:1, min-width:0), le bouton reste un élément à taille fixe toujours visible.
+                content = '<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; flex:1; font-weight:500; color:#0f172a;">' + escapeHtml(row.nom) + '</span>' + timelineBtn;
+                cellStyleExtra = 'display:flex; align-items:center; gap:4px; white-space:normal;';
             } else if (c.key === 'lot') {
                 content = row.lot
                     ? '<span style="display:inline-block; padding:1px 6px; border-radius:4px; background:' + (row.lot.toUpperCase().indexOf('ELEC') !== -1 || row.lot.toUpperCase().indexOf('ÉLEC') !== -1 ? '#fef3c7; color:#92400e' : '#dbeafe; color:#1e3a8a') + '; font-size:9px; font-weight:700;">' + escapeHtml(row.lot.toUpperCase()) + '</span>'
@@ -12783,7 +12808,7 @@ function gmRenderMatriceTable() {
             } else {
                 content = escapeHtml(row[c.key] || '');
             }
-            return '<td style="padding:5px 8px; position:sticky; left:' + idLefts[i] + 'px; background:' + rowBg + '; border-right:1px solid #e2e8f0; font-size:11px; color:#475569; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; z-index:1;" title="' + escapeAttr(String(row[c.key] || '')) + '">' + content + '</td>';
+            return '<td style="padding:5px 8px; position:sticky; left:' + idLefts[i] + 'px; background:' + rowBg + '; border-right:1px solid #e2e8f0; font-size:11px; color:#475569; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; z-index:1;' + cellStyleExtra + '" title="' + escapeAttr(String(row[c.key] || '')) + '">' + content + '</td>';
         }).join('');
 
         return '<tr>' + idCellsHtml + cells + '</tr>';

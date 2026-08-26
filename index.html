@@ -12700,27 +12700,36 @@ function gmRenderMatriceTable() {
     // courante en surbrillance ambre, comme sur la référence fournie.
     const headerCells = semaines.map(function(s) {
         const isToday = s.weekKey === todayInfo.weekKey;
-        return '<th style="padding:4px 2px; text-align:center; font-size:10px; font-weight:700; min-width:26px;' +
+        return '<th style="position:static; padding:4px 2px; text-align:center; font-size:10px; font-weight:700; min-width:26px;' +
             (isToday ? ' background:#fbbf24; color:#1e293b; font-weight:900;' : ' background:#1e293b; color:#e2e8f0;') + '"' +
             (isToday ? ' data-gm-matrice-today-col="1"' : '') +
             ' title="Semaine ' + s.isoWeek + ' (' + escapeAttr(s.dateLabel) + ')">' + s.isoWeek + '</th>';
     }).join('');
 
     const moisHeaderCells = moisGroups.map(function(g) {
-        return '<th colspan="' + g.count + '" style="padding:5px 6px; text-align:center; background:#0f172a; color:#fff; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; border-right:1px solid #334155;">' + escapeHtml(g.label) + '</th>';
+        return '<th colspan="' + g.count + '" style="position:static; padding:5px 6px; text-align:center; background:#0f172a; color:#fff; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; border-right:1px solid #334155;">' + escapeHtml(g.label) + '</th>';
     }).join('');
 
     // Ligne 1 : bandeau "IDENTIFICATION ÉQUIPEMENT & LOCALISATION" (sticky, toujours visible —
     // corrige le chevauchement pt.1) + regroupement par MOIS (au lieu d'un simple "Année", pt.4).
+    // 🩹 Correctif RACINE #3 (retour terrain : "les numéros de semaine éclipsent les titres de
+    // colonnes") : une règle CSS globale préexistante `th { position:sticky; top:0; z-index:10; }`
+    // s'applique à TOUTE balise <th> du site. Les cellules ci-dessus (semaines/mois) n'avaient pas
+    // de z-index explicite : elles héritaient donc de z-index:10 — supérieur au z-index:3/4 des
+    // colonnes d'identification — et devenaient elles-mêmes sticky verticalement sans le vouloir,
+    // d'où le recouvrement visuel. `position:static` neutralise entièrement cet héritage (le style
+    // inline gagne toujours face à une règle externe sans !important). Les cellules ci-dessous
+    // (identification) ont besoin du sticky HORIZONTAL (left) mais pas du sticky vertical hérité
+    // (top:0) — `top:auto` neutralise ce dernier sans toucher au `left` voulu.
     const bandeauHeaderRow =
         '<tr>' +
-        '<th colspan="' + GM_MATRICE_ID_COLUMNS.length + '" style="padding:5px 10px; text-align:center; position:sticky; left:0; background:#020617; color:#fff; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; z-index:4;">📆 ' + isoYear + ' — Identification Équipement &amp; Localisation</th>' +
+        '<th colspan="' + GM_MATRICE_ID_COLUMNS.length + '" style="position:sticky; top:auto; left:0; padding:5px 10px; text-align:center; background:#020617; color:#fff; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; z-index:6;">📆 ' + isoYear + ' — Identification Équipement &amp; Localisation</th>' +
         moisHeaderCells +
         '</tr>';
 
     // Ligne 2 : libellés des colonnes d'identification (sticky) + numéros de semaine.
     const idHeaderLabels = GM_MATRICE_ID_COLUMNS.map(function(c, i) {
-        return '<th style="padding:6px 8px; text-align:left; position:sticky; left:' + idLefts[i] + 'px; background:#1e293b; color:#e2e8f0; font-size:10px; font-weight:700; text-transform:uppercase; width:' + c.width + 'px; border-right:1px solid #334155; z-index:3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' +
+        return '<th style="position:sticky; top:auto; left:' + idLefts[i] + 'px; padding:6px 8px; text-align:left; background:#1e293b; color:#e2e8f0; font-size:10px; font-weight:700; text-transform:uppercase; width:' + c.width + 'px; border-right:1px solid #334155; z-index:5; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' +
             escapeHtml(c.label) + (i === 0 ? ' (' + lignes.length + ')' : '') + '</th>';
     }).join('');
 

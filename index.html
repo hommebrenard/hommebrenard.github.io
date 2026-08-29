@@ -4311,6 +4311,16 @@ function closeBibliothequeModal() {
 }
 .gm-matrice-cell-btn:hover { transform: scale(1.15); }
 .gm-matrice-cell-pulse { animation: gmMatricePulse 1.6s ease-in-out infinite; }
+/* 🆕 Phase A.5 : case vide cliquable (création d'intervention manuelle) — discrète au repos,
+   pointeur + surbrillance légère au survol pour signaler l'action possible sans alourdir
+   visuellement une matrice qui a déjà beaucoup de cases vides par équipement. */
+.gm-matrice-cell-empty {
+    background: transparent; border: 1px dashed transparent; color: #cbd5e1;
+}
+.gm-matrice-cell-empty:hover { border-color: #94a3b8; color: #475569; background: #f1f5f9; }
+/* 🆕 Phase A.5 : case portant une entrée manuelle — même palette de statut que les OT importés
+   (couleur posée dynamiquement en style inline), un simple liseré distingue son origine. */
+.gm-matrice-cell-manuel { border-style: dashed; border-width: 2px; }
 @keyframes gmMatricePulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.6; }
@@ -4403,6 +4413,23 @@ function closeBibliothequeModal() {
         </div>
         <div class="modal-body">
             <div id="gmMatriceTimelineBody"></div>
+        </div>
+    </div>
+</div>
+<div class="modal-overlay" id="gmMatriceManuelModalOverlay" role="dialog" aria-modal="true" aria-labelledby="gmMatriceManuelModalTitle">
+    <div class="modal" style="max-width: 480px;">
+        <div class="modal-header">
+            <h2 id="gmMatriceManuelModalTitle">🆕 Intervention manuelle</h2>
+            <button class="close-btn" onclick="closeManuelOtModal()" aria-label="Fermer">✕</button>
+        </div>
+        <div class="modal-body">
+            <div id="gmMatriceManuelModalBody"></div>
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:space-between; gap:8px;">
+            <button type="button" id="gmManuelFormDeleteBtn" class="btn btn-danger" onclick="gmDeleteManuelOt()" style="display:none;">🗑️ Supprimer</button>
+            <div style="flex:1;"></div>
+            <button type="button" class="btn btn-secondary" onclick="closeManuelOtModal()">Annuler</button>
+            <button type="button" class="btn btn-primary" onclick="gmSaveManuelOtForm()">💾 Enregistrer</button>
         </div>
     </div>
 </div>
@@ -12173,6 +12200,73 @@ function gmDetermineStatutCelluleOTAvecState(otStr, dateStr, otStatesObj, today)
     return isPast ? 'en_retard' : 'planifie';
 }
 
+/* ============================================
+   🆕 CHANTIER 11 (Rapports) — Phase A.5 : création manuelle d'intervention depuis une case
+   vide de la matrice (semaine sans OT importé). Principe architectural (acté au Chantier 7,
+   rappelé dans le résumé de reprise) : la logique OT du pipeline principal provient uniquement
+   de l'import Excel — on ne mélange pas d'entrées manuelles dedans. Les OT manuels sont donc
+   stockés dans un registre ISOLÉ et dédié (gmManuelOtsRegistry), suivant exactement le même
+   patron que les Compteurs (Chantier 7) : persistance chiffrée, scopée au site physique,
+   jamais écrite dans planningData/otStates.
+   ⚠️ Choix par défaut retenus en l'absence d'arbitrage explicite avec l'utilisateur (à ajuster
+   si besoin, une seule ligne à changer pour chacun) :
+     - Identifiant : préfixe "MAN-" + horodatage (gmGenerateManuelOtId)
+     - Collision avec un futur import Excel sur le même équipement/semaine : les deux
+       coexistent, la case affiche le statut le plus sévère (réutilise gmFusionnerCelluleAvecRef,
+       exactement la même logique de fusion par priorité que pour les OT importés)
+     - Visibilité : reste cantonné à la matrice pour l'instant, n'apparaît pas dans le tableau
+       Actions (extensible plus tard si besoin)
+   ============================================ */
+var gmManuelOtsRegistry = {}; // { [equipementId]: { [weekKey]: {id, date, libelle, interventionType, statutOt, commentaire, technicien, createdAt} } }
+
+function gmManuelOtsStorageKey() {
+    return 'gmManuelOts_v1_' + gmPhysicalSiteKey();
+}
+
+async function gmLoadManuelOtsRegistry() {
+    try {
+        var data = await loadEncrypted(gmManuelOtsStorageKey());
+        gmManuelOtsRegistry = data || {};
+    } catch (e) {
+        console.warn('⚠️ Registre OT manuels : chargement impossible', e);
+        gmManuelOtsRegistry = gmManuelOtsRegistry || {};
+    }
+}
+
+async function gmSaveManuelOtsRegistry() {
+    try {
+        await saveEncrypted(gmManuelOtsStorageKey(), gmManuelOtsRegistry);
+        return true;
+    } catch (e) {
+        console.warn('⚠️ Registre OT manuels : sauvegarde impossible', e);
+        return false;
+    }
+}
+
+function gmManuelOtsPersist() {
+    gmSaveManuelOtsRegistry().catch(function(e) { console.warn('⚠️ Registre OT manuels : persistance impossible', e); });
+}
+
+function gmGenerateManuelOtId() {
+    return 'MAN-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+/** Variante de gmDetermineStatutCelluleOTAvecState() pour une entrée manuelle (Phase A.5) :
+ *  même vocabulaire de statut (5 valeurs), mais lit statutOt/commentaire directement sur
+ *  l'entrée manuelle au lieu de otStates (registre séparé, pas d'OT importé). */
+function gmDetermineStatutCelluleManuel(manuel, today) {
+    const now = today || new Date();
+    const dateOT = gmParsePlanningDate(manuel.date);
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const isPast = dateOT ? (dateOT.getTime() < todayMidnight.getTime()) : false;
+    const commentaire = String(manuel.commentaire || '').trim().toUpperCase();
+    const aAnomalie = !!(commentaire && commentaire !== 'RAS' && commentaire !== 'R.A.S' && commentaire !== 'R.A.S.' && commentaire !== 'RAS.');
+    if (manuel.statutOt === 'F') return aAnomalie ? 'anomalie' : 'conforme';
+    if (manuel.statutOt === 'NF') return 'en_retard';
+    if (manuel.statutOt === 'P') return isPast ? 'en_retard' : 'en_cours';
+    return isPast ? 'en_retard' : 'planifie';
+}
+
 function gmFusionnerCelluleAvecRef(entries) {
     for (let i = 0; i < GM_MATRICE_STATUT_PRIORITE.length; i++) {
         const found = entries.find(function(e) { return e.statut === GM_MATRICE_STATUT_PRIORITE[i]; });
@@ -12339,6 +12433,22 @@ function gmBuildMatriceLignesMultiMois(filters, semaines, today) {
                 });
             });
         });
+
+        // 🆕 Phase A.5 : entrées manuelles (registre isolé gmManuelOtsRegistry, cf. plus haut) —
+        // injectées avec le même format {statut, ot} que les OT importés, pour traverser
+        // exactement le même mécanisme de fusion par sévérité (gmFusionnerCelluleAvecRef) en
+        // cas de collision avec un futur ré-import Excel sur la même semaine.
+        const manuelsEquip = gmManuelOtsRegistry[entry.id];
+        if (manuelsEquip) {
+            semaines.forEach(function(s, idx) {
+                const manuel = manuelsEquip[s.weekKey];
+                if (!manuel) return;
+                weekBuckets[idx].push({
+                    statut: gmDetermineStatutCelluleManuel(manuel, today),
+                    ot: { num: manuel.id, date: manuel.date, materiel: (entry.aliases && entry.aliases[0]) || '', interventionType: manuel.interventionType || 'Intervention manuelle', libelle: manuel.libelle || '', siteKey: (typeof activeSiteKey !== 'undefined' ? activeSiteKey : ''), manuel: true, equipementId: entry.id, weekKey: s.weekKey }
+                });
+            });
+        }
 
         const weeks = {};
         semaines.forEach(function(s, idx) {
@@ -12758,7 +12868,15 @@ function gmRenderMatriceTable() {
             const cell = row.weeks[s.weekKey];
             const tdAttrs = isToday ? ' data-gm-matrice-today-col="1"' : '';
             const tdBg = isToday ? (cell ? '#fef3c7' : '#fffbeb') : rowBg;
-            if (!cell) return '<td style="padding:1px; text-align:center; background:' + tdBg + ';' + moisBoundaryStyle(idx) + '"' + tdAttrs + '>·</td>';
+            // 🆕 Phase A.5 : case vide (aucun OT importé ni entrée manuelle pour cette semaine)
+            // → clic ouvre le formulaire de création manuelle (gmOpenManuelOtForm), sur le
+            // registre isolé gmManuelOtsRegistry (cf. plus haut, ne touche jamais planningData).
+            if (!cell) {
+                const createJs = 'gmOpenManuelOtForm(' + escapeAttr(JSON.stringify(row.id)) + ',' + escapeAttr(JSON.stringify(s.weekKey)) + ',' + escapeAttr(JSON.stringify(s.dateLabel)) + ');';
+                return '<td style="padding:1px; text-align:center; background:' + tdBg + ';' + moisBoundaryStyle(idx) + '"' + tdAttrs + '>' +
+                    '<button type="button" title="Créer une intervention manuelle (semaine ' + s.isoWeek + ')" onclick="' + createJs + '" class="gm-matrice-cell-btn gm-matrice-cell-empty">·</button>' +
+                '</td>';
+            }
             const meta = GM_MATRICE_STATUT_META[cell.statut] || GM_MATRICE_STATUT_META.nc;
             // Fallback si la Fréquence n'est pas encore renseignée sur la fiche équipement
             // (champ récent, beaucoup de fiches existantes ne l'ont pas encore) : un point
@@ -12771,14 +12889,20 @@ function gmRenderMatriceTable() {
             // 🩹 gmOpenOtFromYearView() (déjà existante, réutilisée telle quelle) bascule d'abord
             // sur le bon mois si l'OT n'appartient pas au site actuellement actif — nécessaire
             // maintenant que la matrice agrège plusieurs mois (gmBuildMatriceLignesMultiMois).
+            // 🆕 Phase A.5 : une case fusionnée peut désormais porter une entrée manuelle
+            // (cell.ot.manuel === true, cf. injection dans gmBuildMatriceLignesMultiMois) —
+            // elle ouvre son propre détail (gmOpenManuelOtDetail) plutôt que la fiche OT importé
+            // (gmOpenOtFromYearView), qui suppose un OT réel présent dans planningData.
             const clickJs = cell.statut === 'nc'
                 ? 'showNCMessage()'
+                : cell.ot.manuel
+                    ? 'gmOpenManuelOtDetail(' + escapeAttr(JSON.stringify(cell.ot.equipementId)) + ',' + escapeAttr(JSON.stringify(cell.ot.weekKey)) + ');'
                 : 'closeMatriceModal(); gmOpenOtFromYearView(' +
                     escapeAttr(JSON.stringify(cell.ot.siteKey || '')) + ',' + escapeAttr(JSON.stringify(cell.ot.num)) + ',' + escapeAttr(JSON.stringify(cell.ot.materiel)) + ',' +
                     escapeAttr(JSON.stringify(cell.ot.interventionType)) + ',' + escapeAttr(JSON.stringify(cell.ot.libelle)) + ',' +
                     escapeAttr(JSON.stringify(cell.ot.date)) + ');';
             return '<td style="padding:1px; text-align:center; background:' + tdBg + ';' + moisBoundaryStyle(idx) + '"' + tdAttrs + '>' +
-                '<button type="button" title="' + escapeAttr(meta.label + ' — OT ' + cell.ot.num) + '" onclick="' + clickJs + '" class="gm-matrice-cell-btn' + (cell.statut === 'en_cours' ? ' gm-matrice-cell-pulse' : '') + '" style="background:' + couleur.bg + '; color:' + couleur.fg + '; border-color:' + couleur.border + ';">' + escapeHtml(lettre) + '</button>' +
+                '<button type="button" title="' + escapeAttr(meta.label + ' — OT ' + cell.ot.num + (cell.ot.manuel ? ' (manuel)' : '')) + '" onclick="' + clickJs + '" class="gm-matrice-cell-btn' + (cell.statut === 'en_cours' ? ' gm-matrice-cell-pulse' : '') + (cell.ot.manuel ? ' gm-matrice-cell-manuel' : '') + '" style="background:' + couleur.bg + '; color:' + couleur.fg + '; border-color:' + couleur.border + ';">' + escapeHtml(lettre) + '</button>' +
             '</td>';
         }).join('');
 
@@ -12945,6 +13069,7 @@ async function openMatriceModal() {
     const searchEl = document.getElementById('gmMatriceSearch');
     if (searchEl) searchEl.value = '';
     await gmLoadEquipRegistry();
+    await gmLoadManuelOtsRegistry(); // 🆕 Phase A.5
     gmPopulateMatriceFilterOptions();
     gmRenderMatriceKPIs();
     gmRenderMatriceTable();
@@ -12953,6 +13078,127 @@ async function openMatriceModal() {
 function closeMatriceModal() {
     const overlay = document.getElementById('gmMatriceModalOverlay');
     if (overlay) overlay.classList.remove('active');
+}
+
+/* ============================================
+   🆕 CHANTIER 11 (Rapports) — Phase A.5 : formulaire de création/édition d'une intervention
+   manuelle (case vide de la matrice), sur le registre isolé gmManuelOtsRegistry.
+   Un seul modal (gmMatriceManuelModalOverlay) sert aux deux cas :
+     - création (gmOpenManuelOtForm) : formulaire vierge, pré-rempli avec la date du lundi
+       de la semaine cliquée ; pas de bouton "Supprimer".
+     - édition/consultation (gmOpenManuelOtDetail) : formulaire pré-rempli avec l'entrée
+       existante ; bouton "Supprimer" affiché.
+   ============================================ */
+var gmManuelOtFormContext = null; // { equipementId, weekKey, isNew }
+
+function gmMatriceManuelStatutOptions(selected) {
+    return [
+        { value: '', label: 'À venir (planifié)' },
+        { value: 'P', label: 'En cours (partiel)' },
+        { value: 'F', label: 'Fait' },
+        { value: 'NF', label: 'Non fait' }
+    ].map(function(o) {
+        return '<option value="' + o.value + '"' + (o.value === (selected || '') ? ' selected' : '') + '>' + o.label + '</option>';
+    }).join('');
+}
+
+function gmRenderManuelOtForm(entry, manuel, weekLabel) {
+    const isNew = !manuel;
+    const d = manuel || { date: '', libelle: '', interventionType: '', statutOt: '', commentaire: '', technicien: '' };
+    // 🩹 Convention réutilisée telle quelle (voir gmRenderTabFiche) : pas de classe CSS
+    // dédiée aux formulaires dans l'app, chaque champ porte son style inline via un
+    // <label> englobant. On la reproduit à l'identique pour rester cohérent visuellement.
+    const labelStyle = 'font-size:11px; color:#6b7280; display:block; margin-bottom:10px;';
+    const inputStyle = 'display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px; box-sizing:border-box;';
+    return '' +
+        '<label style="' + labelStyle + '">Équipement<input type="text" value="' + escapeAttr(entry.nom || '') + '" disabled style="' + inputStyle + ' background:#f3f4f6;"></label>' +
+        '<label style="' + labelStyle + '">Semaine<input type="text" value="' + escapeAttr(weekLabel || '') + '" disabled style="' + inputStyle + ' background:#f3f4f6;"></label>' +
+        '<label style="' + labelStyle + '">Date de l\'intervention<input type="text" id="gmManuelFormDate" placeholder="jj/mm/aaaa" value="' + escapeAttr(d.date) + '" style="' + inputStyle + '"></label>' +
+        '<label style="' + labelStyle + '">Type d\'intervention<input type="text" id="gmManuelFormType" placeholder="Ex. Maintenance corrective" value="' + escapeAttr(d.interventionType) + '" style="' + inputStyle + '"></label>' +
+        '<label style="' + labelStyle + '">Libellé / description<input type="text" id="gmManuelFormLibelle" placeholder="Description de l\'intervention" value="' + escapeAttr(d.libelle) + '" style="' + inputStyle + '"></label>' +
+        '<label style="' + labelStyle + '">Technicien<input type="text" id="gmManuelFormTechnicien" value="' + escapeAttr(d.technicien) + '" style="' + inputStyle + '"></label>' +
+        '<label style="' + labelStyle + '">Statut<select id="gmManuelFormStatut" style="' + inputStyle + '">' + gmMatriceManuelStatutOptions(d.statutOt) + '</select></label>' +
+        '<label style="' + labelStyle + '">Commentaire<textarea id="gmManuelFormCommentaire" rows="3" style="' + inputStyle + ' resize:vertical;">' + escapeHtml(d.commentaire || '') + '</textarea></label>' +
+        (isNew ? '' : '<div style="color:#94a3b8; font-size:11px; margin-top:4px;">Identifiant : ' + escapeHtml(d.id || '') + '</div>');
+}
+
+function gmOpenManuelOtForm(equipementId, weekKey, weekDateLabel) {
+    const entry = (typeof equipementsRegistry !== 'undefined' ? equipementsRegistry[equipementId] : null);
+    if (!entry) return;
+    gmManuelOtFormContext = { equipementId: equipementId, weekKey: weekKey, isNew: true };
+    const titleEl = document.getElementById('gmMatriceManuelModalTitle');
+    if (titleEl) titleEl.textContent = '🆕 Nouvelle intervention manuelle';
+    const body = document.getElementById('gmMatriceManuelModalBody');
+    if (body) body.innerHTML = gmRenderManuelOtForm(entry, null, weekKey + ' (' + weekDateLabel + ')');
+    const dateEl = document.getElementById('gmManuelFormDate');
+    if (dateEl && !dateEl.value) dateEl.value = weekDateLabel + '/' + gmMatriceCurrentIsoYear();
+    const delBtn = document.getElementById('gmManuelFormDeleteBtn');
+    if (delBtn) delBtn.style.display = 'none';
+    const overlay = document.getElementById('gmMatriceManuelModalOverlay');
+    if (overlay) overlay.classList.add('active');
+}
+
+function gmOpenManuelOtDetail(equipementId, weekKey) {
+    const entry = (typeof equipementsRegistry !== 'undefined' ? equipementsRegistry[equipementId] : null);
+    const manuel = (gmManuelOtsRegistry[equipementId] || {})[weekKey];
+    if (!entry || !manuel) return;
+    gmManuelOtFormContext = { equipementId: equipementId, weekKey: weekKey, isNew: false };
+    const titleEl = document.getElementById('gmMatriceManuelModalTitle');
+    if (titleEl) titleEl.textContent = '✏️ Intervention manuelle';
+    const body = document.getElementById('gmMatriceManuelModalBody');
+    if (body) body.innerHTML = gmRenderManuelOtForm(entry, manuel, weekKey);
+    const delBtn = document.getElementById('gmManuelFormDeleteBtn');
+    if (delBtn) delBtn.style.display = '';
+    const overlay = document.getElementById('gmMatriceManuelModalOverlay');
+    if (overlay) overlay.classList.add('active');
+}
+
+function closeManuelOtModal() {
+    const overlay = document.getElementById('gmMatriceManuelModalOverlay');
+    if (overlay) overlay.classList.remove('active');
+    gmManuelOtFormContext = null;
+}
+
+function gmSaveManuelOtForm() {
+    if (!gmManuelOtFormContext) return;
+    const ctx = gmManuelOtFormContext;
+    const date = (document.getElementById('gmManuelFormDate') || {}).value || '';
+    if (!gmParsePlanningDate(date)) {
+        showNotification('Date invalide (format attendu jj/mm/aaaa)', 'error');
+        return;
+    }
+    if (!gmManuelOtsRegistry[ctx.equipementId]) gmManuelOtsRegistry[ctx.equipementId] = {};
+    const existing = gmManuelOtsRegistry[ctx.equipementId][ctx.weekKey];
+    const manuel = {
+        id: existing ? existing.id : gmGenerateManuelOtId(),
+        date: date,
+        interventionType: (document.getElementById('gmManuelFormType') || {}).value || '',
+        libelle: (document.getElementById('gmManuelFormLibelle') || {}).value || '',
+        technicien: (document.getElementById('gmManuelFormTechnicien') || {}).value || '',
+        statutOt: (document.getElementById('gmManuelFormStatut') || {}).value || '',
+        commentaire: (document.getElementById('gmManuelFormCommentaire') || {}).value || '',
+        createdAt: existing ? existing.createdAt : new Date().toISOString()
+    };
+    gmManuelOtsRegistry[ctx.equipementId][ctx.weekKey] = manuel;
+    gmManuelOtsPersist();
+    closeManuelOtModal();
+    gmRenderMatriceTable();
+    gmRenderMatriceKPIs();
+    showNotification('Intervention manuelle enregistrée', 'success');
+}
+
+function gmDeleteManuelOt() {
+    if (!gmManuelOtFormContext) return;
+    const ctx = gmManuelOtFormContext;
+    if (!confirm('Supprimer cette intervention manuelle ?')) return;
+    if (gmManuelOtsRegistry[ctx.equipementId]) {
+        delete gmManuelOtsRegistry[ctx.equipementId][ctx.weekKey];
+    }
+    gmManuelOtsPersist();
+    closeManuelOtModal();
+    gmRenderMatriceTable();
+    gmRenderMatriceKPIs();
+    showNotification('Intervention manuelle supprimée', 'success');
 }
 
 function calculerKPIs() {

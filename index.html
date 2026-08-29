@@ -12247,8 +12247,62 @@ function gmManuelOtsPersist() {
     gmSaveManuelOtsRegistry().catch(function(e) { console.warn('⚠️ Registre OT manuels : persistance impossible', e); });
 }
 
+/** 🩹 Retour terrain (point 4) : l'identifiant hash "MAN-mtejsarkno3f" n'était ni lisible ni
+ *  esthétique. Remplacé par un format séquentiel "MAN-<année>-<compteur 4 chiffres>", ex.
+ *  "MAN-2026-0007" — trié naturellement, lisible, et le compteur ne redémarre jamais à zéro
+ *  même après suppression d'entrées (pas de réutilisation de numéro). Le compteur est stocké
+ *  dans une clé réservée "__meta" du même registre isolé (jamais confondue avec un id
+ *  d'équipement réel, qui provient toujours de equipementsRegistry). */
 function gmGenerateManuelOtId() {
-    return 'MAN-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const year = new Date().getFullYear();
+    if (!gmManuelOtsRegistry.__meta) gmManuelOtsRegistry.__meta = {};
+    const seqKey = 'seq' + year;
+    const next = (gmManuelOtsRegistry.__meta[seqKey] || 0) + 1;
+    gmManuelOtsRegistry.__meta[seqKey] = next;
+    return 'MAN-' + year + '-' + String(next).padStart(4, '0');
+}
+
+/** 🩹 Retour terrain (point 1) : affichage "S" (Semaine, convention française) plutôt que "W"
+ *  (ISO/anglais) dans le formulaire — purement cosmétique, la weekKey interne ("2026-W28")
+ *  n'est JAMAIS modifiée (elle sert de clé dans gmManuelOtsRegistry et dans semaines[].weekKey
+ *  partout ailleurs dans la matrice). */
+function gmWeekKeyLabelFr(weekKey) {
+    return String(weekKey || '').replace('W', 'S');
+}
+
+/** 🩹 Retour terrain (point 2) : gmParsePlanningDate() (utilisée partout ailleurs dans l'app,
+ *  non modifiée) accepte structurellement "33/13/2026" car sa regex ne vérifie que le format
+ *  (2 chiffres/2 chiffres/4 chiffres), pas les plages de valeurs — puis new Date() "corrige"
+ *  silencieusement en débordant sur le mois/l'année suivante. Validateur dédié et strict,
+ *  utilisé uniquement à l'enregistrement d'une intervention manuelle : vérifie les plages
+ *  (jour 1-31, mois 1-12) ET que la date reconstruite correspond exactement aux chiffres saisis
+ *  (rejette aussi les débordements silencieux type 30/02/2026 -> 2 mars). */
+function gmIsDateValide(dateStr) {
+    const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(dateStr || '').trim());
+    if (!m) return false;
+    const dd = parseInt(m[1], 10), mm = parseInt(m[2], 10), yyyy = parseInt(m[3], 10);
+    if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return false;
+    const d = new Date(yyyy, mm - 1, dd);
+    return d.getFullYear() === yyyy && d.getMonth() === mm - 1 && d.getDate() === dd;
+}
+
+/** Conversions de format entre le stockage interne (jj/mm/aaaa, cohérent avec le reste de
+ *  l'app) et le format natif attendu par <input type="date"> (aaaa-mm-jj), qui empêche
+ *  nativement la saisie d'une date structurellement invalide — même principe que les champs
+ *  "Date Début"/"Date Fin" (type="datetime-local") déjà présents ailleurs dans l'app. */
+function gmDateFrToIsoInput(frDate) {
+    const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(frDate || '').trim());
+    if (!m) return '';
+    return m[3] + '-' + m[2] + '-' + m[1];
+}
+function gmDateIsoInputToFr(isoDate) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(isoDate || '').trim());
+    if (!m) return '';
+    return m[3] + '/' + m[2] + '/' + m[1];
+}
+function gmDateToIsoInput(d) {
+    if (!d) return '';
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
 /** Variante de gmDetermineStatutCelluleOTAvecState() pour une entrée manuelle (Phase A.5) :
@@ -12872,7 +12926,7 @@ function gmRenderMatriceTable() {
             // → clic ouvre le formulaire de création manuelle (gmOpenManuelOtForm), sur le
             // registre isolé gmManuelOtsRegistry (cf. plus haut, ne touche jamais planningData).
             if (!cell) {
-                const createJs = 'gmOpenManuelOtForm(' + escapeAttr(JSON.stringify(row.id)) + ',' + escapeAttr(JSON.stringify(s.weekKey)) + ',' + escapeAttr(JSON.stringify(s.dateLabel)) + ');';
+                const createJs = 'gmOpenManuelOtForm(' + escapeAttr(JSON.stringify(row.id)) + ',' + escapeAttr(JSON.stringify(s.weekKey)) + ',' + escapeAttr(JSON.stringify(gmDateToIsoInput(s.monday))) + ');';
                 return '<td style="padding:1px; text-align:center; background:' + tdBg + ';' + moisBoundaryStyle(idx) + '"' + tdAttrs + '>' +
                     '<button type="button" title="Créer une intervention manuelle (semaine ' + s.isoWeek + ')" onclick="' + createJs + '" class="gm-matrice-cell-btn gm-matrice-cell-empty">·</button>' +
                 '</td>';
@@ -13113,7 +13167,7 @@ function gmRenderManuelOtForm(entry, manuel, weekLabel) {
     return '' +
         '<label style="' + labelStyle + '">Équipement<input type="text" value="' + escapeAttr(entry.nom || '') + '" disabled style="' + inputStyle + ' background:#f3f4f6;"></label>' +
         '<label style="' + labelStyle + '">Semaine<input type="text" value="' + escapeAttr(weekLabel || '') + '" disabled style="' + inputStyle + ' background:#f3f4f6;"></label>' +
-        '<label style="' + labelStyle + '">Date de l\'intervention<input type="text" id="gmManuelFormDate" placeholder="jj/mm/aaaa" value="' + escapeAttr(d.date) + '" style="' + inputStyle + '"></label>' +
+        '<label style="' + labelStyle + '">Date de l\'intervention<input type="date" id="gmManuelFormDate" value="' + escapeAttr(gmDateFrToIsoInput(d.date)) + '" style="' + inputStyle + '"></label>' +
         '<label style="' + labelStyle + '">Type d\'intervention<input type="text" id="gmManuelFormType" placeholder="Ex. Maintenance corrective" value="' + escapeAttr(d.interventionType) + '" style="' + inputStyle + '"></label>' +
         '<label style="' + labelStyle + '">Libellé / description<input type="text" id="gmManuelFormLibelle" placeholder="Description de l\'intervention" value="' + escapeAttr(d.libelle) + '" style="' + inputStyle + '"></label>' +
         '<label style="' + labelStyle + '">Technicien<input type="text" id="gmManuelFormTechnicien" value="' + escapeAttr(d.technicien) + '" style="' + inputStyle + '"></label>' +
@@ -13122,16 +13176,16 @@ function gmRenderManuelOtForm(entry, manuel, weekLabel) {
         (isNew ? '' : '<div style="color:#94a3b8; font-size:11px; margin-top:4px;">Identifiant : ' + escapeHtml(d.id || '') + '</div>');
 }
 
-function gmOpenManuelOtForm(equipementId, weekKey, weekDateLabel) {
+function gmOpenManuelOtForm(equipementId, weekKey, mondayIso) {
     const entry = (typeof equipementsRegistry !== 'undefined' ? equipementsRegistry[equipementId] : null);
     if (!entry) return;
     gmManuelOtFormContext = { equipementId: equipementId, weekKey: weekKey, isNew: true };
     const titleEl = document.getElementById('gmMatriceManuelModalTitle');
     if (titleEl) titleEl.textContent = '🆕 Nouvelle intervention manuelle';
     const body = document.getElementById('gmMatriceManuelModalBody');
-    if (body) body.innerHTML = gmRenderManuelOtForm(entry, null, weekKey + ' (' + weekDateLabel + ')');
+    if (body) body.innerHTML = gmRenderManuelOtForm(entry, null, gmWeekKeyLabelFr(weekKey));
     const dateEl = document.getElementById('gmManuelFormDate');
-    if (dateEl && !dateEl.value) dateEl.value = weekDateLabel + '/' + gmMatriceCurrentIsoYear();
+    if (dateEl && !dateEl.value) dateEl.value = mondayIso || '';
     const delBtn = document.getElementById('gmManuelFormDeleteBtn');
     if (delBtn) delBtn.style.display = 'none';
     const overlay = document.getElementById('gmMatriceManuelModalOverlay');
@@ -13146,7 +13200,7 @@ function gmOpenManuelOtDetail(equipementId, weekKey) {
     const titleEl = document.getElementById('gmMatriceManuelModalTitle');
     if (titleEl) titleEl.textContent = '✏️ Intervention manuelle';
     const body = document.getElementById('gmMatriceManuelModalBody');
-    if (body) body.innerHTML = gmRenderManuelOtForm(entry, manuel, weekKey);
+    if (body) body.innerHTML = gmRenderManuelOtForm(entry, manuel, gmWeekKeyLabelFr(weekKey));
     const delBtn = document.getElementById('gmManuelFormDeleteBtn');
     if (delBtn) delBtn.style.display = '';
     const overlay = document.getElementById('gmMatriceManuelModalOverlay');
@@ -13162,9 +13216,14 @@ function closeManuelOtModal() {
 function gmSaveManuelOtForm() {
     if (!gmManuelOtFormContext) return;
     const ctx = gmManuelOtFormContext;
-    const date = (document.getElementById('gmManuelFormDate') || {}).value || '';
-    if (!gmParsePlanningDate(date)) {
-        showNotification('Date invalide (format attendu jj/mm/aaaa)', 'error');
+    const dateIso = (document.getElementById('gmManuelFormDate') || {}).value || '';
+    const date = gmDateIsoInputToFr(dateIso);
+    // 🩹 Retour terrain (point 2) : le champ natif type="date" empêche déjà la saisie clavier
+    // d'une date structurellement absurde, mais on revalide ici en profondeur (gmIsDateValide,
+    // vérification des plages + round-trip) pour ne dépendre d'aucun comportement spécifique
+    // à un navigateur — c'est cette 2e ligne de défense qui aurait bloqué "33/13/2026".
+    if (!date || !gmIsDateValide(date)) {
+        showNotification('Date invalide — veuillez sélectionner une date via le calendrier', 'error');
         return;
     }
     if (!gmManuelOtsRegistry[ctx.equipementId]) gmManuelOtsRegistry[ctx.equipementId] = {};

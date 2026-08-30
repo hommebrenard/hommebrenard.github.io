@@ -5208,6 +5208,21 @@ function gmBuildRapportCompteurData(compteurId) {
     return { entete: entete, colonnes: colonnes, lignes: lignes };
 }
 
+/** 🩹 Retour terrain — le rapport PDF d'un compteur à gabarit riche (ex. "Relevé paramétrique
+ *  onduleur", 17 colonnes) était illisible : toujours généré en portrait, avec une police fixe,
+ *  chaque en-tête de colonne s'écrasait sur plusieurs lignes verticales. Ces deux fonctions
+ *  adaptent automatiquement l'orientation de page et la taille de police au nombre de colonnes
+ *  du rapport — réutilisées par gmExporterRelevesCompteurPDF ET gmExporterRapportEquipementPDF
+ *  ci-dessous, pour que les deux bénéficient de la même correction. */
+function gmChoisirOrientationPDF(nbColonnesMax) {
+    return nbColonnesMax > 5 ? 'l' : 'p';
+}
+function gmStylesTablePDF(nbColonnes) {
+    if (nbColonnes > 12) return { fontSize: 6, cellPadding: 1.2 };
+    if (nbColonnes > 8) return { fontSize: 7, cellPadding: 1.5 };
+    return { fontSize: 9, cellPadding: 2 };
+}
+
 function gmExporterRelevesCompteurPDF(compteurId) {
     if (typeof window.jspdf === 'undefined') {
         showNotification('Génération PDF indisponible dans cet environnement.', 'error');
@@ -5221,27 +5236,32 @@ function gmExporterRelevesCompteurPDF(compteurId) {
     }
     var compteur = compteursRegistry[compteurId];
     var { jsPDF } = window.jspdf;
-    var doc = new jsPDF();
+    var orientation = gmChoisirOrientationPDF(data.colonnes.length);
+    var doc = new jsPDF(orientation, 'mm', 'a4');
+    var pageWidth = doc.internal.pageSize.getWidth();
     doc.setFont('helvetica');
     doc.setFillColor(31, 56, 100);
-    doc.rect(0, 0, 210, 20, 'F');
+    doc.rect(0, 0, pageWidth, 20, 'F');
     doc.setTextColor(255);
     doc.setFontSize(14); doc.setFont('helvetica', 'bold');
-    doc.text('RELEVÉS COMPTEUR', 105, 13, { align: 'center' });
+    doc.text('RELEVÉS COMPTEUR', pageWidth / 2, 13, { align: 'center' });
     doc.setTextColor(0); doc.setFontSize(10); doc.setFont('helvetica', 'normal');
     var y = 30;
     doc.text('Compteur : ' + data.entete.nomCompteur, 14, y); y += 6;
     doc.text('Équipement : ' + data.entete.equipementNom, 14, y); y += 6;
     doc.text('Type : ' + data.entete.typeLabel, 14, y); y += 6;
     doc.text('Généré le : ' + new Date().toLocaleString('fr-FR'), 14, y); y += 8;
+    var st = gmStylesTablePDF(data.colonnes.length);
     doc.autoTable({
         startY: y,
         head: [data.colonnes],
         body: data.lignes,
         theme: 'grid',
-        headStyles: { fillColor: [31, 56, 100], textColor: 255, font: 'helvetica', fontStyle: 'bold' },
+        headStyles: { fillColor: [31, 56, 100], textColor: 255, font: 'helvetica', fontStyle: 'bold', fontSize: st.fontSize },
         bodyStyles: { font: 'helvetica' },
-        styles: { fontSize: 9, font: 'helvetica' }
+        styles: { fontSize: st.fontSize, font: 'helvetica', cellPadding: st.cellPadding },
+        horizontalPageBreak: data.colonnes.length > 8,
+        horizontalPageBreakRepeat: 0
     });
     var nomFichier = (data.entete.equipementNom + '_' + data.entete.nomCompteur).replace(/[^a-zA-Z0-9]+/g, '_');
     doc.save('releves_' + nomFichier + '.pdf');
@@ -5275,28 +5295,37 @@ function gmExporterRapportEquipementPDF(equipId) {
         return;
     }
     var { jsPDF } = window.jspdf;
-    var doc = new jsPDF();
+    // Orientation choisie sur la base du compteur le plus large du rapport (une seule
+    // orientation pour tout le document — évite de mélanger portrait/paysage d'une page à
+    // l'autre, ce qui compliquerait inutilement l'impression).
+    var nbColonnesMax = Math.max.apply(null, data.sections.map(function(s) { return s.colonnes.length; }));
+    var orientation = gmChoisirOrientationPDF(nbColonnesMax);
+    var doc = new jsPDF(orientation, 'mm', 'a4');
+    var pageWidth = doc.internal.pageSize.getWidth();
     data.sections.forEach(function(section, idx) {
         if (idx > 0) doc.addPage();
         doc.setFont('helvetica');
         doc.setFillColor(31, 56, 100);
-        doc.rect(0, 0, 210, 20, 'F');
+        doc.rect(0, 0, pageWidth, 20, 'F');
         doc.setTextColor(255);
         doc.setFontSize(14); doc.setFont('helvetica', 'bold');
-        doc.text('RAPPORT COMPTEURS — ' + data.equipementNom, 105, 13, { align: 'center' });
+        doc.text('RAPPORT COMPTEURS — ' + data.equipementNom, pageWidth / 2, 13, { align: 'center' });
         doc.setTextColor(0); doc.setFontSize(10); doc.setFont('helvetica', 'normal');
         var y = 30;
         doc.text('Compteur : ' + section.entete.nomCompteur, 14, y); y += 6;
         doc.text('Type : ' + section.entete.typeLabel, 14, y); y += 6;
         doc.text('Généré le : ' + new Date().toLocaleString('fr-FR'), 14, y); y += 8;
+        var st = gmStylesTablePDF(section.colonnes.length);
         doc.autoTable({
             startY: y,
             head: [section.colonnes],
             body: section.lignes,
             theme: 'grid',
-            headStyles: { fillColor: [31, 56, 100], textColor: 255, font: 'helvetica', fontStyle: 'bold' },
+            headStyles: { fillColor: [31, 56, 100], textColor: 255, font: 'helvetica', fontStyle: 'bold', fontSize: st.fontSize },
             bodyStyles: { font: 'helvetica' },
-            styles: { fontSize: 9, font: 'helvetica' }
+            styles: { fontSize: st.fontSize, font: 'helvetica', cellPadding: st.cellPadding },
+            horizontalPageBreak: section.colonnes.length > 8,
+            horizontalPageBreakRepeat: 0
         });
     });
     var nomFichier = data.equipementNom.replace(/[^a-zA-Z0-9]+/g, '_');

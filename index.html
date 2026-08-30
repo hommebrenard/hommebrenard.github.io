@@ -5187,15 +5187,39 @@ function gmBuildRapportCompteurData(compteurId) {
         typeLabel: compteur.gabaritId ? 'Gabarit' : (compteur.type === 'energetique' ? 'Énergétique' : 'Technique'),
         unite: compteur.unite || ''
     };
-    var colonnes, lignes;
+    var colonnes, lignes, sousEntetes = null;
     if (compteur.gabaritId) {
         var gabarit = gmGetGabarit(compteur.gabaritId);
         var releves = gmGetRelevesTries(compteur).slice().reverse(); // chronologique croissant, comme l'export CSV
-        colonnes = ['Date'].concat((gabarit ? gabarit.champs : []).map(function(def) {
+        var champs = gabarit ? gabarit.champs : [];
+        colonnes = ['Date'].concat(champs.map(function(def) {
             return def.label + (def.unite ? ' (' + def.unite + ')' : '');
         }));
+        // 🩹 Retour terrain — la fiche papier de référence affiche "Seuil MAX : X.0" sous chaque
+        // colonne concernée (celles marquées `seuil: 'max'` dans le gabarit). On expose cette
+        // sous-ligne séparément (sousEntetes), pour que gmExporterRelevesCompteurPDF puisse la
+        // rendre comme 2e ligne d'en-tête — reste `null` si aucun champ n'a de seuil (compteurs
+        // gabarit plus simples), pour ne rien changer à leur rendu existant.
+        var seuilsChamps = compteur.seuilsChamps || {};
+        var aAuMoinsUnSeuil = champs.some(function(def) { return !!def.seuil; });
+        if (aAuMoinsUnSeuil) {
+            sousEntetes = [''].concat(champs.map(function(def) {
+                if (!def.seuil) return '';
+                var configure = seuilsChamps[def.key] || {};
+                var valeurMax = (configure.max !== null && configure.max !== undefined)
+                    ? configure.max
+                    : (def.seuilDefautMax !== undefined ? def.seuilDefautMax : 0);
+                if (def.seuil === 'range') {
+                    var valeurMin = (configure.min !== null && configure.min !== undefined)
+                        ? configure.min
+                        : (def.seuilDefautMin !== undefined ? def.seuilDefautMin : 0);
+                    return 'Seuil : ' + Number(valeurMin).toFixed(1) + ' / ' + Number(valeurMax).toFixed(1);
+                }
+                return 'Seuil MAX : ' + Number(valeurMax).toFixed(1);
+            }));
+        }
         lignes = releves.map(function(r) {
-            return [r.date].concat((gabarit ? gabarit.champs : []).map(function(def) {
+            return [r.date].concat(champs.map(function(def) {
                 var v = (r.champs || {})[def.key];
                 return (v === null || v === undefined) ? '' : String(v);
             }));
@@ -5205,7 +5229,7 @@ function gmBuildRapportCompteurData(compteurId) {
         colonnes = ['Date', 'Valeur' + (entete.unite ? ' (' + entete.unite + ')' : '')];
         lignes = serie.map(function(p) { return [p.date, String(p.valeur)]; });
     }
-    return { entete: entete, colonnes: colonnes, lignes: lignes };
+    return { entete: entete, colonnes: colonnes, sousEntetes: sousEntetes, lignes: lignes };
 }
 
 /** 🩹 Retour terrain — le rapport PDF d'un compteur à gabarit riche (ex. "Relevé paramétrique
@@ -5218,7 +5242,12 @@ function gmChoisirOrientationPDF(nbColonnesMax) {
     return nbColonnesMax > 5 ? 'l' : 'p';
 }
 function gmStylesTablePDF(nbColonnes) {
-    if (nbColonnes > 12) return { fontSize: 6, cellPadding: 1.2 };
+    // 🩹 Retour terrain — la fiche de référence tient TOUJOURS sur une seule page, quel que
+    // soit le nombre de colonnes (17 dans le cas de l'onduleur) : on ne découpe plus jamais le
+    // tableau sur plusieurs pages (cf. gmExporterRelevesCompteurPDF plus bas), donc la police
+    // doit pouvoir descendre plus bas qu'avant pour garantir que tout reste sur une page.
+    if (nbColonnes > 15) return { fontSize: 5, cellPadding: 0.8 };
+    if (nbColonnes > 12) return { fontSize: 6, cellPadding: 1 };
     if (nbColonnes > 8) return { fontSize: 7, cellPadding: 1.5 };
     return { fontSize: 9, cellPadding: 2 };
 }
@@ -5252,16 +5281,18 @@ function gmExporterRelevesCompteurPDF(compteurId) {
     doc.text('Type : ' + data.entete.typeLabel, 14, y); y += 6;
     doc.text('Généré le : ' + new Date().toLocaleString('fr-FR'), 14, y); y += 8;
     var st = gmStylesTablePDF(data.colonnes.length);
+    // 🩹 Retour terrain — plus de découpage sur plusieurs pages (horizontalPageBreak retiré) :
+    // la fiche de référence tient toujours sur une seule page, quitte à réduire fortement la
+    // police (cf. gmStylesTablePDF ci-dessus). En-tête sur 2 lignes quand sousEntetes existe
+    // (2e ligne = "Seuil MAX : X.0" par colonne concernée, comme sur la fiche papier).
     doc.autoTable({
         startY: y,
-        head: [data.colonnes],
+        head: data.sousEntetes ? [data.colonnes, data.sousEntetes] : [data.colonnes],
         body: data.lignes,
         theme: 'grid',
         headStyles: { fillColor: [31, 56, 100], textColor: 255, font: 'helvetica', fontStyle: 'bold', fontSize: st.fontSize },
         bodyStyles: { font: 'helvetica' },
-        styles: { fontSize: st.fontSize, font: 'helvetica', cellPadding: st.cellPadding },
-        horizontalPageBreak: data.colonnes.length > 8,
-        horizontalPageBreakRepeat: 0
+        styles: { fontSize: st.fontSize, font: 'helvetica', cellPadding: st.cellPadding }
     });
     var nomFichier = (data.entete.equipementNom + '_' + data.entete.nomCompteur).replace(/[^a-zA-Z0-9]+/g, '_');
     doc.save('releves_' + nomFichier + '.pdf');
@@ -5318,14 +5349,12 @@ function gmExporterRapportEquipementPDF(equipId) {
         var st = gmStylesTablePDF(section.colonnes.length);
         doc.autoTable({
             startY: y,
-            head: [section.colonnes],
+            head: section.sousEntetes ? [section.colonnes, section.sousEntetes] : [section.colonnes],
             body: section.lignes,
             theme: 'grid',
             headStyles: { fillColor: [31, 56, 100], textColor: 255, font: 'helvetica', fontStyle: 'bold', fontSize: st.fontSize },
             bodyStyles: { font: 'helvetica' },
-            styles: { fontSize: st.fontSize, font: 'helvetica', cellPadding: st.cellPadding },
-            horizontalPageBreak: section.colonnes.length > 8,
-            horizontalPageBreakRepeat: 0
+            styles: { fontSize: st.fontSize, font: 'helvetica', cellPadding: st.cellPadding }
         });
     });
     var nomFichier = data.equipementNom.replace(/[^a-zA-Z0-9]+/g, '_');

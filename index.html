@@ -5166,6 +5166,144 @@ function gmExporterRelevesCompteurCSV(compteurId) {
     setTimeout(function() { URL.revokeObjectURL(url); }, 60000);
 }
 
+/* ============================================
+   🆕 CHANTIER 11 (Rapports) — Phase B : rapport PDF des relevés compteurs. Réutilise
+   gmGetSerieCompteur() (déjà prévue à cet effet depuis le Chantier 7, cf. résumé de reprise).
+   ⚠️ Mise en forme par défaut : aucun modèle Excel de référence n'a été fourni dans cette
+   session (contrairement à la refonte visuelle de la matrice en Phase A.4, qui s'appuyait sur
+   un prototype fourni). Ce rapport suit donc uniquement les conventions déjà en place ailleurs
+   dans l'app pour les PDF (en-tête bleu, jsPDF + autoTable — cf. exportChecklistPDF()) — à
+   ajuster précisément sur le modèle Excel réel dès qu'il sera fourni.
+   Découpage en 2 fonctions, comme pour la matrice (fonction pure de préparation de données +
+   fonction de rendu séparée) : gmBuildRapportCompteurData() ne dépend ni du DOM ni de jsPDF et
+   est donc testable directement ; gmExporterRelevesCompteurPDF() ne fait que la mise en page. */
+function gmBuildRapportCompteurData(compteurId) {
+    var compteur = compteursRegistry[compteurId];
+    if (!compteur) return null;
+    var equip = equipementsRegistry[compteur.equipId];
+    var entete = {
+        nomCompteur: compteur.nom,
+        equipementNom: equip ? equip.nom : (compteur.equipId || ''),
+        typeLabel: compteur.gabaritId ? 'Gabarit' : (compteur.type === 'energetique' ? 'Énergétique' : 'Technique'),
+        unite: compteur.unite || ''
+    };
+    var colonnes, lignes;
+    if (compteur.gabaritId) {
+        var gabarit = gmGetGabarit(compteur.gabaritId);
+        var releves = gmGetRelevesTries(compteur).slice().reverse(); // chronologique croissant, comme l'export CSV
+        colonnes = ['Date'].concat((gabarit ? gabarit.champs : []).map(function(def) {
+            return def.label + (def.unite ? ' (' + def.unite + ')' : '');
+        }));
+        lignes = releves.map(function(r) {
+            return [r.date].concat((gabarit ? gabarit.champs : []).map(function(def) {
+                var v = (r.champs || {})[def.key];
+                return (v === null || v === undefined) ? '' : String(v);
+            }));
+        });
+    } else {
+        var serie = gmGetSerieCompteur(compteurId);
+        colonnes = ['Date', 'Valeur' + (entete.unite ? ' (' + entete.unite + ')' : '')];
+        lignes = serie.map(function(p) { return [p.date, String(p.valeur)]; });
+    }
+    return { entete: entete, colonnes: colonnes, lignes: lignes };
+}
+
+function gmExporterRelevesCompteurPDF(compteurId) {
+    if (typeof window.jspdf === 'undefined') {
+        showNotification('Génération PDF indisponible dans cet environnement.', 'error');
+        return;
+    }
+    var data = gmBuildRapportCompteurData(compteurId);
+    if (!data) return;
+    if (!data.lignes.length) {
+        showNotification('Aucun relevé à exporter pour ce compteur.', 'warning');
+        return;
+    }
+    var compteur = compteursRegistry[compteurId];
+    var { jsPDF } = window.jspdf;
+    var doc = new jsPDF();
+    doc.setFont('helvetica');
+    doc.setFillColor(31, 56, 100);
+    doc.rect(0, 0, 210, 20, 'F');
+    doc.setTextColor(255);
+    doc.setFontSize(14); doc.setFont('helvetica', 'bold');
+    doc.text('RELEVÉS COMPTEUR', 105, 13, { align: 'center' });
+    doc.setTextColor(0); doc.setFontSize(10); doc.setFont('helvetica', 'normal');
+    var y = 30;
+    doc.text('Compteur : ' + data.entete.nomCompteur, 14, y); y += 6;
+    doc.text('Équipement : ' + data.entete.equipementNom, 14, y); y += 6;
+    doc.text('Type : ' + data.entete.typeLabel, 14, y); y += 6;
+    doc.text('Généré le : ' + new Date().toLocaleString('fr-FR'), 14, y); y += 8;
+    doc.autoTable({
+        startY: y,
+        head: [data.colonnes],
+        body: data.lignes,
+        theme: 'grid',
+        headStyles: { fillColor: [31, 56, 100], textColor: 255, font: 'helvetica', fontStyle: 'bold' },
+        bodyStyles: { font: 'helvetica' },
+        styles: { fontSize: 9, font: 'helvetica' }
+    });
+    var nomFichier = (data.entete.equipementNom + '_' + data.entete.nomCompteur).replace(/[^a-zA-Z0-9]+/g, '_');
+    doc.save('releves_' + nomFichier + '.pdf');
+    showNotification('PDF généré');
+}
+
+/* 🆕 Extension de la Phase B : rapport PDF CONSOLIDÉ pour un équipement (tous ses compteurs
+ * dans un seul document, une section par compteur), plutôt qu'un export compteur par compteur.
+ * Même découpage pur/rendu que gmBuildRapportCompteurData/gmExporterRelevesCompteurPDF ci-dessus
+ * — réutilise d'ailleurs gmBuildRapportCompteurData() pour chaque compteur, aucune duplication
+ * de la logique de préparation de données. */
+function gmBuildRapportEquipementData(equipId) {
+    var equip = equipementsRegistry[equipId];
+    if (!equip) return null;
+    var compteurs = gmGetCompteursPourEquipement(equipId);
+    var sections = compteurs
+        .map(function(c) { return gmBuildRapportCompteurData(c.id); })
+        .filter(function(d) { return d && d.lignes.length > 0; }); // on ignore les compteurs sans aucun relevé
+    return { equipementNom: equip.nom, sections: sections };
+}
+
+function gmExporterRapportEquipementPDF(equipId) {
+    if (typeof window.jspdf === 'undefined') {
+        showNotification('Génération PDF indisponible dans cet environnement.', 'error');
+        return;
+    }
+    var data = gmBuildRapportEquipementData(equipId);
+    if (!data) return;
+    if (!data.sections.length) {
+        showNotification('Aucun relevé à exporter pour cet équipement.', 'warning');
+        return;
+    }
+    var { jsPDF } = window.jspdf;
+    var doc = new jsPDF();
+    data.sections.forEach(function(section, idx) {
+        if (idx > 0) doc.addPage();
+        doc.setFont('helvetica');
+        doc.setFillColor(31, 56, 100);
+        doc.rect(0, 0, 210, 20, 'F');
+        doc.setTextColor(255);
+        doc.setFontSize(14); doc.setFont('helvetica', 'bold');
+        doc.text('RAPPORT COMPTEURS — ' + data.equipementNom, 105, 13, { align: 'center' });
+        doc.setTextColor(0); doc.setFontSize(10); doc.setFont('helvetica', 'normal');
+        var y = 30;
+        doc.text('Compteur : ' + section.entete.nomCompteur, 14, y); y += 6;
+        doc.text('Type : ' + section.entete.typeLabel, 14, y); y += 6;
+        doc.text('Généré le : ' + new Date().toLocaleString('fr-FR'), 14, y); y += 8;
+        doc.autoTable({
+            startY: y,
+            head: [section.colonnes],
+            body: section.lignes,
+            theme: 'grid',
+            headStyles: { fillColor: [31, 56, 100], textColor: 255, font: 'helvetica', fontStyle: 'bold' },
+            bodyStyles: { font: 'helvetica' },
+            styles: { fontSize: 9, font: 'helvetica' }
+        });
+    });
+    var nomFichier = data.equipementNom.replace(/[^a-zA-Z0-9]+/g, '_');
+    doc.save('rapport_compteurs_' + nomFichier + '.pdf');
+    showNotification('Rapport PDF généré (' + data.sections.length + ' compteur' + (data.sections.length > 1 ? 's' : '') + ')');
+}
+
 /** Rendu de la liste des compteurs d'un équipement déplié. */
 function gmRenderCompteursDUnEquip(equipId) {
     var compteurs = gmGetCompteursPourEquipement(equipId);
@@ -5198,6 +5336,7 @@ function gmRenderCompteursDUnEquip(equipId) {
             + (!gabarit && c.type === 'energetique' && (c.releves || []).length >= 2 ? '<button type="button" class="btn ' + (gmCompteursExpandedCourbe === c.id ? 'btn-primary' : 'btn-secondary') + '" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmToggleCourbe(' + escapeAttr(JSON.stringify(c.id)) + ')">📈 Courbe</button>' : '')
             + (aChampsSeuil ? '<button type="button" class="btn ' + (gmCompteursFormSeuils === c.id ? 'btn-primary' : 'btn-secondary') + '" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmToggleFormSeuils(' + escapeAttr(JSON.stringify(c.id)) + ')">⚙️ Seuils</button>' : '')
             + ((c.releves || []).length > 0 ? '<button type="button" class="btn btn-secondary" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmExporterRelevesCompteurCSV(' + escapeAttr(JSON.stringify(c.id)) + ')">⬇️ CSV</button>' : '')
+            + ((c.releves || []).length > 0 ? '<button type="button" class="btn btn-secondary" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmExporterRelevesCompteurPDF(' + escapeAttr(JSON.stringify(c.id)) + ')">📄 PDF</button>' : '')
             + '<button type="button" class="btn btn-primary" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmAjouterReleveUI(' + escapeAttr(JSON.stringify(c.id)) + ')">+ Relevé</button>'
             + '<button type="button" class="btn btn-danger" style="min-height:28px; padding:4px 8px; font-size:10px;" onclick="gmSupprimerCompteur(' + escapeAttr(JSON.stringify(c.id)) + ')">🗑️</button>'
             + '</div>'
@@ -5205,8 +5344,10 @@ function gmRenderCompteursDUnEquip(equipId) {
             + (!gabarit && gmCompteursExpandedCourbe === c.id ? gmRenderCourbePanel(c) : '')
             + '</div>';
     }).join('');
+    var aAuMoinsUnReleve = compteurs.some(function(c) { return (c.releves || []).length > 0; });
     return '<div class="gm-cpt-list">'
         + (rows || '<span style="font-size:11px; color:#9ca3af; font-style:italic;">Aucun compteur pour cet équipement.</span>')
+        + (aAuMoinsUnReleve ? '<button type="button" class="btn btn-secondary internal-only" style="min-height:30px; padding:6px 10px; font-size:11px; align-self:flex-start;" onclick="gmExporterRapportEquipementPDF(' + escapeAttr(JSON.stringify(equipId)) + ')">📄 Rapport PDF (tous les compteurs)</button>' : '')
         + '<button type="button" class="btn btn-primary internal-only" style="min-height:30px; padding:6px 10px; font-size:11px; align-self:flex-start;" onclick="gmCreerCompteurUI(' + escapeAttr(JSON.stringify(equipId)) + ')">+ Ajouter un compteur</button>'
         + '</div>';
 }

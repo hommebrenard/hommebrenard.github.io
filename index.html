@@ -5177,15 +5177,48 @@ function gmExporterRelevesCompteurCSV(compteurId) {
    Découpage en 2 fonctions, comme pour la matrice (fonction pure de préparation de données +
    fonction de rendu séparée) : gmBuildRapportCompteurData() ne dépend ni du DOM ni de jsPDF et
    est donc testable directement ; gmExporterRelevesCompteurPDF() ne fait que la mise en page. */
+var GM_JOURS_SEMAINE_FR = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+
+/** 🩹 Retour terrain — sur la fiche papier de référence, la colonne "Journée" affiche
+ *  "lundi 07", "mardi 08"... (jour de la semaine + numéro du jour), jamais une date complète.
+ *  Reformate n'importe quelle valeur reconnaissable comme date (jj/mm/aaaa) dans ce style ;
+ *  si la valeur n'est pas une date reconnaissable (texte libre), elle est laissée telle quelle
+ *  — aucune perte de donnée dans les deux cas. */
+function gmFormatJourneeGabarit(valeurBrute) {
+    var d = gmParsePlanningDate(valeurBrute);
+    if (!d) return valeurBrute;
+    return GM_JOURS_SEMAINE_FR[d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0');
+}
+
+/** 🩹 Retour terrain — la colonne "Date" du rapport affichait parfois "AAAA-MM-JJ" (format
+ *  natif renvoyé par le calendrier <input type="date"> du formulaire de relevé gabarit),
+ *  incohérent avec le reste de l'app qui utilise "JJ/MM/AAAA" (cf. gmParsePlanningDate). Option
+ *  retenue avec l'utilisateur : corriger UNIQUEMENT l'affichage du rapport (ici), sans toucher
+ *  ni à la saisie ni aux données déjà enregistrées, qui restent stockées telles quelles.
+ *  Reconnaît "JJ/MM/AAAA" (déjà bon, laissé tel quel) et "AAAA-MM-JJ" (ISO, reformaté) ; toute
+ *  autre valeur est laissée inchangée (aucune perte de donnée si le format est inattendu). */
+function gmNormaliserDateAffichage(valeurBrute) {
+    var v = String(valeurBrute || '').trim();
+    var mIso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+    if (mIso) return mIso[3] + '/' + mIso[2] + '/' + mIso[1];
+    return v;
+}
+
 function gmBuildRapportCompteurData(compteurId) {
     var compteur = compteursRegistry[compteurId];
     if (!compteur) return null;
     var equip = equipementsRegistry[compteur.equipId];
+    // 🩹 Retour terrain — enrichissement du rapport : site, zone et localisation de
+    // l'équipement, quand ils sont renseignés (jamais de ligne vide dans le PDF sinon).
+    var nomSite = (typeof activeSiteKey !== 'undefined' && activeSiteKey && typeof sitesLibrary !== 'undefined' && sitesLibrary[activeSiteKey] && sitesLibrary[activeSiteKey].nomSite) || '';
     var entete = {
         nomCompteur: compteur.nom,
         equipementNom: equip ? equip.nom : (compteur.equipId || ''),
         typeLabel: compteur.gabaritId ? 'Gabarit' : (compteur.type === 'energetique' ? 'Énergétique' : 'Technique'),
-        unite: compteur.unite || ''
+        unite: compteur.unite || '',
+        site: nomSite,
+        zone: (equip && equip.zone) || '',
+        localisation: (equip && equip.localisation) || ''
     };
     var colonnes, lignes, sousEntetes = null;
     if (compteur.gabaritId) {
@@ -5219,15 +5252,25 @@ function gmBuildRapportCompteurData(compteurId) {
             }));
         }
         lignes = releves.map(function(r) {
-            return [r.date].concat(champs.map(function(def) {
+            return [gmNormaliserDateAffichage(r.date)].concat(champs.map(function(def) {
                 var v = (r.champs || {})[def.key];
-                return (v === null || v === undefined) ? '' : String(v);
+                if (v === null || v === undefined) return '';
+                // 🩹 Retour terrain (point 1) — reformatage spécifique au champ "journee".
+                return def.key === 'journee' ? gmFormatJourneeGabarit(String(v)) : String(v);
             }));
         });
     } else {
         var serie = gmGetSerieCompteur(compteurId);
         colonnes = ['Date', 'Valeur' + (entete.unite ? ' (' + entete.unite + ')' : '')];
-        lignes = serie.map(function(p) { return [p.date, String(p.valeur)]; });
+        lignes = serie.map(function(p) { return [gmNormaliserDateAffichage(p.date), String(p.valeur)]; });
+
+    }
+    // 🩹 Retour terrain (point 2) — période couverte par le rapport, pour le sous-titre
+    // ("Relevés réalisés du X au Y"). La colonne Date est toujours en position 0 de chaque
+    // ligne, et lignes est déjà trié chronologiquement croissant (cf. ci-dessus).
+    if (lignes.length) {
+        entete.datePremierReleve = lignes[0][0];
+        entete.dateDernierReleve = lignes[lignes.length - 1][0];
     }
     return { entete: entete, colonnes: colonnes, sousEntetes: sousEntetes, lignes: lignes };
 }
@@ -5252,6 +5295,43 @@ function gmStylesTablePDF(nbColonnes) {
     return { fontSize: 9, cellPadding: 2 };
 }
 
+/** 🩹 Retour terrain (points 2 et 3) — en-tête de rapport factorisée, réutilisée par les 2
+ *  générateurs PDF ci-dessous (compteur seul + rapport consolidé par équipement) :
+ *  - titre principal dans le bandeau bleu (paramétrable, ex. nom du compteur en majuscules)
+ *  - sous-titre période en rouge/gras, centré, dans l'esprit de la fiche papier de référence
+ *    ("Relevés réalisés du X au Y", ou "le X" s'il n'y a qu'un seul relevé)
+ *  - lignes d'info enrichies : Site et Zone/Localisation ajoutés quand ils sont renseignés
+ *    (jamais de ligne vide) — auparavant absents du rapport.
+ *  Retourne la position Y à partir de laquelle le tableau doit commencer. */
+function gmDessinerEnteteRapportPDF(doc, pageWidth, entete, options) {
+    options = options || {};
+    doc.setFont('helvetica');
+    doc.setFillColor(31, 56, 100);
+    doc.rect(0, 0, pageWidth, 20, 'F');
+    doc.setTextColor(255);
+    doc.setFontSize(14); doc.setFont('helvetica', 'bold');
+    doc.text(options.titre || 'RELEVÉS COMPTEUR', pageWidth / 2, 13, { align: 'center' });
+    var y = 28;
+    if (entete.datePremierReleve) {
+        doc.setTextColor(180, 30, 30);
+        doc.setFontSize(11); doc.setFont('helvetica', 'bold');
+        var periode = (entete.datePremierReleve === entete.dateDernierReleve)
+            ? ('Relevés réalisés le ' + entete.datePremierReleve)
+            : ('Relevés réalisés du ' + entete.datePremierReleve + ' au ' + entete.dateDernierReleve);
+        doc.text(periode, pageWidth / 2, y, { align: 'center' });
+        y += 8;
+    }
+    doc.setTextColor(0); doc.setFontSize(10); doc.setFont('helvetica', 'normal');
+    if (options.masquerCompteur !== true) { doc.text('Compteur : ' + entete.nomCompteur, 14, y); y += 6; }
+    if (options.masquerEquipement !== true) { doc.text('Équipement : ' + entete.equipementNom, 14, y); y += 6; }
+    doc.text('Type : ' + entete.typeLabel, 14, y); y += 6;
+    if (entete.site) { doc.text('Site : ' + entete.site, 14, y); y += 6; }
+    if (entete.zone) { doc.text('Zone : ' + entete.zone, 14, y); y += 6; }
+    if (entete.localisation) { doc.text('Localisation : ' + entete.localisation, 14, y); y += 6; }
+    doc.text('Généré le : ' + new Date().toLocaleString('fr-FR'), 14, y); y += 8;
+    return y;
+}
+
 function gmExporterRelevesCompteurPDF(compteurId) {
     if (typeof window.jspdf === 'undefined') {
         showNotification('Génération PDF indisponible dans cet environnement.', 'error');
@@ -5268,18 +5348,11 @@ function gmExporterRelevesCompteurPDF(compteurId) {
     var orientation = gmChoisirOrientationPDF(data.colonnes.length);
     var doc = new jsPDF(orientation, 'mm', 'a4');
     var pageWidth = doc.internal.pageSize.getWidth();
-    doc.setFont('helvetica');
-    doc.setFillColor(31, 56, 100);
-    doc.rect(0, 0, pageWidth, 20, 'F');
-    doc.setTextColor(255);
-    doc.setFontSize(14); doc.setFont('helvetica', 'bold');
-    doc.text('RELEVÉS COMPTEUR', pageWidth / 2, 13, { align: 'center' });
-    doc.setTextColor(0); doc.setFontSize(10); doc.setFont('helvetica', 'normal');
-    var y = 30;
-    doc.text('Compteur : ' + data.entete.nomCompteur, 14, y); y += 6;
-    doc.text('Équipement : ' + data.entete.equipementNom, 14, y); y += 6;
-    doc.text('Type : ' + data.entete.typeLabel, 14, y); y += 6;
-    doc.text('Généré le : ' + new Date().toLocaleString('fr-FR'), 14, y); y += 8;
+    // 🩹 Retour terrain (point 2) — titre principal = nom du compteur en majuscules (plutôt
+    // que le générique "RELEVÉS COMPTEUR"), dans l'esprit de la fiche de référence.
+    var y = gmDessinerEnteteRapportPDF(doc, pageWidth, data.entete, {
+        titre: String(data.entete.nomCompteur || 'RELEVÉS COMPTEUR').toUpperCase()
+    });
     var st = gmStylesTablePDF(data.colonnes.length);
     // 🩹 Retour terrain — plus de découpage sur plusieurs pages (horizontalPageBreak retiré) :
     // la fiche de référence tient toujours sur une seule page, quitte à réduire fortement la
@@ -5335,17 +5408,10 @@ function gmExporterRapportEquipementPDF(equipId) {
     var pageWidth = doc.internal.pageSize.getWidth();
     data.sections.forEach(function(section, idx) {
         if (idx > 0) doc.addPage();
-        doc.setFont('helvetica');
-        doc.setFillColor(31, 56, 100);
-        doc.rect(0, 0, pageWidth, 20, 'F');
-        doc.setTextColor(255);
-        doc.setFontSize(14); doc.setFont('helvetica', 'bold');
-        doc.text('RAPPORT COMPTEURS — ' + data.equipementNom, pageWidth / 2, 13, { align: 'center' });
-        doc.setTextColor(0); doc.setFontSize(10); doc.setFont('helvetica', 'normal');
-        var y = 30;
-        doc.text('Compteur : ' + section.entete.nomCompteur, 14, y); y += 6;
-        doc.text('Type : ' + section.entete.typeLabel, 14, y); y += 6;
-        doc.text('Généré le : ' + new Date().toLocaleString('fr-FR'), 14, y); y += 8;
+        var y = gmDessinerEnteteRapportPDF(doc, pageWidth, section.entete, {
+            titre: 'RAPPORT COMPTEURS — ' + data.equipementNom,
+            masquerEquipement: true // déjà dans le titre, pas besoin de la répéter par section
+        });
         var st = gmStylesTablePDF(section.colonnes.length);
         doc.autoTable({
             startY: y,

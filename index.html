@@ -4505,9 +4505,14 @@ var GM_GABARITS_RELEVE = {
             { key: 'intensite_sortie_ph1', label: 'Intensité sortie Ph1', unite: 'A', numeric: true, seuil: 'max' },
             { key: 'intensite_sortie_ph2', label: 'Intensité sortie Ph2', unite: 'A', numeric: true, seuil: 'max' },
             { key: 'intensite_sortie_ph3', label: 'Intensité sortie Ph3', unite: 'A', numeric: true, seuil: 'max' },
-            { key: 'frequence', label: 'Fréquence', unite: 'Hz', numeric: true, seuil: 'max', seuilDefautMax: 50 },
+            // 🩹 Retour terrain (point 3) — la fréquence nominale (50 Hz) peut dériver dans les
+            // deux sens (5 Hz comme trop bas est tout aussi anormal qu'un dépassement haut) :
+            // seuil 'range' (min ET max), plutôt que 'max' seul. L'autonomie batteries n'a en
+            // revanche jamais de souci si elle est "trop haute" — seule une autonomie trop basse
+            // (ex. 0 min) est un défaut ; seuil 'min' seul, pas de max à saisir pour rien.
+            { key: 'frequence', label: 'Fréquence', unite: 'Hz', numeric: true, seuil: 'range' },
             { key: 'cosphi', label: 'CosPhi', unite: '', numeric: true, seuil: 'max' },
-            { key: 'autonomie_batteries', label: 'Autonomie batteries', unite: 'Mn', numeric: true, seuil: 'max' }
+            { key: 'autonomie_batteries', label: 'Autonomie batteries', unite: 'Mn', numeric: true, seuil: 'min' }
         ]
     },
     transfo_energetique: {
@@ -4545,7 +4550,9 @@ function gmChampsAvecSeuil(gabarit) {
 }
 
 /** Un champ dépasse-t-il son seuil configuré pour ce compteur ? Retourne 'max', 'min', ou null.
- *  Ne fait rien planter si aucun seuil n'est configuré (comportement par défaut : pas d'alerte). */
+ *  Ne fait rien planter si aucun seuil n'est configuré (comportement par défaut : pas d'alerte).
+ *  🩹 Retour terrain (point 3) — trois types de seuil possibles selon le champ :
+ *  'max' (ne doit pas dépasser), 'min' (ne doit pas descendre en dessous), 'range' (les deux). */
 function gmEvaluerDepassementChamp(compteur, champDef, valeur) {
     if (!champDef.seuil || typeof valeur !== 'number' || !isFinite(valeur)) return null;
     var s = (compteur.seuilsChamps || {})[champDef.key];
@@ -4553,6 +4560,10 @@ function gmEvaluerDepassementChamp(compteur, champDef, valeur) {
     if (champDef.seuil === 'range') {
         if (s.min !== null && s.min !== undefined && valeur < s.min) return 'min';
         if (s.max !== null && s.max !== undefined && valeur > s.max) return 'max';
+        return null;
+    }
+    if (champDef.seuil === 'min') {
+        if (s.min !== null && s.min !== undefined && valeur < s.min) return 'min';
         return null;
     }
     if (s.max !== null && s.max !== undefined && valeur > s.max) return 'max';
@@ -4919,6 +4930,12 @@ function gmRenderRelevesPanelGabarit(compteur) {
 
     var tbodyRows = releves.map(function(r) {
         var cells = gabarit.champs.map(function(def) {
+            // 🩹 Retour terrain (point 1) — la colonne "Journée" n'est plus une saisie libre :
+            // elle est toujours recalculée depuis la vraie date du relevé, jamais depuis une
+            // valeur tapée (qui pouvait diverger de la Date, ex. 31/08/2026 vs 31/08/2028).
+            if (def.key === 'journee') {
+                return '<td>' + escapeHtml(gmFormatJourneeGabarit(gmNormaliserDateAffichage(r.date))) + '</td>';
+            }
             var v = (r.champs || {})[def.key];
             var affichage = (v === null || v === undefined || v === '') ? '—' : escapeHtml(String(v));
             var depassement = def.numeric ? gmEvaluerDepassementChamp(compteur, def, v) : null;
@@ -4958,7 +4975,10 @@ function gmToggleHistoriqueComplet(compteurId) {
 /** Formulaire inline d'ajout d'un relevé multi-champs (un input par champ du gabarit). */
 function gmRenderFormReleve(compteur, gabarit) {
     var prefix = 'gmReleveChamp_' + gmSanitizeDomId(compteur.id) + '_';
-    var champsHtml = gabarit.champs.map(function(def) {
+    // 🩹 Retour terrain (point 1) — "Journée" n'est plus saisie à la main : elle est toujours
+    // recalculée depuis la Date du relevé (cf. gmBuildRapportCompteurData / gmRenderRelevesPanelGabarit),
+    // donc aucun input ne lui est dédié ici pour éviter toute divergence Date/Journée.
+    var champsHtml = gabarit.champs.filter(function(def) { return def.key !== 'journee'; }).map(function(def) {
         var inputType = def.numeric ? 'number' : 'text';
         var step = def.numeric ? ' step="any"' : '';
         return '<label style="display:flex; flex-direction:column; gap:2px; font-size:10px; color:#6b7280; min-width:110px;">'
@@ -5019,6 +5039,12 @@ function gmRenderFormSeuils(compteur, gabarit) {
                 'style="width:70px; padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:11px;"> ' +
                 '<input type="number" step="any" id="' + prefix + def.key + '_max" placeholder="Max" value="' + (s.max !== null && s.max !== undefined ? s.max : '') + '" ' +
                 'style="width:70px; padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:11px;">';
+        } else if (def.seuil === 'min') {
+            // 🩹 Retour terrain (point 3) — champs à seuil bas uniquement (ex. autonomie batteries) :
+            // un seul input "Seuil MIN", pas de champ Max inutile.
+            inputsHtml =
+                '<input type="number" step="any" id="' + prefix + def.key + '_min" placeholder="Seuil MIN" value="' + (s.min !== null && s.min !== undefined ? s.min : '') + '" ' +
+                'style="width:90px; padding:4px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:11px;">';
         } else {
             inputsHtml =
                 '<input type="number" step="any" id="' + prefix + def.key + '_max" placeholder="Seuil MAX" value="' + (s.max !== null && s.max !== undefined ? s.max : '') + '" ' +
@@ -5143,6 +5169,9 @@ function gmExporterRelevesCompteurCSV(compteurId) {
         lignes = [entetes.join(';')];
         releves.forEach(function(r) {
             var ligne = [r.date].concat(gabarit.champs.map(function(def) {
+                // 🩹 Retour terrain (point 1) — même règle que la fiche et le rapport PDF :
+                // "Journée" dérivée de la Date, jamais d'une saisie libre séparée.
+                if (def.key === 'journee') return gmFormatJourneeGabarit(gmNormaliserDateAffichage(r.date));
                 var v = (r.champs || {})[def.key];
                 return (v === null || v === undefined) ? '' : String(v);
             }));
@@ -5220,7 +5249,7 @@ function gmBuildRapportCompteurData(compteurId) {
         zone: (equip && equip.zone) || '',
         localisation: (equip && equip.localisation) || ''
     };
-    var colonnes, lignes, sousEntetes = null;
+    var colonnes, lignes, sousEntetes = null, alertes;
     if (compteur.gabaritId) {
         var gabarit = gmGetGabarit(compteur.gabaritId);
         var releves = gmGetRelevesTries(compteur).slice().reverse(); // chronologique croissant, comme l'export CSV
@@ -5233,6 +5262,10 @@ function gmBuildRapportCompteurData(compteurId) {
         // sous-ligne séparément (sousEntetes), pour que gmExporterRelevesCompteurPDF puisse la
         // rendre comme 2e ligne d'en-tête — reste `null` si aucun champ n'a de seuil (compteurs
         // gabarit plus simples), pour ne rien changer à leur rendu existant.
+        // 🩹 Retour terrain (point 3) — un seuil non configuré ne doit plus jamais afficher
+        // "Seuil MAX : 0.0" (valeur fabriquée trompeuse) : la sous-ligne reste vide pour ce
+        // champ tant que rien n'a été réellement saisi dans l'écran des seuils (ou de défaut
+        // explicite fourni par le gabarit).
         var seuilsChamps = compteur.seuilsChamps || {};
         var aAuMoinsUnSeuil = champs.some(function(def) { return !!def.seuil; });
         if (aAuMoinsUnSeuil) {
@@ -5241,29 +5274,51 @@ function gmBuildRapportCompteurData(compteurId) {
                 var configure = seuilsChamps[def.key] || {};
                 var valeurMax = (configure.max !== null && configure.max !== undefined)
                     ? configure.max
-                    : (def.seuilDefautMax !== undefined ? def.seuilDefautMax : 0);
+                    : (def.seuilDefautMax !== undefined ? def.seuilDefautMax : null);
+                var valeurMin = (configure.min !== null && configure.min !== undefined)
+                    ? configure.min
+                    : (def.seuilDefautMin !== undefined ? def.seuilDefautMin : null);
                 if (def.seuil === 'range') {
-                    var valeurMin = (configure.min !== null && configure.min !== undefined)
-                        ? configure.min
-                        : (def.seuilDefautMin !== undefined ? def.seuilDefautMin : 0);
-                    return 'Seuil : ' + Number(valeurMin).toFixed(1) + ' / ' + Number(valeurMax).toFixed(1);
+                    if (valeurMin === null && valeurMax === null) return '';
+                    return 'Seuil : ' + (valeurMin !== null ? Number(valeurMin).toFixed(1) : '—') + ' / ' + (valeurMax !== null ? Number(valeurMax).toFixed(1) : '—');
                 }
-                return 'Seuil MAX : ' + Number(valeurMax).toFixed(1);
+                if (def.seuil === 'min') {
+                    return valeurMin !== null ? 'Seuil MIN : ' + Number(valeurMin).toFixed(1) : '';
+                }
+                return valeurMax !== null ? 'Seuil MAX : ' + Number(valeurMax).toFixed(1) : '';
             }));
         }
         lignes = releves.map(function(r) {
             return [gmNormaliserDateAffichage(r.date)].concat(champs.map(function(def) {
+                // 🩹 Retour terrain (point 1) — la colonne "Journée" n'est plus une saisie libre :
+                // toujours recalculée depuis la vraie date du relevé (jamais depuis une valeur
+                // tapée à part, qui pouvait diverger de la Date, ex. 31/08/2026 vs 31/08/2028).
+                if (def.key === 'journee') return gmFormatJourneeGabarit(gmNormaliserDateAffichage(r.date));
                 var v = (r.champs || {})[def.key];
-                if (v === null || v === undefined) return '';
-                // 🩹 Retour terrain (point 1) — reformatage spécifique au champ "journee".
-                return def.key === 'journee' ? gmFormatJourneeGabarit(String(v)) : String(v);
+                return (v === null || v === undefined) ? '' : String(v);
+            }));
+        });
+        // 🩹 Retour terrain (point 2) — l'anomalie était détectée dans la fiche de l'app mais
+        // absente du rapport/PDF, car ce dernier ne réutilisait pas gmEvaluerDepassementChamp().
+        // On expose ici, en parallèle de `lignes` (même dimensions, même index ligne/colonne),
+        // un tableau d'alertes ('max' | 'min' | null) pour que le générateur PDF puisse
+        // surligner les cellules concernées sans dupliquer la logique de seuils.
+        alertes = releves.map(function(r) {
+            return [null].concat(champs.map(function(def) {
+                var v = (r.champs || {})[def.key];
+                return def.numeric ? gmEvaluerDepassementChamp(compteur, def, v) : null;
             }));
         });
     } else {
         var serie = gmGetSerieCompteur(compteurId);
         colonnes = ['Date', 'Valeur' + (entete.unite ? ' (' + entete.unite + ')' : '')];
         lignes = serie.map(function(p) { return [gmNormaliserDateAffichage(p.date), String(p.valeur)]; });
-
+        // Compteur "technique" simple (pas de gabarit) : un seul seuil numérique (compteur.seuil),
+        // toujours de type "à ne pas dépasser" (cf. gmEvaluerAlerteCompteurTechnique existant).
+        var seuilSimple = (compteur.type === 'technique' && typeof compteur.seuil === 'number' && isFinite(compteur.seuil)) ? compteur.seuil : null;
+        alertes = serie.map(function(p) {
+            return [null, (seuilSimple !== null && p.valeur > seuilSimple) ? 'max' : null];
+        });
     }
     // 🩹 Retour terrain (point 2) — période couverte par le rapport, pour le sous-titre
     // ("Relevés réalisés du X au Y"). La colonne Date est toujours en position 0 de chaque
@@ -5272,7 +5327,7 @@ function gmBuildRapportCompteurData(compteurId) {
         entete.datePremierReleve = lignes[0][0];
         entete.dateDernierReleve = lignes[lignes.length - 1][0];
     }
-    return { entete: entete, colonnes: colonnes, sousEntetes: sousEntetes, lignes: lignes };
+    return { entete: entete, colonnes: colonnes, sousEntetes: sousEntetes, lignes: lignes, alertes: alertes };
 }
 
 /** 🩹 Retour terrain — le rapport PDF d'un compteur à gabarit riche (ex. "Relevé paramétrique
@@ -5293,6 +5348,24 @@ function gmStylesTablePDF(nbColonnes) {
     if (nbColonnes > 12) return { fontSize: 6, cellPadding: 1 };
     if (nbColonnes > 8) return { fontSize: 7, cellPadding: 1.5 };
     return { fontSize: 9, cellPadding: 2 };
+}
+
+/** 🩹 Retour terrain (point 2) — callback autoTable qui surligne en rouge (même code couleur
+ *  que la classe CSS .gm-cpt-cell-alerte de la fiche de l'app) les cellules dont la valeur
+ *  dépasse un seuil configuré. `alertesLignes` doit avoir exactement les mêmes dimensions que
+ *  `body` (cf. gmBuildRapportCompteurData → alertes). Partagée par les deux générateurs PDF
+ *  ci-dessous pour ne pas dupliquer la logique de mise en évidence. */
+function gmDidParseCellAlertePDF(alertesLignes) {
+    return function(hookData) {
+        if (hookData.section !== 'body') return;
+        var ligne = alertesLignes && alertesLignes[hookData.row.index];
+        var alerte = ligne && ligne[hookData.column.index];
+        if (alerte) {
+            hookData.cell.styles.fillColor = [254, 226, 226];
+            hookData.cell.styles.textColor = [185, 28, 28];
+            hookData.cell.styles.fontStyle = 'bold';
+        }
+    };
 }
 
 /** 🩹 Retour terrain (points 2 et 3) — en-tête de rapport factorisée, réutilisée par les 2
@@ -5363,9 +5436,14 @@ function gmExporterRelevesCompteurPDF(compteurId) {
         head: data.sousEntetes ? [data.colonnes, data.sousEntetes] : [data.colonnes],
         body: data.lignes,
         theme: 'grid',
-        headStyles: { fillColor: [31, 56, 100], textColor: 255, font: 'helvetica', fontStyle: 'bold', fontSize: st.fontSize },
+        headStyles: { fillColor: [31, 56, 100], textColor: 255, font: 'helvetica', fontStyle: 'bold', fontSize: st.fontSize, halign: 'center' },
         bodyStyles: { font: 'helvetica' },
-        styles: { fontSize: st.fontSize, font: 'helvetica', cellPadding: st.cellPadding }
+        // 🩹 Retour terrain — valeurs centrées dans le tableau (au lieu de collées à gauche),
+        // présentation plus proche d'un rapport de mesures professionnel.
+        styles: { fontSize: st.fontSize, font: 'helvetica', cellPadding: st.cellPadding, halign: 'center' },
+        // 🩹 Retour terrain (point 2) — anomalie désormais visible dans le PDF, pas seulement
+        // dans la fiche de l'app.
+        didParseCell: gmDidParseCellAlertePDF(data.alertes)
     });
     var nomFichier = (data.entete.equipementNom + '_' + data.entete.nomCompteur).replace(/[^a-zA-Z0-9]+/g, '_');
     doc.save('releves_' + nomFichier + '.pdf');
@@ -5418,9 +5496,12 @@ function gmExporterRapportEquipementPDF(equipId) {
             head: section.sousEntetes ? [section.colonnes, section.sousEntetes] : [section.colonnes],
             body: section.lignes,
             theme: 'grid',
-            headStyles: { fillColor: [31, 56, 100], textColor: 255, font: 'helvetica', fontStyle: 'bold', fontSize: st.fontSize },
+            headStyles: { fillColor: [31, 56, 100], textColor: 255, font: 'helvetica', fontStyle: 'bold', fontSize: st.fontSize, halign: 'center' },
             bodyStyles: { font: 'helvetica' },
-            styles: { fontSize: st.fontSize, font: 'helvetica', cellPadding: st.cellPadding }
+            // 🩹 Retour terrain — valeurs centrées + anomalie surlignée, même traitement que
+            // le rapport PDF par compteur (gmExporterRelevesCompteurPDF).
+            styles: { fontSize: st.fontSize, font: 'helvetica', cellPadding: st.cellPadding, halign: 'center' },
+            didParseCell: gmDidParseCellAlertePDF(section.alertes)
         });
     });
     var nomFichier = data.equipementNom.replace(/[^a-zA-Z0-9]+/g, '_');

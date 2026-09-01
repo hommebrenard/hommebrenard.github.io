@@ -5239,15 +5239,23 @@ function gmBuildRapportCompteurData(compteurId) {
     var equip = equipementsRegistry[compteur.equipId];
     // 🩹 Retour terrain — enrichissement du rapport : site, zone et localisation de
     // l'équipement, quand ils sont renseignés (jamais de ligne vide dans le PDF sinon).
-    var nomSite = (typeof activeSiteKey !== 'undefined' && activeSiteKey && typeof sitesLibrary !== 'undefined' && sitesLibrary[activeSiteKey] && sitesLibrary[activeSiteKey].nomSite) || '';
+    // 🩹 Retour terrain (31/08/2026) — le nom du site n'apparaissait jamais dans le rapport :
+    // la propriété réellement utilisée pour stocker le nom d'un site dans sitesLibrary est
+    // `label` (cf. syncActiveSiteIntoLibrary), pas `nomSite` qui n'était jamais renseigné nulle
+    // part dans le code — d'où une ligne "Site :" systématiquement vide.
+    var nomSite = (typeof activeSiteKey !== 'undefined' && activeSiteKey && typeof sitesLibrary !== 'undefined' && sitesLibrary[activeSiteKey] && sitesLibrary[activeSiteKey].label) || '';
+    // 🩹 Retour terrain (31/08/2026) — périodicité du relevé : reprise du code A/M/S/H/T déjà
+    // utilisé sur la fiche équipement (cf. FREQUENCES dans le formulaire équipement), traduit
+    // en libellé complet pour le rapport.
+    var GM_PERIODICITE_LABELS = { A: 'Annuel', M: 'Mensuel', S: 'Semestriel', H: 'Hebdomadaire', T: 'Trimestriel' };
     var entete = {
         nomCompteur: compteur.nom,
         equipementNom: equip ? equip.nom : (compteur.equipId || ''),
-        typeLabel: compteur.gabaritId ? 'Gabarit' : (compteur.type === 'energetique' ? 'Énergétique' : 'Technique'),
         unite: compteur.unite || '',
         site: nomSite,
         zone: (equip && equip.zone) || '',
-        localisation: (equip && equip.localisation) || ''
+        localisation: (equip && equip.localisation) || '',
+        periodicite: (equip && equip.frequence && GM_PERIODICITE_LABELS[equip.frequence]) || ''
     };
     var colonnes, lignes, sousEntetes = null, alertes;
     if (compteur.gabaritId) {
@@ -5397,10 +5405,15 @@ function gmDessinerEnteteRapportPDF(doc, pageWidth, entete, options) {
     doc.setTextColor(0); doc.setFontSize(10); doc.setFont('helvetica', 'normal');
     if (options.masquerCompteur !== true) { doc.text('Compteur : ' + entete.nomCompteur, 14, y); y += 6; }
     if (options.masquerEquipement !== true) { doc.text('Équipement : ' + entete.equipementNom, 14, y); y += 6; }
-    doc.text('Type : ' + entete.typeLabel, 14, y); y += 6;
+    // 🩹 Retour terrain (31/08/2026) — "Type : Gabarit/Technique/Énergétique" retiré : c'est du
+    // vocabulaire interne au code, sans utilité pour qui lit le rapport sur le terrain.
     if (entete.site) { doc.text('Site : ' + entete.site, 14, y); y += 6; }
     if (entete.zone) { doc.text('Zone : ' + entete.zone, 14, y); y += 6; }
     if (entete.localisation) { doc.text('Localisation : ' + entete.localisation, 14, y); y += 6; }
+    // 🩹 Retour terrain (31/08/2026) — périodicité du relevé, reprise du champ "fréquence" déjà
+    // saisi sur la fiche équipement (A/M/S/H/T), pour rester cohérent avec la nomenclature déjà
+    // en place (matrice de planning) plutôt que d'introduire un second système.
+    if (entete.periodicite) { doc.text('Périodicité : ' + entete.periodicite, 14, y); y += 6; }
     doc.text('Généré le : ' + new Date().toLocaleString('fr-FR'), 14, y); y += 8;
     return y;
 }

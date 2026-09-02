@@ -2754,6 +2754,15 @@ function gmSaveFicheEquipement(id) {
     equipementsRegistry[id].famille = familleEl ? familleEl.value.trim() : '';
     equipementsRegistry[id].frequence = frequenceEl ? frequenceEl.value : '';
     equipementsRegistry[id].zone = zoneEl ? zoneEl.value.trim() : '';
+    // 🩹 Retour terrain (01/09/2026) — Statut (en service / hors service) et Quantité,
+    // demandés pour enrichir l'en-tête des rapports PDF. Quantité reprend le même usage que
+    // la colonne "Nbr" de la matrice de planning (jusqu'ici toujours figée à 1) : on la rend
+    // réellement éditable ici, et gmBuildMatriceLignesMultiMois reprend cette même valeur.
+    const statutEl = document.getElementById('gmFicheStatut');
+    const quantiteEl = document.getElementById('gmFicheQuantite');
+    equipementsRegistry[id].statut = statutEl ? statutEl.value : '';
+    var quantiteSaisie = quantiteEl ? parseInt(quantiteEl.value, 10) : NaN;
+    equipementsRegistry[id].quantite = (isFinite(quantiteSaisie) && quantiteSaisie > 0) ? quantiteSaisie : 1;
     // 🆕 Chantier 5 : emplacement structuré (référence vers emplacementsRegistry) + étiquettes
     // (parsées depuis une saisie texte séparée par virgules, dédupliquées, vides retirées)
     equipementsRegistry[id].emplacementId = (emplEl && emplEl.value) ? emplEl.value : null;
@@ -3092,6 +3101,17 @@ function gmRenderTabFiche(eq, entry) {
         const critOptions = CRITICITES.map(function(c) {
             return '<option value="' + escapeAttr(c) + '"' + (entry.criticite === c ? ' selected' : '') + '>' + (c || '—') + '</option>';
         }).join('');
+        // 🩹 Retour terrain (01/09/2026) — Statut de l'équipement (en service / hors service),
+        // affiché sur le rapport PDF quand renseigné (jamais de valeur devinée pour le matériel
+        // déjà existant, qui n'a pas encore ce champ rempli).
+        const STATUTS = [
+            { value: '', label: '—' },
+            { value: 'actif', label: '🟢 En service' },
+            { value: 'hors_service', label: '🔴 Hors service' }
+        ];
+        const statutOptions = STATUTS.map(function(s) {
+            return '<option value="' + escapeAttr(s.value) + '"' + ((entry.statut || '') === s.value ? ' selected' : '') + '>' + escapeHtml(s.label) + '</option>';
+        }).join('');
         // 🆕 Chantier 11 — Phase A : Fréquence contrainte à la légende A/M/S/H/T déjà utilisée
         // ailleurs dans l'application (voir .freq-tag), pour que la matrice de planning annuel
         // puisse s'appuyer dessus sans introduire une seconde nomenclature.
@@ -3145,6 +3165,11 @@ function gmRenderTabFiche(eq, entry) {
                         '<select id="gmFicheFrequence"' + disabledAttr + ' style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;">' + freqOptions + '</select></label>' +
                     '<label style="font-size:11px; color:#6b7280;">Criticité' +
                         '<select id="gmFicheCriticite"' + disabledAttr + ' style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;">' + critOptions + '</select></label>' +
+                    '<label style="font-size:11px; color:#6b7280;">🔌 Statut' +
+                        '<select id="gmFicheStatut"' + disabledAttr + ' style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;">' + statutOptions + '</select></label>' +
+                    '<label style="font-size:11px; color:#6b7280;">🔢 Quantité (matrice planning)' +
+                        '<input type="number" min="1" step="1" id="gmFicheQuantite" value="' + escapeAttr(entry.quantite || 1) + '"' + disabledAttr + ' ' +
+                        'style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;"></label>' +
                     '<label style="font-size:11px; color:#6b7280;">Localisation (texte libre)' +
                         '<input type="text" id="gmFicheLocalisation" value="' + escapeAttr(entry.localisation || '') + '" placeholder="ex: Bâtiment A, RDC..."' + disabledAttr + ' ' +
                         'style="display:block; width:100%; margin-top:3px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;"></label>' +
@@ -5233,6 +5258,21 @@ function gmNormaliserDateAffichage(valeurBrute) {
     return v;
 }
 
+/** 🩹 Retour terrain (01/09/2026) — nettoyage du libellé de site UNIQUEMENT pour l'affichage
+ *  sur un rapport : retire un éventuel préfixe "OT " et un suffixe "<mois> <année>[ Converti]"
+ *  (ex. "OT AG Type A KENITRA Avril 2026 Converti" -> "AG Type A KENITRA"). N'importe où
+ *  ailleurs dans l'app, sitesLibrary[...].label garde sa forme complète (nécessaire au
+ *  sélecteur de site pour distinguer les fichiers d'un même site sur des mois différents). */
+function gmNettoyerNomSitePourRapport(nom) {
+    var s = String(nom || '').trim();
+    if (!s) return '';
+    s = s.replace(/^ot[\s\-_]+/i, '');
+    var MOIS_FR = ['janvier', 'février', 'fevrier', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'aout', 'septembre', 'octobre', 'novembre', 'décembre', 'decembre'];
+    var reMoisAnnee = new RegExp('[\\s\\-_]+(' + MOIS_FR.join('|') + ')[\\s\\-_]+\\d{4}([\\s\\-_]+convertie?)?\\s*$', 'i');
+    s = s.replace(reMoisAnnee, '');
+    return s.trim();
+}
+
 function gmBuildRapportCompteurData(compteurId) {
     var compteur = compteursRegistry[compteurId];
     if (!compteur) return null;
@@ -5243,18 +5283,42 @@ function gmBuildRapportCompteurData(compteurId) {
     // la propriété réellement utilisée pour stocker le nom d'un site dans sitesLibrary est
     // `label` (cf. syncActiveSiteIntoLibrary), pas `nomSite` qui n'était jamais renseigné nulle
     // part dans le code — d'où une ligne "Site :" systématiquement vide.
-    var nomSite = (typeof activeSiteKey !== 'undefined' && activeSiteKey && typeof sitesLibrary !== 'undefined' && sitesLibrary[activeSiteKey] && sitesLibrary[activeSiteKey].label) || '';
+    // 🩹 Retour terrain (01/09/2026) — le libellé brut (sitesLibrary[...].label) inclut le mois/année
+    // et un suffixe de conversion ("OT AG Type A KENITRA Avril 2026 Converti"), nécessaires pour
+    // distinguer les fichiers mensuels dans le sélecteur de site — mais pas pour un rapport, où
+    // seul le nom du site a du sens ("AG Type A KENITRA"). Nettoyage à l'affichage UNIQUEMENT
+    // (gmNettoyerNomSitePourRapport) : sitesLibrary[...].label lui-même reste inchangé, le
+    // sélecteur de site n'est donc pas affecté.
+    var nomSiteBrut = (typeof activeSiteKey !== 'undefined' && activeSiteKey && typeof sitesLibrary !== 'undefined' && sitesLibrary[activeSiteKey] && sitesLibrary[activeSiteKey].label) || '';
+    var nomSite = gmNettoyerNomSitePourRapport(nomSiteBrut);
     // 🩹 Retour terrain (31/08/2026) — périodicité du relevé : reprise du code A/M/S/H/T déjà
     // utilisé sur la fiche équipement (cf. FREQUENCES dans le formulaire équipement), traduit
     // en libellé complet pour le rapport.
     var GM_PERIODICITE_LABELS = { A: 'Annuel', M: 'Mensuel', S: 'Semestriel', H: 'Hebdomadaire', T: 'Trimestriel' };
+    // 🩹 Retour terrain (01/09/2026) — libellé du statut équipement, même convention que
+    // STATUTS dans gmRenderTabFiche (à garder synchronisé si de nouvelles valeurs sont ajoutées).
+    var GM_STATUT_LABELS = { actif: 'En service', hors_service: 'Hors service' };
     var entete = {
         nomCompteur: compteur.nom,
         equipementNom: equip ? equip.nom : (compteur.equipId || ''),
+        // 🩹 Retour terrain (point 4, 01/09/2026) — Référence du rapport = ID-MAT de l'équipement
+        // (premier alias, même donnée que la colonne ID-MAT de la matrice), plutôt qu'un numéro
+        // séquentiel à gérer/persister séparément : déjà unique, déjà connu du terrain.
+        reference: (equip && equip.aliases && equip.aliases[0]) || '',
         unite: compteur.unite || '',
         site: nomSite,
         zone: (equip && equip.zone) || '',
         localisation: (equip && equip.localisation) || '',
+        // 🩹 Retour terrain (point 1, 01/09/2026) — n'affiche rien tant que le statut n'a jamais
+        // été renseigné sur la fiche équipement (pas de valeur devinée pour le matériel existant).
+        statut: (equip && equip.statut && GM_STATUT_LABELS[equip.statut]) || '',
+        // 🩹 Retour terrain (point 2, 01/09/2026) — Quantité, même donnée que la colonne "Nbr"
+        // de la matrice de planning (défaut 1, cf. gmBuildMatriceLignesMultiMois).
+        quantite: (equip && equip.quantite && equip.quantite > 0) ? equip.quantite : 1,
+        // 🩹 Suggestion (point 3 laissé ouvert, 01/09/2026) — Criticité : donnée déjà existante
+        // sur la fiche équipement (Faible/Moyenne/Haute/Critique), utile en pratique maintenance
+        // pour prioriser le suivi, sans introduire de nouveau champ.
+        criticite: (equip && equip.criticite) || '',
         periodicite: (equip && equip.frequence && GM_PERIODICITE_LABELS[equip.frequence]) || ''
     };
     var colonnes, lignes, sousEntetes = null, alertes;
@@ -5405,11 +5469,23 @@ function gmDessinerEnteteRapportPDF(doc, pageWidth, entete, options) {
     doc.setTextColor(0); doc.setFontSize(10); doc.setFont('helvetica', 'normal');
     if (options.masquerCompteur !== true) { doc.text('Compteur : ' + entete.nomCompteur, 14, y); y += 6; }
     if (options.masquerEquipement !== true) { doc.text('Équipement : ' + entete.equipementNom, 14, y); y += 6; }
-    // 🩹 Retour terrain (31/08/2026) — "Type : Gabarit/Technique/Énergétique" retiré : c'est du
-    // vocabulaire interne au code, sans utilité pour qui lit le rapport sur le terrain.
+    // 🩹 Retour terrain (01/09/2026, point 4) — Référence = ID-MAT de l'équipement.
+    if (entete.reference) { doc.text('Référence : ' + entete.reference, 14, y); y += 6; }
     if (entete.site) { doc.text('Site : ' + entete.site, 14, y); y += 6; }
     if (entete.zone) { doc.text('Zone : ' + entete.zone, 14, y); y += 6; }
     if (entete.localisation) { doc.text('Localisation : ' + entete.localisation, 14, y); y += 6; }
+    // 🩹 Retour terrain (01/09/2026, point 1) — Statut équipement, en rouge s'il est hors
+    // service (signal visuel cohérent avec le reste du rapport : rouge = point d'attention).
+    if (entete.statut) {
+        if (entete.statut === 'Hors service') { doc.setTextColor(185, 28, 28); doc.setFont('helvetica', 'bold'); }
+        doc.text('Statut : ' + entete.statut, 14, y); y += 6;
+        doc.setTextColor(0); doc.setFont('helvetica', 'normal');
+    }
+    // 🩹 Suggestion (point 3, 01/09/2026) — Criticité, déjà existante sur la fiche équipement.
+    if (entete.criticite) { doc.text('Criticité : ' + entete.criticite, 14, y); y += 6; }
+    // 🩹 Retour terrain (01/09/2026, point 2) — Quantité, même donnée que la colonne "Nbr" de
+    // la matrice de planning (toujours affichée, défaut 1, cohérence avec la matrice).
+    doc.text('Quantité : ' + entete.quantite, 14, y); y += 6;
     // 🩹 Retour terrain (31/08/2026) — périodicité du relevé, reprise du champ "fréquence" déjà
     // saisi sur la fiche équipement (A/M/S/H/T), pour rester cohérent avec la nomenclature déjà
     // en place (matrice de planning) plutôt que d'introduire un second système.
@@ -12878,6 +12954,10 @@ function gmBuildMatriceLignesMultiMois(filters, semaines, today) {
             zone: entry.zone || '',
             famille: entry.famille || '',
             frequence: entry.frequence || '',
+            // 🩹 Retour terrain (01/09/2026) — Quantité désormais un vrai champ éditable (fiche
+            // équipement), plus une valeur figée à 1. Défaut à 1 pour le matériel déjà existant
+            // qui n'a jamais eu ce champ renseigné (comportement inchangé pour eux).
+            quantite: (entry.quantite && entry.quantite > 0) ? entry.quantite : 1,
             weeks: weeks
         });
     });
@@ -13327,7 +13407,9 @@ function gmRenderMatriceTable() {
             let content;
             let cellStyleExtra = '';
             if (c.key === 'nbr') {
-                content = '1'; // pas de notion de "groupe/quantité" dans notre modèle : une fiche = un équipement
+                // 🩹 Retour terrain (01/09/2026) — Quantité est désormais un vrai champ éditable
+                // (fiche équipement), plus une valeur figée à 1 (cf. gmBuildMatriceLignesMultiMois).
+                content = escapeHtml(String(row.quantite || 1));
             } else if (c.key === 'nom') {
                 // 🩹 Correctif (retour terrain) : le bouton 🕘 Suivi d'exécution était présent pour
                 // TOUS les équipements dans le code, mais invisible pour les noms longs — il
